@@ -65,6 +65,7 @@ SET(FieldUtilsHeaders
     ProcessModules/ProcessQCriterion.h
     ProcessModules/ProcessQualityMetric.h
     ProcessModules/ProcessZeroHomogeneousPlane.h
+    ProcessModules/ProcessBVF.h
 )
 
 SET(FieldUtilsSources
@@ -133,6 +134,7 @@ SET(FieldUtilsSources
     ProcessModules/ProcessQCriterion.cpp
     ProcessModules/ProcessQualityMetric.cpp
     ProcessModules/ProcessZeroHomogeneousPlane.cpp
+    ProcessModules/ProcessBVF.cpp
 )
 
 IF (NEKTAR_USE_VTK)
