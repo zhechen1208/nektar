@@ -888,6 +888,30 @@ requires two parameters:
 length which determines how long the $z$ extrusion will be and layers, the
 number of elements in the $z$ direction.
 
+\subsection{2D mesh revolution}
+
+This module allows a 2D mesh, quads, triangles or both, to be revolved around
+the $y$ axis to make a simple 3D mesh made of prisms and hexahedra. It is also
+capable of revolving the high-order curvature within the 2D mesh. The module
+requires two parameters:
+
+\begin{lstlisting}[style=BashInputStyle]
+  NekMesh -m revolve:layers=n:angle=a 2D.xml 3D.xml
+\end{lstlisting}
+angle which determines the angle of revolution ($\theta$) around the $y$ axis and 
+layers, the number of elements in the $\theta$ direction.
+
+The angle can also be set to "full" for a full revolution of $2\pi$, although
+this is the default setting:
+
+\begin{lstlisting}[style=BashInputStyle]
+NekMesh -m revolve:layers=n:angle=full 2D.xml 3D.xml
+\end{lstlisting}
+
+The angle must be between $0$ and $2\pi$.
+The 2D mesh must not cross or touch the $y$ axis i.e. $x>0$ for all points.
+By default the mesh is revolved through the full $2\pi$.
+
 \subsection{Variational Optimisation}
 \label{sec:varopti}
 This module can correct invalid and improve the quality of elements in

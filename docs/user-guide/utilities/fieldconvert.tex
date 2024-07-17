@@ -1611,6 +1611,26 @@ FieldConvert -m powerspectrum:vars=u,v,w:box=0,0.5,0,0.5 chan3DH1D.xml chan3DH1D
 \end{lstlisting}
 The option \inltt{vars=u,v,w} specifies the variables used to calculate the power spectrum. Both the number and variable name can be used. The option \inltt{box=xmin,xmax,ymin,ymax} specifies the domain where the power spectrum is computed.
 
+\subsection{Computing the velocity field induced by vortex filaments}
+To obtain the vortex-induced velocity, the user can run:
+\begin{lstlisting}[style=BashInputStyle]
+FieldConvert -m vortexinducedvelocity:vortex=vortexfilament.dat  Helmholtz.xml Helmholtz.plt
+\end{lstlisting}
+The Lamb-Oseen vortex model is used to avoid the singularity at the vortex center. In the cylindrical coordinate, the vorticity and velocity are
+\[
+\omega_z(r) = \frac{\Gamma}{2\pi\sigma^2}\exp\left(-\frac{r^2}{2\sigma^2}\right)
+\]
+\[
+v_r(r) = \frac{\Gamma}{2\pi r}\left[1 - \exp\left(-\frac{r^2}{2\sigma^2}\right)\right]
+\]
+The option \inltt{vortex} specifies the filename that defines the vortex filaments. The format of one vortex segment is: xstart, ystart, zstart, is half infinity (true is 1); xend, yend, zend, is half infinity; $\sigma$, $\Gamma$. The format to define a uniform flow is: u, v, w.
+One example of \inltt{vortexfilament.dat} that defines two-counter rotating Lamb-Oseen vortices with a uniform background flow  is
+\begin{lstlisting}[style=C++Style]
+0 0.159154943091895 0
+-0.5 0 -1 1; -0.5 0 1 1; 0.1 -1
+0.5 0 -1 1;  0.5 0 1 1; 0.1 1
+\end{lstlisting}
+
 \section{FieldConvert in parallel}
 To run FieldConvert in parallel the user needs to compile
 \nekpp with MPI support and can employ the following

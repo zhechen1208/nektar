@@ -64,6 +64,7 @@ SET(FieldUtilsHeaders
     ProcessModules/ProcessC0Projection.h
     ProcessModules/ProcessQCriterion.h
     ProcessModules/ProcessQualityMetric.h
+    ProcessModules/ProcessVortexInducedVelocity.h
     ProcessModules/ProcessZeroHomogeneousPlane.h
     ProcessModules/ProcessBVF.h
 )
@@ -133,6 +134,7 @@ SET(FieldUtilsSources
     ProcessModules/ProcessC0Projection.cpp
     ProcessModules/ProcessQCriterion.cpp
     ProcessModules/ProcessQualityMetric.cpp
+    ProcessModules/ProcessVortexInducedVelocity.cpp
     ProcessModules/ProcessZeroHomogeneousPlane.cpp
     ProcessModules/ProcessBVF.cpp
 )

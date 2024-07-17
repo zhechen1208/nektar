@@ -262,6 +262,7 @@ IF( NEKTAR_SOLVER_INCNAVIERSTOKES )
         ADD_NEKTAR_TEST(FlapAirfoil_3DH1D_par LENGTHY)
         ADD_NEKTAR_TEST(PlungingAirfoil_3DH1D_parBCs LENGTHY)
         ADD_NEKTAR_TEST(ChanFlow_m8_BodyForce_par LENGTHY)
+        ADD_NEKTAR_TEST(Cyl_AdaptiveSFD_par)
 
         IF(NOT WIN32)
             ADD_NEKTAR_TEST(KovaFlow_expFromFile_par)
