@@ -106,13 +106,16 @@ void TransMovingWall::v_Update(
     ++m_numCalls;
     int nptsPlane0 = 0;
     SetNumPointsOnPlane0(nptsPlane0);
+    Array<OneD, Array<OneD, NekDouble>> rhs(m_bnddim);
     for (int i = 0; i < m_bnddim; ++i)
     {
-        Vmath::Fill(m_npoints, 0., m_viscous[m_intSteps - 1][i], 1);
+        rhs[i] = Array<OneD, NekDouble>(m_npoints, 0.);
     }
-    AddVisPressureBCs(fields, m_viscous[m_intSteps - 1], params);
-    ExtrapolateArray(m_numCalls, m_viscous);
-    // Add dudt
+    // add viscous term
+    AddVisPressureBCs(fields, rhs, params);
+    // Add DuDt
+    std::map<std::string, NekDouble> transParams;
+    std::vector<std::string> accStr = {"A_x", "A_y", "A_z"};
     NekDouble time = 0., dt2 = 2. * m_dt;
     if (params.find("Time") != params.end())
     {
@@ -120,11 +123,8 @@ void TransMovingWall::v_Update(
     }
     std::vector<NekDouble> times = {time - dt2, time - m_dt, time + m_dt,
                                     time + dt2};
-    Array<OneD, Array<OneD, NekDouble>> rhs(m_bnddim);
     for (int i = 0; i < m_bnddim; ++i)
     {
-        rhs[i] = Array<OneD, NekDouble>(m_npoints);
-        Vmath::Vcopy(m_npoints, m_viscous[m_intSteps - 1][i], 1, rhs[i], 1);
         if (m_BndConds.find(i) != m_BndConds.end() && nptsPlane0)
         {
             NekDouble dudt = 0.;
@@ -136,10 +136,10 @@ void TransMovingWall::v_Update(
             {
                 dudt += Fourth_Coeffs[j] * equ.Evaluate(0, 0., 0., times[j]);
             }
-            Vmath::Sadd(nptsPlane0, -dudt, m_viscous[m_intSteps - 1][i], 1,
-                        rhs[i], 1);
+            transParams[accStr[i]] = dudt;
         }
     }
+    AddRigidBodyAcc(rhs, transParams, nptsPlane0);
     m_BndExp[m_pressure]->NormVectorIProductWRTBase(
         rhs, m_BndExp[m_pressure]->UpdateCoeffs());
 }

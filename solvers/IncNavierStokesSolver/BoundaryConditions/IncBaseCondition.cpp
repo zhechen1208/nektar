@@ -73,6 +73,7 @@ void IncBaseCondition::v_Initialise(
     if (pSession->DefinesParameter("ExtrapolateOrder"))
     {
         m_intSteps = std::round(pSession->GetParameter("ExtrapolateOrder"));
+        m_intSteps = std::min(3, std::max(0, m_intSteps));
     }
     else if (pSession->DefinesSolverInfo("TimeIntegrationMethod"))
     {
@@ -92,7 +93,7 @@ void IncBaseCondition::v_Initialise(
     }
     else
     {
-        m_intSteps = 1;
+        m_intSteps = 0;
     }
 }
 
@@ -150,6 +151,10 @@ void IncBaseCondition::InitialiseCoords(
 void IncBaseCondition::ExtrapolateArray(
     const int numCalls, Array<OneD, Array<OneD, Array<OneD, NekDouble>>> &array)
 {
+    if (m_intSteps == 1)
+    {
+        return;
+    }
     int nint    = std::min(numCalls, m_intSteps);
     int nlevels = array.size();
     int dim     = array[0].size();
@@ -220,8 +225,8 @@ void IncBaseCondition::AddVisPressureBCs(
     Array<OneD, Array<OneD, NekDouble>> &N,
     std::map<std::string, NekDouble> &params)
 {
-    if (params.find("Kinvis") == params.end() || params["Kinvis"] == 0. ||
-        fields.size() == 0)
+    if (m_intSteps == 0 || params.find("Kinvis") == params.end() ||
+        params["Kinvis"] <= 0. || fields.size() == 0)
     {
         return;
     }
@@ -247,8 +252,14 @@ void IncBaseCondition::AddVisPressureBCs(
     Array<OneD, NekDouble> temp(m_npoints);
     for (int i = 0; i < m_bnddim; i++)
     {
-        m_field->ExtractElmtToBndPhys(m_nbnd, Q[i], temp);
-        Vmath::Svtvp(m_npoints, -kinvis, temp, 1, N[i], 1, N[i], 1);
+        m_field->ExtractElmtToBndPhys(m_nbnd, Q[i],
+                                      m_viscous[m_intSteps - 1][i]);
+    }
+    ExtrapolateArray(m_numCalls, m_viscous);
+    for (int i = 0; i < m_bnddim; i++)
+    {
+        Vmath::Svtvp(m_npoints, -kinvis, m_viscous[m_intSteps - 1][i], 1, N[i],
+                     1, N[i], 1);
     }
 }
 

@@ -447,7 +447,7 @@ void FilterAeroForces::v_Update(
     {
         return;
     }
-    if ((m_index++) % m_outputFrequency || (time < m_startTime))
+    if ((m_index++) % m_outputFrequency || (time - m_startTime) < -1.0e-07)
     {
         return;
     }

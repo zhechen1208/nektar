@@ -107,18 +107,18 @@ void ForcingMovingReferenceFrame::v_InitObject(
         m_hasPlane0 = pFields[0]->GetZIDs()[0] == 0;
     }
     // initialize variables
-    m_velxyz      = Array<OneD, NekDouble>(3, 0.0);
-    m_omegaxyz    = Array<OneD, NekDouble>(3, 0.0);
-    m_extForceXYZ = Array<OneD, NekDouble>(6, 0.0);
-    m_hasVel      = Array<OneD, bool>(3, false);
-    m_hasOmega    = Array<OneD, bool>(3, false);
-    m_travelWave  = Array<OneD, NekDouble>(3, 0.);
-    m_pivotPoint  = Array<OneD, NekDouble>(3, 0.0);
-    m_index       = 0;
-    m_currentTime = -1.;
+    m_velxyz           = Array<OneD, NekDouble>(3, 0.0);
+    m_omegaxyz         = Array<OneD, NekDouble>(3, 0.0);
+    m_body.extForceXYZ = Array<OneD, NekDouble>(6, 0.0);
+    m_hasVel           = Array<OneD, bool>(3, false);
+    m_hasOmega         = Array<OneD, bool>(3, false);
+    m_travelWave       = Array<OneD, NekDouble>(3, 0.);
+    m_pivotPoint       = Array<OneD, NekDouble>(3, 0.0);
+    m_index            = 0;
+    m_currentTime      = -1.;
     LoadParameters(pForce);
     InitBodySolver(pForce);
-    if (m_circularCylinder || m_expdim == 1)
+    if (m_body.isCircular || m_expdim == 1)
     {
         for (int i = 0; i < 3; ++i)
         {
@@ -162,7 +162,7 @@ void ForcingMovingReferenceFrame::v_InitObject(
     auto FluidEq = std::dynamic_pointer_cast<FluidInterface>(equ);
     FluidEq->SetMovingFramePivot(m_pivotPoint);
     // initialize aeroforce filter
-    if (m_hasFreeMotion)
+    if (m_body.hasFreeMotion)
     {
         InitialiseFilter(m_session, pFields, pForce);
     }
@@ -193,11 +193,11 @@ void ForcingMovingReferenceFrame::LoadParameters(const TiXmlElement *pForce)
         pForce->FirstChildElement("CIRCULARCYLINDER");
     if (mssgTagSpecial)
     {
-        m_circularCylinder = true;
+        m_body.isCircular = true;
     }
     else
     {
-        m_circularCylinder = false;
+        m_body.isCircular = false;
     }
     // load frame velocity
     funcNameElmt = pForce->FirstChildElement("FRAMEVELOCITY");
@@ -284,7 +284,7 @@ void ForcingMovingReferenceFrame::LoadParameters(const TiXmlElement *pForce)
                 std::string var = forceVar[i];
                 if (m_session->DefinesFunction(FuncName, var))
                 {
-                    m_extForceFunction[i] =
+                    m_body.extForceFunction[i] =
                         m_session->GetFunction(FuncName, var);
                 }
             }
@@ -294,7 +294,7 @@ void ForcingMovingReferenceFrame::LoadParameters(const TiXmlElement *pForce)
                 std::string var = momentVar[i];
                 if (m_session->DefinesFunction(FuncName, var))
                 {
-                    m_extForceFunction[i + 3] =
+                    m_body.extForceFunction[i + 3] =
                         m_session->GetFunction(FuncName, var);
                 }
             }
@@ -385,18 +385,18 @@ void ForcingMovingReferenceFrame::InitBodySolver(const TiXmlElement *pForce)
     const TiXmlElement *mssgTag;
     std::string mssgStr;
     // allocate memory and initialise
-    m_bodyVel = Array<OneD, Array<OneD, NekDouble>>(3);
+    m_body.vel = Array<OneD, Array<OneD, NekDouble>>(3);
     for (size_t i = 0; i < 3; ++i)
     {
-        m_bodyVel[i] = Array<OneD, NekDouble>(NumDof, 0.);
+        m_body.vel[i] = Array<OneD, NekDouble>(NumDof, 0.);
     }
     SetInitialConditions();
-    UpdateFluidInterface(m_bodyVel, 1);
+    UpdateFluidInterface(m_body.vel, 1);
     // read free motion DoFs
-    m_DirDoFs.clear();
+    m_body.dirDoFs.clear();
     for (int i = 0; i < NumDof; ++i)
     {
-        m_DirDoFs.insert(i);
+        m_body.dirDoFs.insert(i);
     }
     mssgTag = pForce->FirstChildElement("MOTIONPRESCRIBED");
     if (mssgTag)
@@ -411,7 +411,7 @@ void ForcingMovingReferenceFrame::InitBodySolver(const TiXmlElement *pForce)
         {
             if (EvaluateExpression(values[i]) == 0)
             {
-                m_DirDoFs.erase(i);
+                m_body.dirDoFs.erase(i);
                 if (i < m_spacedim)
                 {
                     m_hasVel[i] = true;
@@ -424,11 +424,12 @@ void ForcingMovingReferenceFrame::InitBodySolver(const TiXmlElement *pForce)
             }
         }
     }
-    m_hasFreeMotion = m_DirDoFs.size() < NumDof;
+    m_body.hasFreeMotion = m_body.dirDoFs.size() < NumDof;
     // read mass matrix
-    Array<OneD, NekDouble> M(NumDof * NumDof, 0.);
-    mssgTag = pForce->FirstChildElement("MASS");
-    ASSERTL0(m_DirDoFs.size() == NumDof || mssgTag, "Mass matrix is required.");
+    m_body.M = Array<OneD, NekDouble>(NumDof * NumDof, 0.);
+    mssgTag  = pForce->FirstChildElement("MASS");
+    ASSERTL0(m_body.dirDoFs.size() == NumDof || mssgTag,
+             "Mass matrix is required.");
     if (mssgTag)
     {
         std::vector<std::string> values;
@@ -442,14 +443,14 @@ void ForcingMovingReferenceFrame::InitBodySolver(const TiXmlElement *pForce)
         {
             for (int j = 0; j < NumDof; ++j)
             {
-                M[count] = EvaluateExpression(values[count]);
+                m_body.M[count] = EvaluateExpression(values[count]);
                 ++count;
             }
         }
     }
     // read damping matrix
-    Array<OneD, NekDouble> C(NumDof * NumDof, 0.);
-    mssgTag = pForce->FirstChildElement("DAMPING");
+    m_body.C = Array<OneD, NekDouble>(NumDof * NumDof, 0.);
+    mssgTag  = pForce->FirstChildElement("DAMPING");
     if (mssgTag)
     {
         std::vector<std::string> values;
@@ -463,14 +464,14 @@ void ForcingMovingReferenceFrame::InitBodySolver(const TiXmlElement *pForce)
         {
             for (int j = 0; j < NumDof; ++j)
             {
-                C[count] = EvaluateExpression(values[count]);
+                m_body.C[count] = EvaluateExpression(values[count]);
                 ++count;
             }
         }
     }
     // read rigidity matrix
-    Array<OneD, NekDouble> K(NumDof * NumDof, 0.);
-    mssgTag = pForce->FirstChildElement("RIGIDITY");
+    m_body.K = Array<OneD, NekDouble>(NumDof * NumDof, 0.);
+    mssgTag  = pForce->FirstChildElement("RIGIDITY");
     if (mssgTag)
     {
         std::vector<std::string> values;
@@ -484,7 +485,7 @@ void ForcingMovingReferenceFrame::InitBodySolver(const TiXmlElement *pForce)
         {
             for (int j = 0; j < NumDof; ++j)
             {
-                K[count] = EvaluateExpression(values[count]);
+                m_body.K[count] = EvaluateExpression(values[count]);
                 ++count;
             }
         }
@@ -501,7 +502,8 @@ void ForcingMovingReferenceFrame::InitBodySolver(const TiXmlElement *pForce)
     {
         gamma = m_session->GetParameter("NewmarkGamma");
     }
-    m_bodySolver.SetNewmarkBeta(beta, gamma, m_timestep, M, C, K, m_DirDoFs);
+    m_bodySolver.SetNewmarkBeta(beta, gamma, m_timestep, m_body.M, m_body.C,
+                                m_body.K, m_body.dirDoFs);
 }
 
 void ForcingMovingReferenceFrame::UpdatePrescribed(
@@ -537,7 +539,7 @@ void ForcingMovingReferenceFrame::UpdatePrescribed(
                 it.second->Evaluate(0., 0., 0., time);
         }
     }
-    for (auto i : m_DirDoFs)
+    for (auto i : m_body.dirDoFs)
     {
         if (Dirs.find(i) == Dirs.end())
         {
@@ -571,46 +573,49 @@ void ForcingMovingReferenceFrame::UpdateFrameVelocity(
     {
         // compute the velocites whoes functions are provided in inertial frame
         Array<OneD, NekDouble> forcebody(6, 0.); // fluid force
-        if (m_hasFreeMotion)
+        if (m_body.hasFreeMotion)
         {
-            for (auto it : m_extForceFunction)
+            for (auto it : m_body.extForceFunction)
             {
-                m_extForceXYZ[it.first] = it.second->Evaluate(0., 0., 0., time);
+                m_body.extForceXYZ[it.first] =
+                    it.second->Evaluate(0., 0., 0., time);
             }
-            m_aeroforceFilter->GetForces(pFields, NullNekDouble1DArray, time);
+            m_body.aeroforceFilter->GetForces(pFields, NullNekDouble1DArray,
+                                              time);
             auto equ = m_equ.lock();
             ASSERTL0(equ, "Weak pointer to the equation system is expired");
             auto FluidEq = std::dynamic_pointer_cast<FluidInterface>(equ);
             FluidEq->GetAeroForce(forcebody);
         }
-        SolveBodyMotion(m_bodyVel, forcebody, Dirs);
+        SolveBodyMotion(m_body.vel, forcebody, Dirs);
     }
     if (m_isRoot && m_index % m_outputFrequency == 0)
     {
         m_outputStream << boost::format("%25.19e") % time << " ";
-        for (size_t i = 0; i < m_bodyVel[0].size(); ++i)
+        for (size_t i = 0; i < m_body.vel[0].size(); ++i)
         {
-            m_outputStream << boost::format("%25.19e") % m_bodyVel[0][i] << " "
-                           << boost::format("%25.19e") % m_bodyVel[1][i] << " "
-                           << boost::format("%25.19e") % m_bodyVel[2][i] << " ";
+            m_outputStream << boost::format("%25.19e") % m_body.vel[0][i] << " "
+                           << boost::format("%25.19e") % m_body.vel[1][i] << " "
+                           << boost::format("%25.19e") % m_body.vel[2][i]
+                           << " ";
         }
         m_outputStream << endl;
     }
     // extract values and transform to body frame
     for (int i = 0; i < m_spacedim; ++i)
     {
-        m_velxyz[i] = m_bodyVel[1][i];
+        m_velxyz[i] = m_body.vel[1][i];
     }
     if (m_hasRotation)
     {
-        m_omegaxyz[2] = m_bodyVel[1][m_spacedim];
+        m_omegaxyz[2] = m_body.vel[1][m_spacedim];
         Array<OneD, NekDouble> angle(3, 0.);
-        angle[2] = m_bodyVel[0][m_spacedim];
+        angle[2] = m_body.vel[0][m_spacedim];
         m_frame.SetAngle(angle);
         m_frame.IneritalToBody(3, m_velxyz, m_velxyz);
     }
     // set displacements at the current time step
-    UpdateFluidInterface(m_bodyVel, 0);
+    UpdateFluidInterface(m_body.vel, 0);
     ++m_index;
 }
 
@@ -624,7 +629,7 @@ void ForcingMovingReferenceFrame::UpdateFluidInterface(
     {
         disp[i] = bodyVel[0][i];
     }
-    if (!m_circularCylinder)
+    if (!m_body.isCircular)
     {
         disp[5] = bodyVel[0][m_spacedim];
     }
@@ -655,7 +660,7 @@ void ForcingMovingReferenceFrame::SolveBodyMotion(
     Array<OneD, Array<OneD, NekDouble>> &bodyVel,
     const Array<OneD, NekDouble> &forcebody, std::map<int, NekDouble> &Dirs)
 {
-    if (!m_hasFreeMotion)
+    if (!m_body.hasFreeMotion)
     {
         m_bodySolver.SolvePrescribed(bodyVel, Dirs);
     }
@@ -677,9 +682,9 @@ void ForcingMovingReferenceFrame::SolveBodyMotion(
         }
         for (int i = 0; i < m_spacedim; ++i)
         {
-            force[i] += m_extForceXYZ[i];
+            force[i] += m_body.extForceXYZ[i];
         }
-        force[m_spacedim] = force[5] + m_extForceXYZ[5];
+        force[m_spacedim] = force[5] + m_body.extForceXYZ[5];
         m_bodySolver.SolveFree(bodyVel, force);
     }
     else
@@ -705,9 +710,9 @@ void ForcingMovingReferenceFrame::SolveBodyMotion(
             m_frame.BodyToInerital(3, forcebody + 3, tmp = force + 3);
             for (int i = 0; i < m_spacedim; ++i)
             {
-                force[i] += m_extForceXYZ[i];
+                force[i] += m_body.extForceXYZ[i];
             }
-            force[m_spacedim] = force[5] + m_extForceXYZ[5];
+            force[m_spacedim] = force[5] + m_body.extForceXYZ[5];
             m_bodySolver.Solve(tmpbodyVel, force, Dirs);
             angle[2] = tmpbodyVel[0][m_spacedim];
         }
@@ -750,11 +755,11 @@ void ForcingMovingReferenceFrame::UpdateBoundaryConditions(NekDouble time)
     // compute the velocities whose functions are provided in inertial frame
     std::map<int, NekDouble> Dirs;
     UpdatePrescribed(time, Dirs);
-    Array<OneD, Array<OneD, NekDouble>> bodyVel(m_bodyVel.size());
-    for (size_t i = 0; i < m_bodyVel.size(); ++i)
+    Array<OneD, Array<OneD, NekDouble>> bodyVel(m_body.vel.size());
+    for (size_t i = 0; i < m_body.vel.size(); ++i)
     {
-        bodyVel[i] = Array<OneD, NekDouble>(m_bodyVel[i].size());
-        Vmath::Vcopy(m_bodyVel[i].size(), m_bodyVel[i], 1, bodyVel[i], 1);
+        bodyVel[i] = Array<OneD, NekDouble>(m_body.vel[i].size());
+        Vmath::Vcopy(m_body.vel[i].size(), m_body.vel[i], 1, bodyVel[i], 1);
     }
     m_bodySolver.SolvePrescribed(bodyVel, Dirs);
     // set displacements at the next time step
@@ -931,18 +936,23 @@ void ForcingMovingReferenceFrame::SetInitialConditions()
             }
         }
     }
+    if (m_session->DefinesCmdLineArgument("set-start-time"))
+    {
+        time = std::stod(
+            m_session->GetCmdLineArgument<std::string>("set-start-time"));
+    }
     if (fileData.size() == strFrameData.size())
     {
-        int NumDofm1 = m_bodyVel[0].size() - 1;
+        int NumDofm1 = m_body.vel[0].size() - 1;
         for (int i = 0; i < m_spacedim; ++i)
         {
-            m_bodyVel[0][i] = fileData[strFrameData[i]];
-            m_bodyVel[1][i] = fileData[strFrameData[i + 6]];
-            m_bodyVel[2][i] = fileData[strFrameData[i + 12]];
+            m_body.vel[0][i] = fileData[strFrameData[i]];
+            m_body.vel[1][i] = fileData[strFrameData[i + 6]];
+            m_body.vel[2][i] = fileData[strFrameData[i + 12]];
         }
-        m_bodyVel[0][NumDofm1] = fileData[strFrameData[5]];
-        m_bodyVel[1][NumDofm1] = fileData[strFrameData[11]];
-        m_bodyVel[2][NumDofm1] = fileData[strFrameData[17]];
+        m_body.vel[0][NumDofm1] = fileData[strFrameData[5]];
+        m_body.vel[1][NumDofm1] = fileData[strFrameData[11]];
+        m_body.vel[2][NumDofm1] = fileData[strFrameData[17]];
     }
     std::map<int, NekDouble> Dirs;
     UpdatePrescribed(time, Dirs);
@@ -954,19 +964,19 @@ void ForcingMovingReferenceFrame::SetInitialConditions(
 {
     for (auto it : Dirs)
     {
-        int NumDof  = m_bodyVel[0].size();
+        int NumDof  = m_body.vel[0].size();
         int NumDof2 = NumDof << 1;
-        if (it.first < m_bodyVel[0].size())
+        if (it.first < m_body.vel[0].size())
         {
-            m_bodyVel[1][it.first] = it.second;
+            m_body.vel[1][it.first] = it.second;
         }
         else if (it.first < NumDof2)
         {
-            m_bodyVel[0][it.first - NumDof] = it.second;
+            m_body.vel[0][it.first - NumDof] = it.second;
         }
         else
         {
-            m_bodyVel[2][it.first - NumDof2] = it.second;
+            m_body.vel[2][it.first - NumDof2] = it.second;
         }
     }
 }
@@ -989,10 +999,10 @@ void ForcingMovingReferenceFrame::InitialiseFilter(
         std::replace(pstr.begin(), pstr.end(), ',', ' ');
         vParams["MomentPoint"] = pstr;
     }
-    m_aeroforceFilter = MemoryManager<FilterAeroForces>::AllocateSharedPtr(
+    m_body.aeroforceFilter = MemoryManager<FilterAeroForces>::AllocateSharedPtr(
         pSession, m_equ.lock(), vParams);
 
-    m_aeroforceFilter->Initialise(pFields, 0.0);
+    m_body.aeroforceFilter->Initialise(pFields, 0.0);
 }
 
 void Newmark_BetaSolver::SetNewmarkBeta(NekDouble beta, NekDouble gamma,

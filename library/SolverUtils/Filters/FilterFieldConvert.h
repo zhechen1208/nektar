@@ -127,6 +127,8 @@ protected:
     NekDouble m_phaseSamplePhase;
     NekDouble m_phaseTolerance;
     NekDouble m_dt;
+    // Time when we start writing checkfiles
+    NekDouble m_outputStartTime;
 
     std::vector<ModuleSharedPtr> m_modules;
     LibUtilities::FieldMetaDataMap m_fieldMetaData;

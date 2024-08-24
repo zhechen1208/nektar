@@ -75,6 +75,18 @@ FilterFieldConvert::FilterFieldConvert(
         }
     }
 
+    // Time after which we need to write checkfiles
+    it = pParams.find("OutputStartTime");
+    if (it == pParams.end())
+    {
+        m_outputStartTime = 0;
+    }
+    else
+    {
+        LibUtilities::Equation equ(m_session->GetInterpreter(), it->second);
+        m_outputStartTime = equ.Evaluate();
+    }
+
     // Restart file
     it = pParams.find("RestartFile");
     if (it == pParams.end())
@@ -444,7 +456,8 @@ void FilterFieldConvert::v_Update(
     const NekDouble &time)
 {
     m_index++;
-    if (m_index % m_sampleFrequency > 0)
+    if (m_index % m_sampleFrequency > 0 ||
+        (time - m_outputStartTime) < -1.0e-07)
     {
         return;
     }

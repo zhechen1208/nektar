@@ -96,7 +96,8 @@ void FilterCheckpoint::v_Update(
     const NekDouble &time)
 {
 
-    if (m_index++ % m_outputFrequency > 0 || time < m_outputStartTime)
+    if (m_index++ % m_outputFrequency > 0 ||
+        (time - m_outputStartTime) < -1.0e-07)
     {
         return;
     }

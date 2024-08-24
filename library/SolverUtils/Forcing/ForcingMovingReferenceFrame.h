@@ -153,7 +153,6 @@ private:
 
     // prescribed functions in the session file
     std::map<int, LibUtilities::EquationSharedPtr> m_frameVelFunction;
-    std::map<int, LibUtilities::EquationSharedPtr> m_extForceFunction;
     std::ofstream m_outputStream;
     bool m_isRoot;
 
@@ -172,8 +171,6 @@ private:
     Array<OneD, NekDouble> m_omegaxyz;
     // coordinate vector
     Array<OneD, Array<OneD, NekDouble>> m_coords;
-    // externel force
-    Array<OneD, NekDouble> m_extForceXYZ;
 
     NekDouble m_currentTime;
     NekDouble m_timestep;
@@ -181,17 +178,27 @@ private:
     bool m_isH1d;
     bool m_hasPlane0;
     bool m_isH2d;
-    bool m_hasFreeMotion;
     NekInt m_spacedim;
     NekInt m_expdim;
     unsigned int m_index;
     unsigned int m_outputFrequency;
 
+    struct
+    {
+        Array<OneD, Array<OneD, NekDouble>> vel;
+        bool hasFreeMotion;
+        std::set<int> dirDoFs;
+        bool isCircular;
+        // fluid force filter
+        FilterAeroForcesSharedPtr aeroforceFilter;
+        // externel force
+        std::map<int, LibUtilities::EquationSharedPtr> extForceFunction;
+        Array<OneD, NekDouble> extForceXYZ;
+        Array<OneD, NekDouble> M;
+        Array<OneD, NekDouble> C;
+        Array<OneD, NekDouble> K;
+    } m_body;
     Newmark_BetaSolver m_bodySolver;
-    Array<OneD, Array<OneD, NekDouble>> m_bodyVel;
-    std::set<int> m_DirDoFs;
-    bool m_circularCylinder;
-    FilterAeroForcesSharedPtr m_aeroforceFilter;
 
     ForcingMovingReferenceFrame(
         const LibUtilities::SessionReaderSharedPtr &pSession,

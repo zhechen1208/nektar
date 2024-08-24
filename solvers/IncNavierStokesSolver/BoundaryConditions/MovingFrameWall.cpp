@@ -114,19 +114,15 @@ void MovingFrameWall::v_Update(
     if (m_hasPressure && fields.size() > 0)
     {
         ++m_numCalls;
-        for (int i = 0; i < m_bnddim; ++i)
-        {
-            Vmath::Fill(m_npoints, 0., m_viscous[m_intSteps - 1][i], 1);
-        }
-        AddVisPressureBCs(fields, m_viscous[m_intSteps - 1], params);
-        ExtrapolateArray(m_numCalls, m_viscous);
-        // copy extrapolated data
+
         Array<OneD, Array<OneD, NekDouble>> rhs(m_bnddim);
         for (int i = 0; i < m_bnddim; ++i)
         {
-            rhs[i] = Array<OneD, NekDouble>(m_npoints);
-            Vmath::Vcopy(m_npoints, m_viscous[m_intSteps - 1][i], 1, rhs[i], 1);
+            rhs[i] = Array<OneD, NekDouble>(m_npoints, 0.);
         }
+        // add viscous term
+        AddVisPressureBCs(fields, rhs, params);
+        // add DuDt term
         AddRigidBodyAcc(rhs, params, nptsPlane0);
         m_BndExp[m_pressure]->NormVectorIProductWRTBase(
             rhs, m_BndExp[m_pressure]->UpdateCoeffs());

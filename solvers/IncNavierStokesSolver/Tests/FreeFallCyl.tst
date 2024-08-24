@@ -2,7 +2,7 @@
 <test>
     <description>Moving reference frame formualtion of a free falling circular cylinder</description>
     <executable>IncNavierStokesSolver</executable>
-    <parameters>FreeFallCyl.xml FreeFallCylc.xml</parameters>
+    <parameters>FreeFallCyl.xml FreeFallCylc.xml --set-start-time 0 --set-start-chknumber 0</parameters>
     <files>
         <file description="Mesh File">FreeFallCyl.xml</file>
         <file description="Session File">FreeFallCylc.xml</file>

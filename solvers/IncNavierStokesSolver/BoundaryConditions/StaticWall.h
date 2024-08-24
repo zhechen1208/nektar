@@ -76,8 +76,6 @@ protected:
                   const Array<OneD, const Array<OneD, NekDouble>> &Adv,
                   std::map<std::string, NekDouble> &params) override;
 
-    Array<OneD, Array<OneD, Array<OneD, NekDouble>>> m_viscous;
-    int m_pressure;
     StaticWall(const LibUtilities::SessionReaderSharedPtr pSession,
                Array<OneD, MultiRegions::ExpListSharedPtr> pFields,
                Array<OneD, SpatialDomains::BoundaryConditionShPtr> cond,

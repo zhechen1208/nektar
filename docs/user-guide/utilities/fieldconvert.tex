@@ -641,7 +641,7 @@ FieldConvert -m dof file.xml file.fld out.stdout
 This module interpolates the output data to a truly equispaced set of
 points (not equispaced along the collapsed coordinate
 system). Therefore a tetrahedron is represented by a tetrahedral
-number of poinst. This produces much smaller output files. The points
+number of points. This produces much smaller output files. The points
 are then connected together by simplices (triangles and tetrahedrons).
 
 \begin{lstlisting}[style=BashInputStyle]
@@ -651,7 +651,7 @@ FieldConvert -m equispacedoutput test.xml test.fld test.dat
 or
 
 \begin{lstlisting}[style=BashInputStyle]
-FieldConvert -m equispacedouttput test.xml test.fld test.vtu
+FieldConvert -m equispacedoutput test.xml test.fld test.vtu
 \end{lstlisting}
 
 

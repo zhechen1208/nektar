@@ -559,6 +559,8 @@ The following parameters are supported:
     Number of timesteps after which output is written, $M$.\\
     \inltt{Modules} & \xmark   &  &
     FieldConvert modules to run, separated by a white space.\\
+    \inltt{OutputStartTime} & \xmark & 0 &
+    Specifies the simulation time at which to start writing checkpoint files.\\
     \bottomrule
   \end{tabularx}
 \end{center}
@@ -568,10 +570,13 @@ As an example, consider:
 \begin{lstlisting}[style=XMLStyle,gobble=2]
   <FILTER TYPE="FieldConvert">
       <PARAM NAME="OutputFile">MyFile.vtu</PARAM>
-      <PARAM NAME="OutputFrequency">100</PARAM>
+      <PARAM NAME="OutputFrequency">100</PARAM>      
+      <PARAM NAME="OutputStartTime"> 50.0 </PARAM>
       <PARAM NAME="Modules"> vorticity isocontour:fieldid=0:fieldvalue=0.1 </PARAM>
   </FILTER>
 \end{lstlisting}
+
+See the Checkpoint fields filter for more details about the \inltt{OutputStartTime} parameter.
 
 This will create a sequence of files named \inltt{MyFile\_*\_fc.vtu} containing isocontours. 
 The result will be output every 100 time steps.

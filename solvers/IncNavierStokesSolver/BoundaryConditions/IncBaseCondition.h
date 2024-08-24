@@ -130,6 +130,8 @@ protected:
     Array<OneD, Array<OneD, NekDouble>> m_coords;
     MultiRegions::ExpListSharedPtr m_bndElmtExps;
     MultiRegions::ExpListSharedPtr m_field;
+    Array<OneD, Array<OneD, Array<OneD, NekDouble>>> m_viscous;
+    int m_pressure;
 
     static NekDouble StifflyStable_Betaq_Coeffs[3][3];
     static NekDouble StifflyStable_Alpha_Coeffs[3][3];

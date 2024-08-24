@@ -94,8 +94,7 @@ int main(int argc, char *argv[])
          "Specify modules which are to be used.")
         ("use-session-variables", "Use variables defined in session for output")
         ("use-session-expansion", "Use expansion defined in session.")
-        ("verbose,v", "Enable verbose mode.")
-        ("MRF", "Transform coordinates for moving reference frame.");
+        ("verbose,v", "Enable verbose mode.");
     // clang-format on
 
     po::options_description hidden("Hidden options");

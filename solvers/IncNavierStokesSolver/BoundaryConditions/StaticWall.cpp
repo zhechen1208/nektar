@@ -94,14 +94,14 @@ void StaticWall::v_Update(
     }
     ++m_numCalls;
     // pressure
+    Array<OneD, Array<OneD, NekDouble>> rhs(m_bnddim);
     for (int i = 0; i < m_bnddim; ++i)
     {
-        Vmath::Fill(m_npoints, 0., m_viscous[m_intSteps - 1][i], 1);
+        rhs[i] = Array<OneD, NekDouble>(m_npoints, 0.);
     }
-    AddVisPressureBCs(fields, m_viscous[m_intSteps - 1], params);
-    ExtrapolateArray(m_numCalls, m_viscous);
+    AddVisPressureBCs(fields, rhs, params);
     m_BndExp[m_pressure]->NormVectorIProductWRTBase(
-        m_viscous[m_intSteps - 1], m_BndExp[m_pressure]->UpdateCoeffs());
+        rhs, m_BndExp[m_pressure]->UpdateCoeffs());
 }
 
 } // namespace Nektar
