@@ -804,6 +804,16 @@ NekDouble EquationSystem::v_L2Error(unsigned int field,
                                       m_fields[field]->UpdatePhys());
         }
 
+        // Transform from (phys, wave) -> (phys, phys), for 2.5D
+        bool physwavetrans = false;
+        if (m_fields[field]->GetWaveSpace() == true)
+        {
+            m_fields[field]->HomogeneousBwdTrans(
+                m_fields[field]->GetTotPoints(), m_fields[field]->GetPhys(),
+                m_fields[field]->UpdatePhys());
+            physwavetrans = true;
+        }
+
         if (exactsoln.size())
         {
             L2error =
@@ -830,6 +840,15 @@ NekDouble EquationSystem::v_L2Error(unsigned int field,
 
             NekDouble Vol = m_fields[field]->Integral(one);
             L2error       = sqrt(L2error * L2error / Vol);
+        }
+
+        // Transform from (phys, phys) -> (phys, wave), for 2.5D
+        if (physwavetrans == true)
+        {
+            m_fields[field]->HomogeneousFwdTrans(
+                m_fields[field]->GetTotPoints(), m_fields[field]->GetPhys(),
+                m_fields[field]->UpdatePhys());
+            physwavetrans = false;
         }
     }
     else

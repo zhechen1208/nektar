@@ -149,14 +149,6 @@ void FilterError::v_Update(
         Array<OneD, NekDouble> exactsoln(pFields[i]->GetTotPoints(), 0.0);
         equationSys->EvaluateExactSolution(i, exactsoln, time);
 
-        // If homogeneous expansion is used, transform the solution to
-        // Fourier (Wave) space
-        if (m_homogeneous)
-        {
-            pFields[i]->HomogeneousFwdTrans(pFields[i]->GetTotPoints(),
-                                            exactsoln, exactsoln);
-        }
-
         NekDouble vL2Error   = equationSys->L2Error(i, exactsoln);
         NekDouble vLinfError = equationSys->LinfError(i, exactsoln);
 

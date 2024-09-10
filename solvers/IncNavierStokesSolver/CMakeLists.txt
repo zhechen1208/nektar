@@ -219,6 +219,7 @@ IF( NEKTAR_SOLVER_INCNAVIERSTOKES )
     ADD_NEKTAR_TEST(CylFlow3DH1D_SPM)
     ADD_NEKTAR_TEST(manufactured_3DH1D)
     ADD_NEKTAR_TEST(PlungingAirfoil_2D)
+    ADD_NEKTAR_TEST(3DH1D_L2ErrorFilter)
 
     IF(NEKTAR_USE_SCOTCH)
         # This tests exhibits sensitivity to the choice of DirectStaticCond vs.
