@@ -66,23 +66,6 @@ struct PhysDerivTemplate
           Helper<LibUtilities::ShapeTypeDimMap[SHAPE_TYPE], DEFORMED>(basis,
                                                                       nElmt)
     {
-        constexpr auto DIM = LibUtilities::ShapeTypeDimMap[SHAPE_TYPE];
-
-        if (DIM == 1)
-        {
-            m_nmTot = LibUtilities::GetNumberOfCoefficients(SHAPE_TYPE,
-                                                            this->m_nm[0]);
-        }
-        else if (DIM == 2)
-        {
-            m_nmTot = LibUtilities::GetNumberOfCoefficients(
-                SHAPE_TYPE, this->m_nm[0], this->m_nm[1]);
-        }
-        else if (DIM == 3)
-        {
-            m_nmTot = LibUtilities::GetNumberOfCoefficients(
-                SHAPE_TYPE, this->m_nm[0], this->m_nm[1], this->m_nm[2]);
-        }
     }
 
     static std::shared_ptr<Operator> Create(
@@ -95,6 +78,13 @@ struct PhysDerivTemplate
     void operator()(const Array<OneD, const NekDouble> &input,
                     Array<OneD, Array<OneD, NekDouble>> &output) final
     {
+        const auto nq0 = this->m_nq[0];
+#if defined(SHAPE_DIMENSION_2D)
+        const auto nq1 = this->m_nq[1];
+#elif defined(SHAPE_DIMENSION_3D)
+        const auto nq1 = this->m_nq[1];
+        const auto nq2 = this->m_nq[2];
+#endif
 #include "SwitchPoints.h"
     }
 
@@ -119,7 +109,7 @@ struct PhysDerivTemplate
         ASSERTL1(output.size() <= 3, "PhysDerivTemplate::Operator1D: Operator "
                                      "not set up for other dimensions.")
 
-        const auto nq0 = m_basis[0]->GetNumPoints();
+        const auto nq0 = this->m_nq[0];
 
         const auto nqTot    = nq0;
         const auto nqBlocks = nqTot * vec_t::width;
@@ -306,8 +296,8 @@ struct PhysDerivTemplate
         ASSERTL1(output.size() <= 3, "PhysDerivTemplate::Operator2D: Operator "
                                      "not set up for 3D coordinates.");
 
-        const auto nq0 = m_basis[0]->GetNumPoints();
-        const auto nq1 = m_basis[1]->GetNumPoints();
+        const auto nq0 = this->m_nq[0];
+        const auto nq1 = this->m_nq[1];
 
         const auto nqTot    = nq0 * nq1;
         const auto nqBlocks = nqTot * vec_t::width;
@@ -495,9 +485,9 @@ struct PhysDerivTemplate
         ASSERTL1(output.size() == 3, "PhysDerivTemplate::Operator3D: Cannot "
                                      "call 3D routine with 1 or 2 outputs.");
 
-        const auto nq0 = m_basis[0]->GetNumPoints();
-        const auto nq1 = m_basis[1]->GetNumPoints();
-        const auto nq2 = m_basis[2]->GetNumPoints();
+        const auto nq0 = this->m_nq[0];
+        const auto nq1 = this->m_nq[1];
+        const auto nq2 = this->m_nq[2];
 
         const auto nqTot    = nq0 * nq1 * nq2;
         const auto nqBlocks = nqTot * vec_t::width;
@@ -677,7 +667,6 @@ struct PhysDerivTemplate
 #endif
 
 private:
-    int m_nmTot;
 };
 
 } // namespace Nektar::MatrixFree

@@ -16,7 +16,7 @@ CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/SwitchLimits.h.in
 # so to reduce compile time timeout failures due to the large number
 # of template impementations.
 
-SET(OPERATORS BwdTrans PhysDeriv Helmholtz LinearAdvectionDiffusionReaction IProduct IProductWRTDerivBase)
+SET(OPERATORS BwdTrans PhysDeriv Helmholtz LinearAdvectionDiffusionReaction IProduct IProductWRTDerivBase PhysInterp1DScaled)
 SET(SHAPES Seg Tri Quad Hex Tet Prism Pyr )
 SET(DIMENSIONS 1 2 2 3 3 3 3 )
 

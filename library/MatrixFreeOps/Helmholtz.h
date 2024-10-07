@@ -83,8 +83,8 @@ struct HelmholtzTemplate
                 SHAPE_TYPE, this->m_nm[0], this->m_nm[1]);
 
 #if defined(SHAPE_TYPE_TRI)
-            const auto nq0 = m_basis[0]->GetNumPoints();
-            const auto nq1 = m_basis[1]->GetNumPoints();
+            const auto nq0 = this->m_nq[0];
+            const auto nq1 = this->m_nq[1];
 
             const Array<OneD, const NekDouble> &z0 = m_basis[0]->GetZ();
             const Array<OneD, const NekDouble> &z1 = m_basis[1]->GetZ();
@@ -99,9 +99,9 @@ struct HelmholtzTemplate
 
 #if defined(SHAPE_TYPE_TET) || defined(SHAPE_TYPE_PRISM) ||                    \
     defined(SHAPE_TYPE_PYR)
-            const auto nq0 = m_basis[0]->GetNumPoints();
-            const auto nq1 = m_basis[1]->GetNumPoints();
-            const auto nq2 = m_basis[2]->GetNumPoints();
+            const auto nq0 = this->m_nq[0];
+            const auto nq1 = this->m_nq[1];
+            const auto nq2 = this->m_nq[2];
 
             const Array<OneD, const NekDouble> &z0 = m_basis[0]->GetZ();
             const Array<OneD, const NekDouble> &z1 = m_basis[1]->GetZ();
@@ -123,6 +123,17 @@ struct HelmholtzTemplate
     void operator()(const Array<OneD, const NekDouble> &input,
                     Array<OneD, NekDouble> &output) final
     {
+        const int nm0 = this->m_nm[0];
+        const int nq0 = this->m_nq[0];
+#if defined(SHAPE_DIMENSION_2D)
+        const int nm1 = this->m_nm[1];
+        const int nq1 = this->m_nq[1];
+#elif defined(SHAPE_DIMENSION_3D)
+        const int nm1 = this->m_nm[1];
+        const int nm2 = this->m_nm[2];
+        const int nq1 = this->m_nq[1];
+        const int nq2 = this->m_nq[2];
+#endif
 #include "SwitchNodesPoints.h"
     }
 
@@ -159,11 +170,11 @@ struct HelmholtzTemplate
     void operator2D(const Array<OneD, const NekDouble> &input,
                     Array<OneD, NekDouble> &output)
     {
-        const auto nm0 = m_basis[0]->GetNumModes();
-        const auto nm1 = m_basis[1]->GetNumModes();
+        const auto nm0 = this->m_nm[0];
+        const auto nm1 = this->m_nm[1];
 
-        const auto nq0 = m_basis[0]->GetNumPoints();
-        const auto nq1 = m_basis[1]->GetNumPoints();
+        const auto nq0 = this->m_nq[0];
+        const auto nq1 = this->m_nq[1];
 
         constexpr auto ndf = 4;
 
@@ -194,7 +205,7 @@ struct HelmholtzTemplate
         const vec_t *jac_ptr = &((*this->m_jac)[0]);
         const vec_t *df_ptr  = &((*this->m_df)[0]);
 
-        const auto dfSize = ndf * nqTot;
+        [[maybe_unused]] const auto dfSize = ndf * nqTot;
 
         for (int e = 0; e < this->m_nBlocks - 1; e++)
         {
@@ -367,13 +378,13 @@ struct HelmholtzTemplate
     void operator3D(const Array<OneD, const NekDouble> &input,
                     Array<OneD, NekDouble> &output)
     {
-        const auto nm0 = m_basis[0]->GetNumModes();
-        const auto nm1 = m_basis[1]->GetNumModes();
-        const auto nm2 = m_basis[2]->GetNumModes();
+        const auto nm0 = this->m_nm[0];
+        const auto nm1 = this->m_nm[1];
+        const auto nm2 = this->m_nm[2];
 
-        const auto nq0 = m_basis[0]->GetNumPoints();
-        const auto nq1 = m_basis[1]->GetNumPoints();
-        const auto nq2 = m_basis[2]->GetNumPoints();
+        const auto nq0 = this->m_nq[0];
+        const auto nq1 = this->m_nq[1];
+        const auto nq2 = this->m_nq[2];
 
         constexpr auto ndf  = 9;
         const auto nqTot    = nq0 * nq1 * nq2;
@@ -407,7 +418,7 @@ struct HelmholtzTemplate
         const vec_t *jac_ptr = &((*this->m_jac)[0]);
         const vec_t *df_ptr  = &((*this->m_df)[0]);
 
-        const auto dfSize = ndf * nqTot;
+        [[maybe_unused]] const auto dfSize = ndf * nqTot;
 
         for (int e = 0; e < this->m_nBlocks - 1; e++)
         {

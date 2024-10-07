@@ -102,9 +102,6 @@
 
 /* start switch definition for operator 1D*/
 {
-    const int nm0 = m_basis[0]->GetNumModes();
-    const int nq0 = m_basis[0]->GetNumPoints();
-
 #if defined(SHAPE_TYPE_SEG)
 
     switch (nm0)
@@ -184,11 +181,6 @@
 
 /* start switch definition for operator 2D*/
 {
-    const int nm0 = m_basis[0]->GetNumModes();
-    const int nm1 = m_basis[1]->GetNumModes();
-
-    const int nq0 = m_basis[0]->GetNumPoints();
-    const int nq1 = m_basis[1]->GetNumPoints();
 
 #if defined(SHAPE_TYPE_TRI)
 
@@ -305,14 +297,6 @@
 
 /* start switch definition for operator 3D*/
 {
-    const int nm0 = m_basis[0]->GetNumModes();
-    const int nm1 = m_basis[1]->GetNumModes();
-    const int nm2 = m_basis[2]->GetNumModes();
-
-    const int nq0 = m_basis[0]->GetNumPoints();
-    const int nq1 = m_basis[1]->GetNumPoints();
-    const int nq2 = m_basis[2]->GetNumPoints();
-
 #if defined(SHAPE_TYPE_HEX)
 
     if (nm0 == nm1 && nm0 == nm2 && nq0 == nq1 && nq0 == nq2)

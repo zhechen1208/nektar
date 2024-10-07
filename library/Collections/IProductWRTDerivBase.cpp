@@ -354,6 +354,11 @@ private:
         auto oper = MatrixFree::GetOperatorFactory().CreateInstance(
             op_string, basis, pCollExp.size());
 
+        // set up required copies for operations
+        oper->SetUpBdata(basis);
+        oper->SetUpDBdata(basis);
+        oper->SetUpZW(basis);
+
         // Set Jacobian
         oper->SetJac(pGeomData->GetJacInterLeave(pCollExp, m_nElmtPad));
 

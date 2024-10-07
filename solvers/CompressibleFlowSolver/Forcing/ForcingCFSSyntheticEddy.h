@@ -1,6 +1,6 @@
-///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
 //
-// File:  ForcingIncNSSyntheticEddy.h
+// File:  ForcingCFSSyntheticEddy.h
 //
 // For more information, please see: http://www.nektar.info
 //
@@ -29,25 +29,26 @@
 // DEALINGS IN THE SOFTWARE.
 //
 // Description: Derived base class - Synthetic turbulence forcing for the
-//              Incompressible solver
+//              Compressible solver.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifndef NEKTAR_SOLVERUTILS_FORCINGINCNSSYNTHETICEDDY
-#define NEKTAR_SOLVERUTILS_FORCINGINCNSSYNTHETICEDDY
+#ifndef NEKTAR_SOLVERUTILS_FORCINGCFSSYNTHETICEDDY
+#define NEKTAR_SOLVERUTILS_FORCINGCFSSYNTHETICEDDY
 
+#include <CompressibleFlowSolver/Misc/VariableConverter.h>
 #include <SolverUtils/Forcing/Forcing.h>
 #include <SolverUtils/Forcing/ForcingSyntheticEddy.h>
 #include <string>
 
 namespace Nektar::SolverUtils
 {
-class ForcingIncNSSyntheticEddy
-    : virtual public SolverUtils::Forcing,
-      virtual public SolverUtils::ForcingSyntheticEddy
+
+class ForcingCFSSyntheticEddy : virtual public SolverUtils::Forcing,
+                                virtual public SolverUtils::ForcingSyntheticEddy
 {
 public:
-    friend class MemoryManager<ForcingIncNSSyntheticEddy>;
+    friend class MemoryManager<ForcingCFSSyntheticEddy>;
 
     /// Creates an instance of this class
     static ForcingSharedPtr create(
@@ -57,7 +58,7 @@ public:
         const unsigned int &pNumForcingFields, const TiXmlElement *pForce)
     {
         ForcingSharedPtr p =
-            MemoryManager<ForcingIncNSSyntheticEddy>::AllocateSharedPtr(
+            MemoryManager<ForcingCFSSyntheticEddy>::AllocateSharedPtr(
                 pSession, pEquation);
         p->InitObject(pFields, pNumForcingFields, pForce);
         return p;
@@ -72,15 +73,32 @@ protected:
                  const Array<OneD, Array<OneD, NekDouble>> &inarray,
                  Array<OneD, Array<OneD, NekDouble>> &outarray,
                  const NekDouble &time) override;
+    // Apply forcing term
+    void v_ApplyCoeff(
+        const Array<OneD, MultiRegions::ExpListSharedPtr> &pFields,
+        const Array<OneD, Array<OneD, NekDouble>> &inarray,
+        Array<OneD, Array<OneD, NekDouble>> &outarray,
+        const NekDouble &time) override;
     /// Calculate Forcing
     void CalculateForcing(
         const Array<OneD, MultiRegions::ExpListSharedPtr> &pFields);
+    /// Compute Velocity Fluctuation
+    Array<OneD, Array<OneD, NekDouble>> ComputeDensityFluctuation(
+        const Array<OneD, MultiRegions::ExpListSharedPtr> &pFields,
+        const Array<OneD, Array<OneD, NekDouble>> &velFLuc,
+        std::pair<NekDouble, NekDouble> rhoMachMean);
+    /// Compute rho and mach mean
+    std::pair<NekDouble, NekDouble> ComputeRhoMachMean(
+        const Array<OneD, MultiRegions::ExpListSharedPtr> &pFields);
+
+    /// Auxiliary object to convert variables
+    VariableConverterSharedPtr m_varConv;
 
 private:
-    ForcingIncNSSyntheticEddy(
+    ForcingCFSSyntheticEddy(
         const LibUtilities::SessionReaderSharedPtr &pSession,
         const std::weak_ptr<EquationSystem> &pEquation);
-    ~ForcingIncNSSyntheticEddy(void) override{};
+    ~ForcingCFSSyntheticEddy(void) override = default;
 };
 
 } // namespace Nektar::SolverUtils

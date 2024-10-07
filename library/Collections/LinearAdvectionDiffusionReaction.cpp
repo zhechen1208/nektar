@@ -765,6 +765,12 @@ private:
         // Get N quadpoints with padding
         m_nqtot = m_numElmt * pCollExp[0]->GetStdExp()->GetTotPoints();
 
+        // set up required copies for operations
+        oper->SetUpBdata(basis);
+        oper->SetUpDBdata(basis);
+        oper->SetUpD(basis);
+        oper->SetUpZW(basis);
+
         // Set Jacobian
         oper->SetJac(pGeomData->GetJacInterLeave(pCollExp, m_nElmtPad));
 

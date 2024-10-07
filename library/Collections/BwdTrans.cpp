@@ -209,6 +209,8 @@ private:
         auto oper = MatrixFree::GetOperatorFactory().CreateInstance(
             op_string, basis, pCollExp.size());
 
+        oper->SetUpBdata(basis);
+
         m_oper = std::dynamic_pointer_cast<MatrixFree::BwdTrans>(oper);
         ASSERTL0(m_oper, "Failed to cast pointer.");
     }

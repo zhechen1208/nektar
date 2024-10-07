@@ -3270,18 +3270,21 @@ int ExpList::GetExpIndex(const Array<OneD, const NekDouble> &gloCoords,
     // that. Otherwise return -1 to indicate no matching elemenet found.
     if (returnNearestElmt && nearpt_min <= maxDistance)
     {
-
-        std::string msg = "Failed to find point within element to "
-                          "tolerance of " +
-                          boost::lexical_cast<std::string>(tol) +
-                          " using local point (" +
-                          boost::lexical_cast<std::string>(locCoords[0]) + "," +
-                          boost::lexical_cast<std::string>(locCoords[1]) + "," +
-                          boost::lexical_cast<std::string>(locCoords[1]) +
-                          ") in element: " + std::to_string(min_id);
-        WARNINGL1(false, msg.c_str());
-
         Vmath::Vcopy(locCoords.size(), savLocCoords, 1, locCoords, 1);
+        std::string msg = "Failed to find point within a tolerance of " +
+                          boost::lexical_cast<std::string>(tol) +
+                          ", using local point (";
+        for (size_t j = 0; j < locCoords.size(); ++j)
+        {
+            msg += boost::lexical_cast<std::string>(savLocCoords[j]);
+            if (j < locCoords.size())
+            {
+                msg += ", ";
+            }
+        }
+        msg += ") in element: " + std::to_string(min_id) +
+               " with a distance of " + std::to_string(nearpt_min);
+        WARNINGL1(false, msg.c_str());
         return min_id;
     }
     else
@@ -6008,6 +6011,7 @@ void ExpList::v_PhysInterp1DScaled([[maybe_unused]] const NekDouble scale,
         m_collections[i].UpdateFactors(Collections::ePhysInterp1DScaled,
                                        factors);
     }
+
     LIKWID_MARKER_START("v_PhysInterp1DScaled");
     timer.Start();
     Array<OneD, NekDouble> tmp;

@@ -74,8 +74,6 @@
 
 /* start of switch include for operator1D */
 {
-    const int nq0 = m_basis[0]->GetNumPoints();
-
 #if defined(SHAPE_TYPE_SEG)
     switch (nq0)
     {
@@ -113,9 +111,6 @@
 
 /* start of switch include for operator2D */
 {
-    const int nq0 = m_basis[0]->GetNumPoints();
-    const int nq1 = m_basis[1]->GetNumPoints();
-
 #if defined(SHAPE_TYPE_TRI)
 
     if (nq0 == nq1 + 1)
@@ -160,7 +155,6 @@
     }
 
 #endif // SHAPE_TYPE
-
     else
     {
         operator2D(input, output);
@@ -195,10 +189,6 @@
 
 /* start of include switch details for operator3D */
 {
-    const int nq0 = m_basis[0]->GetNumPoints();
-    const int nq1 = m_basis[1]->GetNumPoints();
-    const int nq2 = m_basis[2]->GetNumPoints();
-
 #if defined(SHAPE_TYPE_HEX)
 
     if (nq0 == nq1 && nq0 == nq2)

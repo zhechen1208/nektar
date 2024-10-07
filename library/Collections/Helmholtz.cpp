@@ -745,6 +745,11 @@ private:
         // Store derivative factor
         oper->SetDF(pGeomData->GetDerivFactorsInterLeave(pCollExp, m_nElmtPad));
 
+        oper->SetUpBdata(basis);
+        oper->SetUpDBdata(basis);
+        oper->SetUpZW(basis);
+        oper->SetUpD(basis);
+
         m_oper = std::dynamic_pointer_cast<MatrixFree::Helmholtz>(oper);
         ASSERTL0(m_oper, "Failed to cast pointer.");
 

@@ -942,6 +942,8 @@ void VelocityCorrectionScheme::SetUpSVV(void)
     }
     else
     {
+        m_useHomo1DSpecVanVisc = false;
+
         m_session->MatchSolverInfo("SpectralVanishingViscositySpectralHP",
                                    "PowerKernel", m_useSpecVanVisc, false);
     }

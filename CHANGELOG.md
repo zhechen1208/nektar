@@ -6,22 +6,31 @@ v5.7.0
 - Modified MatrixFreeOp library  switch initialisation to use BOOST_PP (!1794)
 - Fix memory-leak with LowEnergyBlock preconditioner for time-updated matrices (!1627)
 - Fix Fourier expansion integration weights are related test (!1803)
+- Introduced the MatrixFree implementation for the PhysInterp1DScaled operator and tidying up MatrixFreeOps (!1812) 
 - Separate MeshGraph input/output functions into a new class (!1778)
 - Added checkpoint file writing start time in the fieldconvert filter (!1789)
 - Fix fieldconvert filter incorrect boundary values (!1789)
 - Fix numerical precision issues with filters OutputStartTime (!1789)
 - Fix AdaptiveSFD for MPI (!1821)
+- Fix interpolation on manifold (!1840)
 - Fix IterativeStaticCond when using absolute tolerance (!1850)
 - Fix deadlock by scotch with multi-threading support (!1853)
 - Fixed L2norm for FilterError (!1871)
+- Fix variable p in tetrahedrons (!1881)
+- Fix BwdTrans for Pyr with var P (!1886)
+- Allow wrapper array around a existing raw pointer (!1848)
 
 **IncNavierStokesSolver**
 - Fix initial and boundary conditions in the moving reference frame (!1692, !1820)
 - Fix memory-leak for the Mixed_CG_Discontinuous projection when initializing the traceMep (!1806)
 - Add synthetic turbulence generation for the incompressible solver (!1664) 
+- Fix a uninitialized parameter in VCS (!1880)
 
 **ShallowWaterSolver**
 - Implement implicit time-discritization (!1784)
+
+**CompressibleSolver**
+- Add synthetic turbulence generator for the compressible solver (!1859)
 
 **NekMesh**
 - Added revolve module (!1825)

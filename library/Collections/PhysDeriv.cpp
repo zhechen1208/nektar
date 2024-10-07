@@ -362,6 +362,9 @@ private:
         auto oper = MatrixFree::GetOperatorFactory().CreateInstance(
             op_string, basis, pCollExp.size());
 
+        oper->SetUpZW(basis);
+        oper->SetUpD(basis);
+
         // Set derivative factors
         oper->SetDF(pGeomData->GetDerivFactorsInterLeave(pCollExp, m_nElmtPad));
 

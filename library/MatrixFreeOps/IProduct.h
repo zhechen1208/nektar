@@ -95,6 +95,17 @@ struct IProductTemplate
     void operator()(const Array<OneD, const NekDouble> &input,
                     Array<OneD, NekDouble> &output) final
     {
+        const int nm0 = this->m_nm[0];
+        const int nq0 = this->m_nq[0];
+#if defined(SHAPE_DIMENSION_2D)
+        const int nm1 = this->m_nm[1];
+        const int nq1 = this->m_nq[1];
+#elif defined(SHAPE_DIMENSION_3D)
+        const int nm1 = this->m_nm[1];
+        const int nm2 = this->m_nm[2];
+        const int nq1 = this->m_nq[1];
+        const int nq2 = this->m_nq[2];
+#endif
 #include "SwitchNodesPoints.h"
     }
 
@@ -114,8 +125,8 @@ struct IProductTemplate
     void operator1D(const Array<OneD, const NekDouble> &input,
                     Array<OneD, NekDouble> &output)
     {
-        const auto nm0 = m_basis[0]->GetNumModes();
-        const auto nq0 = m_basis[0]->GetNumPoints();
+        const auto nm0 = this->m_nm[0];
+        const auto nq0 = this->m_nq[0];
 
         const auto nqTot    = nq0;
         const auto nqBlocks = nqTot * vec_t::width;
@@ -247,11 +258,11 @@ struct IProductTemplate
     void operator2D(const Array<OneD, const NekDouble> &input,
                     Array<OneD, NekDouble> &output)
     {
-        const auto nm0 = m_basis[0]->GetNumModes();
-        const auto nm1 = m_basis[1]->GetNumModes();
+        const auto nm0 = this->m_nm[0];
+        const auto nm1 = this->m_nm[1];
 
-        const auto nq0 = m_basis[0]->GetNumPoints();
-        const auto nq1 = m_basis[1]->GetNumPoints();
+        const auto nq0 = this->m_nq[0];
+        const auto nq1 = this->m_nq[1];
 
         const auto nqTot    = nq0 * nq1;
         const auto nqBlocks = nqTot * vec_t::width;
@@ -403,13 +414,13 @@ struct IProductTemplate
     void operator3D(const Array<OneD, const NekDouble> &input,
                     Array<OneD, NekDouble> &output)
     {
-        const auto nm0 = m_basis[0]->GetNumModes();
-        const auto nm1 = m_basis[1]->GetNumModes();
-        const auto nm2 = m_basis[2]->GetNumModes();
+        const auto nm0 = this->m_nm[0];
+        const auto nm1 = this->m_nm[1];
+        const auto nm2 = this->m_nm[2];
 
-        const auto nq0 = m_basis[0]->GetNumPoints();
-        const auto nq1 = m_basis[1]->GetNumPoints();
-        const auto nq2 = m_basis[2]->GetNumPoints();
+        const auto nq0 = this->m_nq[0];
+        const auto nq1 = this->m_nq[1];
+        const auto nq2 = this->m_nq[2];
 
         const auto nqTot    = nq0 * nq1 * nq2;
         const auto nqBlocks = nqTot * vec_t::width;
