@@ -256,13 +256,6 @@ debian-bullseye-performance-build-env:
   tags:
     - perf
 
-debian-buster-default-build-env:
-  <<: *build-env-debian-template-default
-
-debian-buster-full-build-env:
-  <<: *build-env-debian-template-full
-  needs: ["debian-buster-default-build-env"]
-
 debian-bookworm-default-build-and-test:
   <<: *build-and-test-template
   needs: ["debian-bookworm-default-build-env"]
@@ -327,20 +320,6 @@ debian-bullseye-full-avx512-build-and-test:
   tags:
     - avx512
 
-debian-buster-default-build-and-test:
-  <<: *build-and-test-template
-  needs: ["debian-buster-default-build-env"]
-
-debian-buster-full-build-and-test:
-  <<: *build-and-test-template
-  needs: ["debian-buster-full-build-env"]
-  variables:
-    DISABLE_MCA: 1
-    GIT_SUBMODULE_STRATEGY: recursive
-    OS_DISTRO: debian
-    PYTHON_EXECUTABLE: /usr/bin/python3
-    REMOVE_UCX: 0
-
 # COMPILER WARNINGS
 debian-bookworm-default-warnings:
   <<: *compiler-warning-template
@@ -381,15 +360,6 @@ debian-bullseye-full-avx512-warnings:
 debian-bullseye-performance-warnings:
   <<: *compiler-warning-template
   needs: ["debian-bullseye-performance-build-and-test"]
-
-debian-buster-default-warnings:
-  <<: *compiler-warning-template
-  needs: ["debian-buster-default-build-and-test"]
-
-debian-buster-full-warnings:
-  <<: *compiler-warning-template
-  needs: ["debian-buster-full-build-and-test"]
-
 
 # CODE FORMATTING
 debian-bullseye-clang-format:

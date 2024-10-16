@@ -473,38 +473,6 @@ package-debian-bullseye-deploy:
     - package-debian-bullseye-build
 
 ##
-## Debian buster
-##
-package-debian-buster-env:
-  <<: *package-env-build
-
-package-debian-buster-build:
-  <<: *package-deb-build
-  needs: ["package-debian-buster-env"]
-  variables:
-    image_name: pkg/debian-buster
-
-package-debian-buster-test:
-  <<: *package-deb-test
-  needs: ["package-debian-buster-build"]
-  dependencies:
-    - package-debian-buster-build
-  variables:
-    image_name: debian:buster
-
-package-debian-buster-deploy-dev:
-  <<: *package-deb-deploy-dev
-  needs: ["package-debian-buster-build", "package-debian-buster-test"]
-  dependencies:
-    - package-debian-buster-build
-
-package-debian-buster-deploy:
-  <<: *package-deb-deploy
-  needs: ["package-debian-buster-build", "package-debian-buster-deploy-dev"]
-  dependencies:
-    - package-debian-buster-build
-
-##
 ## Ubuntu jammy
 ##
 package-ubuntu-jammy-env:

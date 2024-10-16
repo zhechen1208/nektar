@@ -45,6 +45,9 @@ v5.7.0
 **Documentation**
 - Add initial documentation for the IncNavierStokesSolver (!1822)
 
+**CI and Packaging**
+- Debian 10 (BUSTER) is no longer supported (!1902)
+
 v5.6.0
 ------
 **Library**
