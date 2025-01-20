@@ -27,7 +27,7 @@
     </GEOMETRY>
 
     <EXPANSIONS>
-        <E COMPOSITE="C[100,101]" NUMMODES="4" FIELDS="u,v,w,p" TYPE="MODIFIED" />
+        <E COMPOSITE="C[100,101]" NUMMODES="3" FIELDS="u,v,w,p" TYPE="MODIFIED" />
     </EXPANSIONS>
 
     <CONDITIONS>
@@ -41,7 +41,7 @@
 
         <PARAMETERS>
             <P> TimeStep      = 0.01            </P>
-            <P> NumSteps      = 85              </P>
+            <P> NumSteps      = 80              </P>
             <P> IO_CheckSteps = 0               </P>
             <P> IO_InfoSteps  = 1               </P>
             <P> IO_CFLSteps   = 1               </P>

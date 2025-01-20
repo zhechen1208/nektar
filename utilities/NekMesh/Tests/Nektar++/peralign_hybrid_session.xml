@@ -23,8 +23,8 @@
             <P> NumSteps      = 2    </P>
             <P> IO_CheckSteps = 40   </P>
             <P> IO_InfoSteps  = 10   </P>
-            <P> IO_CFLSteps   = 1    </P>
-            <P> Re            = 1e3  </P>
+            <P> IO_CFLSteps   = 10    </P>
+            <P> Re            = 1e1  </P>
             <P> Kinvis        = 1/Re </P>
         </PARAMETERS>
 

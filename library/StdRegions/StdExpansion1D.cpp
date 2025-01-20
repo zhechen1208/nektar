@@ -34,6 +34,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <LibUtilities/Foundations/Interp.h>
 #include <StdRegions/StdExpansion1D.h>
 
 namespace Nektar::StdRegions
@@ -80,21 +81,12 @@ NekDouble StdExpansion1D::v_PhysEvaluate(
     return StdExpansion::BaryEvaluate<0>(Lcoord[0], &physvals[0]);
 }
 
-NekDouble StdExpansion1D::v_PhysEvaluate(
-    [[maybe_unused]] const Array<OneD, NekDouble> &coord,
-    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
-    [[maybe_unused]] std::array<NekDouble, 3> &firstOrderDerivs)
+void StdExpansion1D::v_PhysInterp(std::shared_ptr<StdExpansion> fromExp,
+                                  const Array<OneD, const NekDouble> &fromData,
+                                  Array<OneD, NekDouble> &toData)
 {
-    return 0;
-}
-
-NekDouble StdExpansion1D::v_PhysEvaluate(
-    [[maybe_unused]] const Array<OneD, NekDouble> &coord,
-    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
-    [[maybe_unused]] std::array<NekDouble, 3> &firstOrderDerivs,
-    [[maybe_unused]] std::array<NekDouble, 6> &secondOrderDerivs)
-{
-    return 0;
+    LibUtilities::Interp1D(fromExp->GetBasis(0)->GetPointsKey(), fromData,
+                           m_base[0]->GetPointsKey(), toData);
 }
 
 } // namespace Nektar::StdRegions

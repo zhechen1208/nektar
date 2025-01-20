@@ -291,14 +291,17 @@ public:
      *
      *  \param i specifies which trace id
      *  \param k is the direction of the basis key for 2D traces
+     *  \param UseGll use GLL quadrature points in Trace Expansion (defaulted to
+     * false)
      *
      *  \return returns the number of Basis key of the ith
      *  trace in the k th direction (when trace is a 2D
      *  object)
      */
-    const LibUtilities::BasisKey GetTraceBasisKey(const int i, int k = -1) const
+    const LibUtilities::BasisKey GetTraceBasisKey(const int i, int k = -1,
+                                                  bool UseGLL = false) const
     {
-        return v_GetTraceBasisKey(i, k);
+        return v_GetTraceBasisKey(i, k, UseGLL);
     }
 
     /** \brief This function returns the basis key belonging
@@ -392,6 +395,12 @@ public:
     bool IsNodalNonTensorialExp()
     {
         return v_IsNodalNonTensorialExp();
+    }
+
+    void NodalToModal(const Array<OneD, const NekDouble> &inarray,
+                      Array<OneD, NekDouble> &outarray)
+    {
+        v_NodalToModal(inarray, outarray);
     }
 
     /** \brief This function performs the Backward transformation from
@@ -938,7 +947,7 @@ public:
                                   std::array<NekDouble, 3> &firstOrderDerivs)
 
     {
-        return v_PhysEvaluate(coord, inarray, firstOrderDerivs);
+        return v_PhysEvalFirstDeriv(coord, inarray, firstOrderDerivs);
     }
 
     inline NekDouble PhysEvaluate(const Array<OneD, NekDouble> &coord,
@@ -947,8 +956,8 @@ public:
                                   std::array<NekDouble, 6> &secondOrderDerivs)
 
     {
-        return v_PhysEvaluate(coord, inarray, firstOrderDerivs,
-                              secondOrderDerivs);
+        return v_PhysEvalFirstSecondDeriv(coord, inarray, firstOrderDerivs,
+                                          secondOrderDerivs);
     }
 
     /** \brief This function evaluates the expansion at a single
@@ -974,7 +983,7 @@ public:
     NekDouble PhysEvaluate(const Array<OneD, DNekMatSharedPtr> &I,
                            const Array<OneD, const NekDouble> &physvals)
     {
-        return v_PhysEvaluate(I, physvals);
+        return v_PhysEvaluateInterp(I, physvals);
     }
 
     /**
@@ -1013,6 +1022,17 @@ public:
                                 Array<OneD, NekDouble> &xi)
     {
         v_LocCollapsedToLocCoord(eta, xi);
+    }
+
+    /** \brief interpolate from one set of quadrature points available from
+     * FromExp to the set of quadrature points in the current expansion. If the
+     * points are the same this routine will just copy the data
+     **/
+    void PhysInterp(std::shared_ptr<StdExpansion> fromExp,
+                    const Array<OneD, const NekDouble> &fromData,
+                    Array<OneD, NekDouble> &toData)
+    {
+        v_PhysInterp(fromExp, fromData, toData);
     }
 
     STD_REGIONS_EXPORT virtual int v_CalcNumberOfCoefficients(
@@ -1296,9 +1316,6 @@ protected:
         StdRegions::Orientation dir, Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray);
 
-    STD_REGIONS_EXPORT virtual void v_SetCoeffsToOrientation(
-        Array<OneD, NekDouble> &coeffs, StdRegions::Orientation dir);
-
     STD_REGIONS_EXPORT virtual NekDouble v_StdPhysEvaluate(
         const Array<OneD, const NekDouble> &Lcoord,
         const Array<OneD, const NekDouble> &physvals);
@@ -1495,7 +1512,7 @@ private:
     STD_REGIONS_EXPORT virtual int v_GetTraceNumPoints(const int i) const  = 0;
 
     STD_REGIONS_EXPORT virtual const LibUtilities::BasisKey v_GetTraceBasisKey(
-        const int i, const int k) const;
+        const int i, const int k, bool UseGLL = false) const;
 
     STD_REGIONS_EXPORT virtual LibUtilities::PointsKey v_GetTracePointsKey(
         const int i, const int j) const;
@@ -1517,6 +1534,10 @@ private:
     STD_REGIONS_EXPORT virtual bool v_IsBoundaryInteriorExpansion() const;
 
     STD_REGIONS_EXPORT virtual bool v_IsNodalNonTensorialExp();
+
+    STD_REGIONS_EXPORT virtual void v_NodalToModal(
+        [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
+        [[maybe_unused]] Array<OneD, NekDouble> &outarray){};
 
     STD_REGIONS_EXPORT virtual void v_BwdTrans(
         const Array<OneD, const NekDouble> &inarray,
@@ -1600,16 +1621,16 @@ private:
         const Array<OneD, const NekDouble> &coords,
         const Array<OneD, const NekDouble> &physvals);
 
-    STD_REGIONS_EXPORT virtual NekDouble v_PhysEvaluate(
+    STD_REGIONS_EXPORT virtual NekDouble v_PhysEvaluateInterp(
         const Array<OneD, DNekMatSharedPtr> &I,
         const Array<OneD, const NekDouble> &physvals);
 
-    STD_REGIONS_EXPORT virtual NekDouble v_PhysEvaluate(
+    STD_REGIONS_EXPORT virtual NekDouble v_PhysEvalFirstDeriv(
         const Array<OneD, NekDouble> &coord,
         const Array<OneD, const NekDouble> &inarray,
         std::array<NekDouble, 3> &firstOrderDerivs);
 
-    STD_REGIONS_EXPORT virtual NekDouble v_PhysEvaluate(
+    STD_REGIONS_EXPORT virtual NekDouble v_PhysEvalFirstSecondDeriv(
         const Array<OneD, NekDouble> &coord,
         const Array<OneD, const NekDouble> &inarray,
         std::array<NekDouble, 3> &firstOrderDerivs,
@@ -1624,8 +1645,13 @@ private:
     STD_REGIONS_EXPORT virtual void v_LocCollapsedToLocCoord(
         const Array<OneD, const NekDouble> &eta, Array<OneD, NekDouble> &xi);
 
-    STD_REGIONS_EXPORT virtual void v_FillMode(
-        const int mode, Array<OneD, NekDouble> &outarray);
+    STD_REGIONS_EXPORT virtual void v_PhysInterp(
+        std::shared_ptr<StdExpansion> FromExp,
+        const Array<OneD, const NekDouble> &fromData,
+        Array<OneD, NekDouble> &toData);
+
+    STD_REGIONS_EXPORT
+    virtual void v_FillMode(const int mode, Array<OneD, NekDouble> &outarray);
 
     STD_REGIONS_EXPORT virtual DNekMatSharedPtr v_GenMatrix(
         const StdMatrixKey &mkey);

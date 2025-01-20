@@ -280,9 +280,9 @@ void StdPrismExp::v_BwdTrans_SumFacKernel(
     for (i = mode = 0; i < nummodes0; ++i)
     {
         Blas::Dgemm('N', 'N', nquad2, nummodes1, nummodes2 - i, 1.0,
-                    base2.get() + mode * nquad2, nquad2,
-                    inarray.get() + mode * nummodes1, nummodes2 - i, 0.0,
-                    tmp0.get() + i * nquad2 * nummodes1, nquad2);
+                    base2.data() + mode * nquad2, nquad2,
+                    inarray.data() + mode * nummodes1, nummodes2 - i, 0.0,
+                    tmp0.data() + i * nquad2 * nummodes1, nquad2);
         mode += nummodes2 - i;
     }
 
@@ -291,20 +291,20 @@ void StdPrismExp::v_BwdTrans_SumFacKernel(
         for (i = 0; i < nummodes1; i++)
         {
             Blas::Daxpy(nquad2, inarray[1 + i * nummodes2],
-                        base2.get() + nquad2, 1,
-                        tmp0.get() + nquad2 * (nummodes1 + i), 1);
+                        base2.data() + nquad2, 1,
+                        tmp0.data() + nquad2 * (nummodes1 + i), 1);
         }
     }
 
     for (i = 0; i < nummodes0; i++)
     {
-        Blas::Dgemm('N', 'T', nquad1, nquad2, nummodes1, 1.0, base1.get(),
-                    nquad1, tmp0.get() + i * nquad2 * nummodes1, nquad2, 0.0,
-                    tmp1.get() + i * nquad2 * nquad1, nquad1);
+        Blas::Dgemm('N', 'T', nquad1, nquad2, nummodes1, 1.0, base1.data(),
+                    nquad1, tmp0.data() + i * nquad2 * nummodes1, nquad2, 0.0,
+                    tmp1.data() + i * nquad2 * nquad1, nquad1);
     }
 
-    Blas::Dgemm('N', 'T', nquad0, nquad2 * nquad1, nummodes0, 1.0, base0.get(),
-                nquad0, tmp1.get(), nquad2 * nquad1, 0.0, outarray.get(),
+    Blas::Dgemm('N', 'T', nquad0, nquad2 * nquad1, nummodes0, 1.0, base0.data(),
+                nquad0, tmp1.data(), nquad2 * nquad1, 0.0, outarray.data(),
                 nquad0);
 }
 
@@ -442,20 +442,22 @@ void StdPrismExp::v_IProductWRTBase_SumFacKernel(
     Array<OneD, NekDouble> tmp1 = wsp + nquad1 * nquad2 * order0;
 
     // Inner product with respect to the '0' direction
-    Blas::Dgemm('T', 'N', nquad1 * nquad2, order0, nquad0, 1.0, inarray.get(),
-                nquad0, base0.get(), nquad0, 0.0, tmp0.get(), nquad1 * nquad2);
+    Blas::Dgemm('T', 'N', nquad1 * nquad2, order0, nquad0, 1.0, inarray.data(),
+                nquad0, base0.data(), nquad0, 0.0, tmp0.data(),
+                nquad1 * nquad2);
 
     // Inner product with respect to the '1' direction
-    Blas::Dgemm('T', 'N', nquad2 * order0, order1, nquad1, 1.0, tmp0.get(),
-                nquad1, base1.get(), nquad1, 0.0, tmp1.get(), nquad2 * order0);
+    Blas::Dgemm('T', 'N', nquad2 * order0, order1, nquad1, 1.0, tmp0.data(),
+                nquad1, base1.data(), nquad1, 0.0, tmp1.data(),
+                nquad2 * order0);
 
     // Inner product with respect to the '2' direction
     for (mode = i = 0; i < order0; ++i)
     {
         Blas::Dgemm('T', 'N', order2 - i, order1, nquad2, 1.0,
-                    base2.get() + mode * nquad2, nquad2,
-                    tmp1.get() + i * nquad2, nquad2 * order0, 0.0,
-                    outarray.get() + mode * order1, order2 - i);
+                    base2.data() + mode * nquad2, nquad2,
+                    tmp1.data() + i * nquad2, nquad2 * order0, 0.0,
+                    outarray.data() + mode * order1, order2 - i);
         mode += order2 - i;
     }
 
@@ -467,8 +469,8 @@ void StdPrismExp::v_IProductWRTBase_SumFacKernel(
         {
             mode = GetMode(0, i, 1);
             outarray[mode] +=
-                Blas::Ddot(nquad2, base2.get() + nquad2, 1,
-                           tmp1.get() + i * order0 * nquad2 + nquad2, 1);
+                Blas::Ddot(nquad2, base2.data() + nquad2, 1,
+                           tmp1.data() + i * order0 * nquad2 + nquad2, 1);
         }
     }
 }
@@ -632,7 +634,38 @@ void StdPrismExp::v_GetCoords(Array<OneD, NekDouble> &xi_x,
     }
 }
 
-NekDouble StdPrismExp::v_PhysEvaluate(
+NekDouble StdPrismExp::v_PhysEvaluateBasis(
+    const Array<OneD, const NekDouble> &coords, int mode)
+{
+    Array<OneD, NekDouble> coll(3);
+    LocCoordToLocCollapsed(coords, coll);
+
+    const int nm1 = m_base[1]->GetNumModes();
+    const int nm2 = m_base[2]->GetNumModes();
+    const int b   = 2 * nm2 + 1;
+
+    const int mode0 = floor(0.5 * (b - sqrt(b * b - 8.0 * mode / nm1)));
+    const int tmp =
+        mode - nm1 * (mode0 * (nm2 - 1) + 1 - (mode0 - 2) * (mode0 - 1) / 2);
+    const int mode1 = tmp / (nm2 - mode0);
+    const int mode2 = tmp % (nm2 - mode0);
+
+    if (mode0 == 0 && mode2 == 1 &&
+        m_base[0]->GetBasisType() == LibUtilities::eModified_A)
+    {
+        // handle collapsed top edge to remove mode0 terms
+        return StdExpansion::BaryEvaluateBasis<1>(coll[1], mode1) *
+               StdExpansion::BaryEvaluateBasis<2>(coll[2], mode2);
+    }
+    else
+    {
+        return StdExpansion::BaryEvaluateBasis<0>(coll[0], mode0) *
+               StdExpansion::BaryEvaluateBasis<1>(coll[1], mode1) *
+               StdExpansion::BaryEvaluateBasis<2>(coll[2], mode2);
+    }
+}
+
+NekDouble StdPrismExp::v_PhysEvalFirstDeriv(
     const Array<OneD, NekDouble> &coord,
     const Array<OneD, const NekDouble> &inarray,
     std::array<NekDouble, 3> &firstOrderDerivs)
@@ -685,37 +718,6 @@ void StdPrismExp::v_FillMode(const int mode, Array<OneD, NekDouble> &outarray)
     Array<OneD, NekDouble> tmp(m_ncoeffs, 0.0);
     tmp[mode] = 1.0;
     StdPrismExp::v_BwdTrans(tmp, outarray);
-}
-
-NekDouble StdPrismExp::v_PhysEvaluateBasis(
-    const Array<OneD, const NekDouble> &coords, int mode)
-{
-    Array<OneD, NekDouble> coll(3);
-    LocCoordToLocCollapsed(coords, coll);
-
-    const int nm1 = m_base[1]->GetNumModes();
-    const int nm2 = m_base[2]->GetNumModes();
-    const int b   = 2 * nm2 + 1;
-
-    const int mode0 = floor(0.5 * (b - sqrt(b * b - 8.0 * mode / nm1)));
-    const int tmp =
-        mode - nm1 * (mode0 * (nm2 - 1) + 1 - (mode0 - 2) * (mode0 - 1) / 2);
-    const int mode1 = tmp / (nm2 - mode0);
-    const int mode2 = tmp % (nm2 - mode0);
-
-    if (mode0 == 0 && mode2 == 1 &&
-        m_base[0]->GetBasisType() == LibUtilities::eModified_A)
-    {
-        // handle collapsed top edge to remove mode0 terms
-        return StdExpansion::BaryEvaluateBasis<1>(coll[1], mode1) *
-               StdExpansion::BaryEvaluateBasis<2>(coll[2], mode2);
-    }
-    else
-    {
-        return StdExpansion::BaryEvaluateBasis<0>(coll[0], mode0) *
-               StdExpansion::BaryEvaluateBasis<1>(coll[1], mode1) *
-               StdExpansion::BaryEvaluateBasis<2>(coll[2], mode2);
-    }
 }
 
 void StdPrismExp::v_GetTraceNumModes(const int fid, int &numModes0,
@@ -921,7 +923,8 @@ LibUtilities::PointsKey StdPrismExp::v_GetTracePointsKey(const int i,
 }
 
 const LibUtilities::BasisKey StdPrismExp::v_GetTraceBasisKey(const int i,
-                                                             const int k) const
+                                                             const int k,
+                                                             bool UseGLL) const
 {
     ASSERTL2(i >= 0 && i <= 4, "face id is out of range");
     ASSERTL2(k >= 0 && k <= 1, "basis key id is out of range");
@@ -944,9 +947,9 @@ const LibUtilities::BasisKey StdPrismExp::v_GetTraceBasisKey(const int i,
         case 1:
         case 3:
         {
-            return EvaluateTriFaceBasisKey(k, m_base[2 * k]->GetBasisType(),
-                                           m_base[2 * k]->GetNumPoints(),
-                                           m_base[2 * k]->GetNumModes());
+            return EvaluateTriFaceBasisKey(
+                k, m_base[2 * k]->GetBasisType(), m_base[2 * k]->GetNumPoints(),
+                m_base[2 * k]->GetNumModes(), UseGLL);
         }
         break;
     }
@@ -1305,7 +1308,7 @@ void StdPrismExp::v_GetElmtTraceToTraceMap(const unsigned int fid,
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nFaceCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nFaceCoeffs, 1);
     }
 
     int minPA = min(nummodesA, P);
@@ -1539,7 +1542,7 @@ void StdPrismExp::v_GetEdgeInteriorToElementMap(
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nEdgeIntCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nEdgeIntCoeffs, 1);
     }
 
     // If edge is oriented backwards, change sign of modes which have
@@ -1654,7 +1657,7 @@ void StdPrismExp::v_GetTraceInteriorToElementMap(
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nFaceIntCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nFaceIntCoeffs, 1);
     }
 
     // Set up an array indexing for quad faces, since the ordering may
@@ -1961,8 +1964,8 @@ void StdPrismExp::v_MultiplyByStdQuadratureMetric(
     // Multiply by integration constants in x-direction
     for (i = 0; i < nquad1 * nquad2; ++i)
     {
-        Vmath::Vmul(nquad0, inarray.get() + i * nquad0, 1, w0.get(), 1,
-                    outarray.get() + i * nquad0, 1);
+        Vmath::Vmul(nquad0, inarray.data() + i * nquad0, 1, w0.data(), 1,
+                    outarray.data() + i * nquad0, 1);
     }
 
     // Multiply by integration constants in y-direction

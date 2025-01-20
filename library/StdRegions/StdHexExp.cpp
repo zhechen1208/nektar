@@ -226,7 +226,7 @@ void StdHexExp::v_BwdTrans_SumFacKernel(
     // points is just a copy of the modes.
     if (colldir0 && colldir1 && colldir2)
     {
-        Vmath::Vcopy(m_ncoeffs, inarray.get(), 1, outarray.get(), 1);
+        Vmath::Vcopy(m_ncoeffs, inarray.data(), 1, outarray.data(), 1);
     }
     else
     {
@@ -239,13 +239,13 @@ void StdHexExp::v_BwdTrans_SumFacKernel(
 
         // BwdTrans in each direction using DGEMM
         Blas::Dgemm('T', 'T', nmodes1 * nmodes2, nquad0, nmodes0, 1.0,
-                    &inarray[0], nmodes0, base0.get(), nquad0, 0.0, &wsp[0],
+                    &inarray[0], nmodes0, base0.data(), nquad0, 0.0, &wsp[0],
                     nmodes1 * nmodes2);
         Blas::Dgemm('T', 'T', nquad0 * nmodes2, nquad1, nmodes1, 1.0, &wsp[0],
-                    nmodes1, base1.get(), nquad1, 0.0, &wsp2[0],
+                    nmodes1, base1.data(), nquad1, 0.0, &wsp2[0],
                     nquad0 * nmodes2);
         Blas::Dgemm('T', 'T', nquad0 * nquad1, nquad2, nmodes2, 1.0, &wsp2[0],
-                    nmodes2, base2.get(), nquad2, 0.0, &outarray[0],
+                    nmodes2, base2.data(), nquad2, 0.0, &outarray[0],
                     nquad0 * nquad1);
     }
 }
@@ -389,7 +389,7 @@ void StdHexExp::v_IProductWRTBase_SumFacKernel(
 
     if (colldir0 && colldir1 && colldir2)
     {
-        Vmath::Vcopy(m_ncoeffs, inarray.get(), 1, outarray.get(), 1);
+        Vmath::Vcopy(m_ncoeffs, inarray.data(), 1, outarray.data(), 1);
     }
     else
     {
@@ -404,15 +404,15 @@ void StdHexExp::v_IProductWRTBase_SumFacKernel(
             // reshuffle data for next operation.
             for (int n = 0; n < nmodes0; ++n)
             {
-                Vmath::Vcopy(nquad1 * nquad2, inarray.get() + n, nquad0,
-                             tmp0.get() + nquad1 * nquad2 * n, 1);
+                Vmath::Vcopy(nquad1 * nquad2, inarray.data() + n, nquad0,
+                             tmp0.data() + nquad1 * nquad2 * n, 1);
             }
         }
         else
         {
             Blas::Dgemm('T', 'N', nquad1 * nquad2, nmodes0, nquad0, 1.0,
-                        inarray.get(), nquad0, base0.get(), nquad0, 0.0,
-                        tmp0.get(), nquad1 * nquad2);
+                        inarray.data(), nquad0, base0.data(), nquad0, 0.0,
+                        tmp0.data(), nquad1 * nquad2);
         }
 
         if (colldir1)
@@ -420,15 +420,15 @@ void StdHexExp::v_IProductWRTBase_SumFacKernel(
             // reshuffle data for next operation.
             for (int n = 0; n < nmodes1; ++n)
             {
-                Vmath::Vcopy(nquad2 * nmodes0, tmp0.get() + n, nquad1,
-                             tmp1.get() + nquad2 * nmodes0 * n, 1);
+                Vmath::Vcopy(nquad2 * nmodes0, tmp0.data() + n, nquad1,
+                             tmp1.data() + nquad2 * nmodes0 * n, 1);
             }
         }
         else
         {
             Blas::Dgemm('T', 'N', nquad2 * nmodes0, nmodes1, nquad1, 1.0,
-                        tmp0.get(), nquad1, base1.get(), nquad1, 0.0,
-                        tmp1.get(), nquad2 * nmodes0);
+                        tmp0.data(), nquad1, base1.data(), nquad1, 0.0,
+                        tmp1.data(), nquad2 * nmodes0);
         }
 
         if (colldir2)
@@ -436,15 +436,15 @@ void StdHexExp::v_IProductWRTBase_SumFacKernel(
             // reshuffle data for next operation.
             for (int n = 0; n < nmodes2; ++n)
             {
-                Vmath::Vcopy(nmodes0 * nmodes1, tmp1.get() + n, nquad2,
-                             outarray.get() + nmodes0 * nmodes1 * n, 1);
+                Vmath::Vcopy(nmodes0 * nmodes1, tmp1.data() + n, nquad2,
+                             outarray.data() + nmodes0 * nmodes1 * n, 1);
             }
         }
         else
         {
             Blas::Dgemm('T', 'N', nmodes0 * nmodes1, nmodes2, nquad2, 1.0,
-                        tmp1.get(), nquad2, base2.get(), nquad2, 0.0,
-                        outarray.get(), nmodes0 * nmodes1);
+                        tmp1.data(), nquad2, base2.data(), nquad2, 0.0,
+                        outarray.data(), nmodes0 * nmodes1);
         }
     }
 }
@@ -545,7 +545,7 @@ void StdHexExp::v_FillMode(const int mode, Array<OneD, NekDouble> &outarray)
 
     for (int i = 0; i < nquad1 * nquad2; ++i)
     {
-        Vmath::Vcopy(nquad0, (NekDouble *)(base0.get() + mode0 * nquad0), 1,
+        Vmath::Vcopy(nquad0, (NekDouble *)(base0.data() + mode0 * nquad0), 1,
                      &outarray[0] + i * nquad0, 1);
     }
 
@@ -553,7 +553,7 @@ void StdHexExp::v_FillMode(const int mode, Array<OneD, NekDouble> &outarray)
     {
         for (int i = 0; i < nquad0; ++i)
         {
-            Vmath::Vmul(nquad1, (NekDouble *)(base1.get() + mode1 * nquad1), 1,
+            Vmath::Vmul(nquad1, (NekDouble *)(base1.data() + mode1 * nquad1), 1,
                         &outarray[0] + i + j * nquad0 * nquad1, nquad0,
                         &outarray[0] + i + j * nquad0 * nquad1, nquad0);
         }
@@ -728,8 +728,8 @@ int StdHexExp::v_CalcNumberOfCoefficients(
     return nmodes;
 }
 
-const LibUtilities::BasisKey StdHexExp::v_GetTraceBasisKey(const int i,
-                                                           const int k) const
+const LibUtilities::BasisKey StdHexExp::v_GetTraceBasisKey(
+    const int i, const int k, [[maybe_unused]] bool UseGLL) const
 {
     ASSERTL2(i >= 0 && i <= 5, "face id is out of range");
     ASSERTL2(k >= 0 && k <= 1, "basis key id is out of range");
@@ -1107,12 +1107,13 @@ void StdHexExp::v_GetBoundaryMap(Array<OneD, unsigned int> &outarray)
         }
     }
 
-    sort(outarray.get(), outarray.get() + nBndCoeffs);
+    sort(outarray.data(), outarray.data() + nBndCoeffs);
 }
 
-NekDouble StdHexExp::v_PhysEvaluate(const Array<OneD, NekDouble> &coord,
-                                    const Array<OneD, const NekDouble> &inarray,
-                                    std::array<NekDouble, 3> &firstOrderDerivs)
+NekDouble StdHexExp::v_PhysEvalFirstDeriv(
+    const Array<OneD, NekDouble> &coord,
+    const Array<OneD, const NekDouble> &inarray,
+    std::array<NekDouble, 3> &firstOrderDerivs)
 {
     return BaryTensorDeriv(coord, inarray, firstOrderDerivs);
 }
@@ -1322,7 +1323,7 @@ void StdHexExp::v_GetElmtTraceToTraceMap(const unsigned int fid,
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nFaceCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nFaceCoeffs, 1);
     }
 
     // setup indexing to manage transpose directions
@@ -1569,7 +1570,7 @@ void StdHexExp::v_GetEdgeInteriorToElementMap(
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nEdgeIntCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nEdgeIntCoeffs, 1);
     }
 
     int nummodes[3] = {m_base[0]->GetNumModes(), m_base[1]->GetNumModes(),
@@ -1816,7 +1817,7 @@ void StdHexExp::v_GetEdgeInteriorToElementMap(
 
     if (reverseOrdering)
     {
-        reverse(maparray.get(), maparray.get() + nEdgeIntCoeffs);
+        reverse(maparray.data(), maparray.data() + nEdgeIntCoeffs);
     }
 
     if (signChange)
@@ -1861,7 +1862,7 @@ void StdHexExp::v_GetTraceInteriorToElementMap(
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nFaceIntCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nFaceIntCoeffs, 1);
     }
 
     int nummodes[3] = {m_base[0]->GetNumModes(), m_base[1]->GetNumModes(),
@@ -2320,20 +2321,20 @@ void StdHexExp::v_MultiplyByStdQuadratureMetric(
 
     for (int i = 0; i < nq12; ++i)
     {
-        Vmath::Vmul(nquad0, inarray.get() + i * nquad0, 1, w0.get(), 1,
-                    outarray.get() + i * nquad0, 1);
+        Vmath::Vmul(nquad0, inarray.data() + i * nquad0, 1, w0.data(), 1,
+                    outarray.data() + i * nquad0, 1);
     }
 
     for (int i = 0; i < nq12; ++i)
     {
-        Vmath::Smul(nquad0, w1[i % nquad1], outarray.get() + i * nquad0, 1,
-                    outarray.get() + i * nquad0, 1);
+        Vmath::Smul(nquad0, w1[i % nquad1], outarray.data() + i * nquad0, 1,
+                    outarray.data() + i * nquad0, 1);
     }
 
     for (int i = 0; i < nquad2; ++i)
     {
-        Vmath::Smul(nq01, w2[i], outarray.get() + i * nq01, 1,
-                    outarray.get() + i * nq01, 1);
+        Vmath::Smul(nq01, w2[i], outarray.data() + i * nq01, 1,
+                    outarray.data() + i * nq01, 1);
     }
 }
 

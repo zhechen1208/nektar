@@ -139,9 +139,9 @@ protected:
         const int fid, int &numModes0, int &numModes1,
         Orientation faceOrient = eDir1FwdDir1_Dir2FwdDir2) override;
     STD_REGIONS_EXPORT NekDouble
-    v_PhysEvaluate(const Array<OneD, NekDouble> &coord,
-                   const Array<OneD, const NekDouble> &inarray,
-                   std::array<NekDouble, 3> &firstOrderDerivs) override;
+    v_PhysEvalFirstDeriv(const Array<OneD, NekDouble> &coord,
+                         const Array<OneD, const NekDouble> &inarray,
+                         std::array<NekDouble, 3> &firstOrderDerivs) override;
 
     //---------------------------------------
     // Helper functions
@@ -157,7 +157,7 @@ protected:
     STD_REGIONS_EXPORT int v_GetTraceNumPoints(const int i) const override;
     STD_REGIONS_EXPORT int v_GetEdgeNcoeffs(const int i) const override;
     STD_REGIONS_EXPORT const LibUtilities::BasisKey v_GetTraceBasisKey(
-        const int i, const int k) const override;
+        const int i, const int k, bool UseGLL = false) const override;
     STD_REGIONS_EXPORT LibUtilities::PointsKey v_GetTracePointsKey(
         const int i, const int j) const override;
     STD_REGIONS_EXPORT int v_CalcNumberOfCoefficients(

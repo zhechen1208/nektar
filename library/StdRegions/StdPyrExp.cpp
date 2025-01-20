@@ -292,9 +292,9 @@ void StdPyrExp::v_BwdTrans_SumFacKernel(
         {
             int ijmax = max(i, j);
             Blas::Dgemv('N', nquad2, order2 - ijmax, 1.0,
-                        base2.get() + mode * nquad2, nquad2,
-                        inarray.get() + mode1, 1, 0.0, tmp.get() + cnt * nquad2,
-                        1);
+                        base2.data() + mode * nquad2, nquad2,
+                        inarray.data() + mode1, 1, 0.0,
+                        tmp.data() + cnt * nquad2, 1);
             mode += order2 - ijmax;
             mode1 += order2 - ijmax;
         }
@@ -314,15 +314,15 @@ void StdPyrExp::v_BwdTrans_SumFacKernel(
 
         // Not sure why we could not use basis as 1.0
         // top singular vertex - (1+c)/2 x (1+b)/2 x (1-a)/2 component
-        Blas::Daxpy(nquad2, inarray[1], base2.get() + nquad2, 1,
+        Blas::Daxpy(nquad2, inarray[1], base2.data() + nquad2, 1,
                     &tmp[0] + nquad2, 1);
 
         // top singular vertex - (1+c)/2 x (1-b)/2 x (1+a)/2 component
-        Blas::Daxpy(nquad2, inarray[1], base2.get() + nquad2, 1,
+        Blas::Daxpy(nquad2, inarray[1], base2.data() + nquad2, 1,
                     &tmp[0] + order1 * nquad2, 1);
 
         // top singular vertex - (1+c)/2 x (1+b)/2 x (1+a)/2 component
-        Blas::Daxpy(nquad2, inarray[1], base2.get() + nquad2, 1,
+        Blas::Daxpy(nquad2, inarray[1], base2.data() + nquad2, 1,
                     &tmp[0] + order1 * nquad2 + nquad2, 1);
     }
 
@@ -330,15 +330,15 @@ void StdPyrExp::v_BwdTrans_SumFacKernel(
     mode = 0;
     for (i = 0; i < order0; ++i)
     {
-        Blas::Dgemm('N', 'T', nquad1, nquad2, order1, 1.0, base1.get(), nquad1,
-                    tmp.get() + mode * nquad2, nquad2, 0.0,
-                    tmp1.get() + i * nquad1 * nquad2, nquad1);
+        Blas::Dgemm('N', 'T', nquad1, nquad2, order1, 1.0, base1.data(), nquad1,
+                    tmp.data() + mode * nquad2, nquad2, 0.0,
+                    tmp1.data() + i * nquad1 * nquad2, nquad1);
         mode += order1;
     }
 
     // Perform summation over '0' direction
-    Blas::Dgemm('N', 'T', nquad0, nquad1 * nquad2, order0, 1.0, base0.get(),
-                nquad0, tmp1.get(), nquad1 * nquad2, 0.0, outarray.get(),
+    Blas::Dgemm('N', 'T', nquad0, nquad1 * nquad2, order0, 1.0, base0.data(),
+                nquad0, tmp1.data(), nquad1 * nquad2, 0.0, outarray.data(),
                 nquad0);
 }
 
@@ -461,15 +461,16 @@ void StdPyrExp::v_IProductWRTBase_SumFacKernel(
     int i, j, mode, mode1, cnt;
 
     // Inner product with respect to the '0' direction
-    Blas::Dgemm('T', 'N', nquad1 * nquad2, order0, nquad0, 1.0, inarray.get(),
-                nquad0, base0.get(), nquad0, 0.0, tmp1.get(), nquad1 * nquad2);
+    Blas::Dgemm('T', 'N', nquad1 * nquad2, order0, nquad0, 1.0, inarray.data(),
+                nquad0, base0.data(), nquad0, 0.0, tmp1.data(),
+                nquad1 * nquad2);
 
     // Inner product with respect to the '1' direction
     for (mode = i = 0; i < order0; ++i)
     {
         Blas::Dgemm('T', 'N', nquad2, order1, nquad1, 1.0,
-                    tmp1.get() + i * nquad1 * nquad2, nquad1, base1.get(),
-                    nquad1, 0.0, tmp2.get() + mode * nquad2, nquad2);
+                    tmp1.data() + i * nquad1 * nquad2, nquad1, base1.data(),
+                    nquad1, 0.0, tmp2.data() + mode * nquad2, nquad2);
         mode += order1;
     }
 
@@ -482,9 +483,9 @@ void StdPyrExp::v_IProductWRTBase_SumFacKernel(
             int ijmax = max(i, j);
 
             Blas::Dgemv('T', nquad2, order2 - ijmax, 1.0,
-                        base2.get() + mode * nquad2, nquad2,
-                        tmp2.get() + cnt * nquad2, 1, 0.0,
-                        outarray.get() + mode1, 1);
+                        base2.data() + mode * nquad2, nquad2,
+                        tmp2.data() + cnt * nquad2, 1, 0.0,
+                        outarray.data() + mode1, 1);
             mode += order2 - ijmax;
             mode1 += order2 - ijmax;
         }
@@ -503,14 +504,14 @@ void StdPyrExp::v_IProductWRTBase_SumFacKernel(
     {
         // add in (1+c)/2 (1+b)/2 (1-a)/2  component
         outarray[1] +=
-            Blas::Ddot(nquad2, base2.get() + nquad2, 1, &tmp2[nquad2], 1);
+            Blas::Ddot(nquad2, base2.data() + nquad2, 1, &tmp2[nquad2], 1);
 
         // add in (1+c)/2 (1-b)/2 (1+a)/2 component
-        outarray[1] += Blas::Ddot(nquad2, base2.get() + nquad2, 1,
+        outarray[1] += Blas::Ddot(nquad2, base2.data() + nquad2, 1,
                                   &tmp2[nquad2 * order1], 1);
 
         // add in (1+c)/2 (1+b)/2 (1+a)/2 component
-        outarray[1] += Blas::Ddot(nquad2, base2.get() + nquad2, 1,
+        outarray[1] += Blas::Ddot(nquad2, base2.data() + nquad2, 1,
                                   &tmp2[nquad2 * order1 + nquad2], 1);
     }
 }
@@ -605,8 +606,8 @@ void StdPyrExp::v_IProductWRTDerivBase_SumFac(
             // Scale eta_1 derivative by gfac0
             for (i = 0; i < nquad1 * nquad2; ++i)
             {
-                Vmath::Vmul(nquad0, tmp0.get() + i * nquad0, 1, gfac0.get(), 1,
-                            tmp0.get() + i * nquad0, 1);
+                Vmath::Vmul(nquad0, tmp0.data() + i * nquad0, 1, gfac0.data(),
+                            1, tmp0.data() + i * nquad0, 1);
             }
             IProductWRTBase_SumFacKernel(
                 m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
@@ -708,9 +709,67 @@ void StdPyrExp::v_GetCoords(Array<OneD, NekDouble> &xi_x,
     }
 }
 
-NekDouble StdPyrExp::v_PhysEvaluate(const Array<OneD, NekDouble> &coord,
-                                    const Array<OneD, const NekDouble> &inarray,
-                                    std::array<NekDouble, 3> &firstOrderDerivs)
+NekDouble StdPyrExp::v_PhysEvaluateBasis(
+    const Array<OneD, const NekDouble> &coords, int mode)
+{
+    Array<OneD, NekDouble> coll(3);
+    LocCoordToLocCollapsed(coords, coll);
+
+    const int nm0 = m_base[0]->GetNumModes();
+    const int nm1 = m_base[1]->GetNumModes();
+    const int nm2 = m_base[2]->GetNumModes();
+
+    int mode0 = 0, mode1 = 0, mode2 = 0, cnt = 0;
+
+    bool found = false;
+    for (mode0 = 0; mode0 < nm0; ++mode0)
+    {
+        for (mode1 = 0; mode1 < nm1; ++mode1)
+        {
+            int maxpq = max(mode0, mode1);
+            for (mode2 = 0; mode2 < nm2 - maxpq; ++mode2, ++cnt)
+            {
+                if (cnt == mode)
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found)
+            {
+                break;
+            }
+        }
+
+        if (found)
+        {
+            break;
+        }
+
+        for (int j = nm1; j < nm2; ++j)
+        {
+            int ijmax = max(mode0, j);
+            mode2 += nm2 - ijmax;
+        }
+    }
+
+    if (mode == 1 && m_base[0]->GetBasisType() == LibUtilities::eModified_A)
+    {
+        return StdExpansion::BaryEvaluateBasis<2>(coll[2], 1);
+    }
+    else
+    {
+        return StdExpansion::BaryEvaluateBasis<0>(coll[0], mode0) *
+               StdExpansion::BaryEvaluateBasis<1>(coll[1], mode1) *
+               StdExpansion::BaryEvaluateBasis<2>(coll[2], mode2);
+    }
+}
+
+NekDouble StdPyrExp::v_PhysEvalFirstDeriv(
+    const Array<OneD, NekDouble> &coord,
+    const Array<OneD, const NekDouble> &inarray,
+    std::array<NekDouble, 3> &firstOrderDerivs)
 {
     // Collapse coordinates
     Array<OneD, NekDouble> coll(3, 0.0);
@@ -789,63 +848,6 @@ void StdPyrExp::v_GetTraceNumModes(const int fid, int &numModes0,
     if (faceOrient >= 9)
     {
         std::swap(numModes0, numModes1);
-    }
-}
-
-NekDouble StdPyrExp::v_PhysEvaluateBasis(
-    const Array<OneD, const NekDouble> &coords, int mode)
-{
-    Array<OneD, NekDouble> coll(3);
-    LocCoordToLocCollapsed(coords, coll);
-
-    const int nm0 = m_base[0]->GetNumModes();
-    const int nm1 = m_base[1]->GetNumModes();
-    const int nm2 = m_base[2]->GetNumModes();
-
-    int mode0 = 0, mode1 = 0, mode2 = 0, cnt = 0;
-
-    bool found = false;
-    for (mode0 = 0; mode0 < nm0; ++mode0)
-    {
-        for (mode1 = 0; mode1 < nm1; ++mode1)
-        {
-            int maxpq = max(mode0, mode1);
-            for (mode2 = 0; mode2 < nm2 - maxpq; ++mode2, ++cnt)
-            {
-                if (cnt == mode)
-                {
-                    found = true;
-                    break;
-                }
-            }
-
-            if (found)
-            {
-                break;
-            }
-        }
-
-        if (found)
-        {
-            break;
-        }
-
-        for (int j = nm1; j < nm2; ++j)
-        {
-            int ijmax = max(mode0, j);
-            mode2 += nm2 - ijmax;
-        }
-    }
-
-    if (mode == 1 && m_base[0]->GetBasisType() == LibUtilities::eModified_A)
-    {
-        return StdExpansion::BaryEvaluateBasis<2>(coll[2], 1);
-    }
-    else
-    {
-        return StdExpansion::BaryEvaluateBasis<0>(coll[0], mode0) *
-               StdExpansion::BaryEvaluateBasis<1>(coll[1], mode1) *
-               StdExpansion::BaryEvaluateBasis<2>(coll[2], mode2);
     }
 }
 
@@ -992,7 +994,8 @@ int StdPyrExp::v_GetEdgeNcoeffs(const int i) const
 }
 
 const LibUtilities::BasisKey StdPyrExp::v_GetTraceBasisKey(const int i,
-                                                           const int k) const
+                                                           const int k,
+                                                           bool UseGLL) const
 {
     ASSERTL2(i >= 0 && i <= 4, "face id is out of range");
     ASSERTL2(k >= 0 && k <= 1, "basis key id is out of range");
@@ -1008,16 +1011,16 @@ const LibUtilities::BasisKey StdPyrExp::v_GetTraceBasisKey(const int i,
         case 1:
         case 3:
         {
-            return EvaluateTriFaceBasisKey(k, m_base[2 * k]->GetBasisType(),
-                                           m_base[2 * k]->GetNumPoints(),
-                                           m_base[2 * k]->GetNumModes());
+            return EvaluateTriFaceBasisKey(
+                k, m_base[2 * k]->GetBasisType(), m_base[2 * k]->GetNumPoints(),
+                m_base[2 * k]->GetNumModes(), UseGLL);
         }
         case 2:
         case 4:
         {
-            return EvaluateTriFaceBasisKey(k, m_base[k + 1]->GetBasisType(),
-                                           m_base[k + 1]->GetNumPoints(),
-                                           m_base[k + 1]->GetNumModes());
+            return EvaluateTriFaceBasisKey(
+                k, m_base[k + 1]->GetBasisType(), m_base[k + 1]->GetNumPoints(),
+                m_base[k + 1]->GetNumModes(), UseGLL);
         }
     }
 
@@ -1380,7 +1383,7 @@ void StdPyrExp::v_GetElmtTraceToTraceMap(const unsigned int fid,
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nFaceCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nFaceCoeffs, 1);
     }
 
     // triangular faces
@@ -1614,7 +1617,7 @@ void StdPyrExp::v_GetEdgeInteriorToElementMap(
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nEdgeIntCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nEdgeIntCoeffs, 1);
     }
 
     // If edge is oriented backwards, change sign of modes which have
@@ -1713,7 +1716,7 @@ void StdPyrExp::v_GetTraceInteriorToElementMap(
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nFaceIntCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nFaceIntCoeffs, 1);
     }
 
     // Set up an array indexing for quad faces, since the ordering may
@@ -1953,8 +1956,8 @@ void StdPyrExp::v_MultiplyByStdQuadratureMetric(
     // Multiply by integration constants in x-direction
     for (i = 0; i < nquad1 * nquad2; ++i)
     {
-        Vmath::Vmul(nquad0, inarray.get() + i * nquad0, 1, w0.get(), 1,
-                    outarray.get() + i * nquad0, 1);
+        Vmath::Vmul(nquad0, inarray.data() + i * nquad0, 1, w0.data(), 1,
+                    outarray.data() + i * nquad0, 1);
     }
 
     // Multiply by integration constants in y-direction

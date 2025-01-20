@@ -253,7 +253,7 @@ void StdTriExp::v_BwdTrans_SumFacKernel(
 
     for (i = mode = 0; i < nmodes0; ++i)
     {
-        Blas::Dgemv('N', nquad1, nmodes1 - i, 1.0, base1.get() + mode * nquad1,
+        Blas::Dgemv('N', nquad1, nmodes1 - i, 1.0, base1.data() + mode * nquad1,
                     nquad1, &inarray[0] + mode, 1, 0.0, &wsp[0] + i * nquad1,
                     1);
         mode += nmodes1 - i;
@@ -262,11 +262,11 @@ void StdTriExp::v_BwdTrans_SumFacKernel(
     // fix for modified basis by splitting top vertex mode
     if (m_base[0]->GetBasisType() == LibUtilities::eModified_A)
     {
-        Blas::Daxpy(nquad1, inarray[1], base1.get() + nquad1, 1,
+        Blas::Daxpy(nquad1, inarray[1], base1.data() + nquad1, 1,
                     &wsp[0] + nquad1, 1);
     }
 
-    Blas::Dgemm('N', 'T', nquad0, nquad1, nmodes0, 1.0, base0.get(), nquad0,
+    Blas::Dgemm('N', 'T', nquad0, nquad1, nmodes0, 1.0, base0.data(), nquad0,
                 &wsp[0], nquad1, 0.0, &outarray[0], nquad0);
 }
 
@@ -294,7 +294,7 @@ void StdTriExp::v_FwdTransBndConstrained(
     int npoints[2] = {m_base[0]->GetNumPoints(), m_base[1]->GetNumPoints()};
     int nmodes[2]  = {m_base[0]->GetNumModes(), m_base[1]->GetNumModes()};
 
-    fill(outarray.get(), outarray.get() + m_ncoeffs, 0.0);
+    fill(outarray.data(), outarray.data() + m_ncoeffs, 0.0);
 
     Array<OneD, NekDouble> physEdge[3];
     Array<OneD, NekDouble> coeffEdge[3];
@@ -367,7 +367,7 @@ void StdTriExp::v_FwdTransBndConstrained(
     }
 
     Blas::Dgemv('N', nInteriorDofs, nInteriorDofs, 1.0, &(matsys->GetPtr())[0],
-                nInteriorDofs, rhs.get(), 1, 0.0, result.get(), 1);
+                nInteriorDofs, rhs.data(), 1, 0.0, result.data(), 1);
 
     for (i = 0; i < nInteriorDofs; i++)
     {
@@ -468,23 +468,23 @@ void StdTriExp::v_IProductWRTBase_SumFacKernel(
     ASSERTL1(wsp.size() >= nquad1 * nmodes0,
              "Workspace size is not sufficient");
 
-    Blas::Dgemm('T', 'N', nquad1, nmodes0, nquad0, 1.0, inarray.get(), nquad0,
-                base0.get(), nquad0, 0.0, wsp.get(), nquad1);
+    Blas::Dgemm('T', 'N', nquad1, nmodes0, nquad0, 1.0, inarray.data(), nquad0,
+                base0.data(), nquad0, 0.0, wsp.data(), nquad1);
 
     // Inner product with respect to 'b' direction
     for (mode = i = 0; i < nmodes0; ++i)
     {
-        Blas::Dgemv('T', nquad1, nmodes1 - i, 1.0, base1.get() + mode * nquad1,
-                    nquad1, wsp.get() + i * nquad1, 1, 0.0,
-                    outarray.get() + mode, 1);
+        Blas::Dgemv('T', nquad1, nmodes1 - i, 1.0, base1.data() + mode * nquad1,
+                    nquad1, wsp.data() + i * nquad1, 1, 0.0,
+                    outarray.data() + mode, 1);
         mode += nmodes1 - i;
     }
 
     // fix for modified basis by splitting top vertex mode
     if (m_base[0]->GetBasisType() == LibUtilities::eModified_A)
     {
-        outarray[1] +=
-            Blas::Ddot(nquad1, base1.get() + nquad1, 1, wsp.get() + nquad1, 1);
+        outarray[1] += Blas::Ddot(nquad1, base1.data() + nquad1, 1,
+                                  wsp.data() + nquad1, 1);
     }
 }
 
@@ -633,14 +633,14 @@ void StdTriExp::v_FillMode(const int mode, Array<OneD, NekDouble> &outarray)
     {
         for (i = 0; i < nquad1; ++i)
         {
-            Vmath::Vcopy(nquad0, (NekDouble *)(base0.get() + mode0 * nquad0), 1,
-                         &outarray[0] + i * nquad0, 1);
+            Vmath::Vcopy(nquad0, (NekDouble *)(base0.data() + mode0 * nquad0),
+                         1, &outarray[0] + i * nquad0, 1);
         }
     }
 
     for (i = 0; i < nquad0; ++i)
     {
-        Vmath::Vmul(nquad1, (NekDouble *)(base1.get() + mode * nquad1), 1,
+        Vmath::Vmul(nquad1, (NekDouble *)(base1.data() + mode * nquad1), 1,
                     &outarray[0] + i, nquad0, &outarray[0] + i, nquad0);
     }
 }
@@ -669,9 +669,10 @@ NekDouble StdTriExp::v_PhysEvaluateBasis(
     }
 }
 
-NekDouble StdTriExp::v_PhysEvaluate(const Array<OneD, NekDouble> &coord,
-                                    const Array<OneD, const NekDouble> &inarray,
-                                    std::array<NekDouble, 3> &firstOrderDerivs)
+NekDouble StdTriExp::v_PhysEvalFirstDeriv(
+    const Array<OneD, NekDouble> &coord,
+    const Array<OneD, const NekDouble> &inarray,
+    std::array<NekDouble, 3> &firstOrderDerivs)
 {
     // Collapse coordinates
     Array<OneD, NekDouble> coll(2, 0.0);
@@ -828,7 +829,8 @@ bool StdTriExp::v_IsBoundaryInteriorExpansion() const
 }
 
 const LibUtilities::BasisKey StdTriExp::v_GetTraceBasisKey(
-    const int i, [[maybe_unused]] const int j) const
+    const int i, [[maybe_unused]] const int j,
+    [[maybe_unused]] bool UseGLL) const
 {
     ASSERTL2(i >= 0 && i <= 2, "edge id is out of range");
 
@@ -1168,7 +1170,7 @@ void StdTriExp::v_GetTraceInteriorToElementMap(
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nEdgeIntCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nEdgeIntCoeffs, 1);
     }
 
     switch (eid)
@@ -1513,8 +1515,8 @@ void StdTriExp::v_MultiplyByStdQuadratureMetric(
     // multiply by integration constants
     for (i = 0; i < nquad1; ++i)
     {
-        Vmath::Vmul(nquad0, inarray.get() + i * nquad0, 1, w0.get(), 1,
-                    outarray.get() + i * nquad0, 1);
+        Vmath::Vmul(nquad0, inarray.data() + i * nquad0, 1, w0.data(), 1,
+                    outarray.data() + i * nquad0, 1);
     }
 
     switch (m_base[1]->GetPointsType())
@@ -1523,7 +1525,7 @@ void StdTriExp::v_MultiplyByStdQuadratureMetric(
         case LibUtilities::eGaussRadauMAlpha1Beta0:
             for (i = 0; i < nquad1; ++i)
             {
-                Blas::Dscal(nquad0, 0.5 * w1[i], outarray.get() + i * nquad0,
+                Blas::Dscal(nquad0, 0.5 * w1[i], outarray.data() + i * nquad0,
                             1);
             }
             break;
@@ -1532,7 +1534,7 @@ void StdTriExp::v_MultiplyByStdQuadratureMetric(
             for (i = 0; i < nquad1; ++i)
             {
                 Blas::Dscal(nquad0, 0.5 * (1 - z1[i]) * w1[i],
-                            outarray.get() + i * nquad0, 1);
+                            outarray.data() + i * nquad0, 1);
             }
             break;
     }

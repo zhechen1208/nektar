@@ -1,5 +1,42 @@
 Changelog
 =========
+
+v5.8.0
+------
+**Library**
+- Use GLL quadrature points on Tri Dirichlet BCs with CG (!1895)
+- Add FieldConvert module to perform local stability analysis for compressible flows (!1319)
+- Remove get() accessor from Array data structure (!1937)
+- Fix issue with `StdTetExp::v_LocCollapsedToLocCoord` (!1946)
+- Fix issue with `NodalTriExp::v_GetTracePhysVals` (!1951)
+- Remove deprecated version of v_SetCoeffsToOrientation functions (!1954)
+- Fix issue with Dirichlet BCs when using variable P (!1972)
+- Patch for implicit-function error in scotch-6.0.4 (!1938)
+- Tidy virtual inheritance in NodalTriExp (!1979)
+- Fix partial overload virtual function in AssemblyMap, StdRegions, and LocalRegions (!1978)
+- Fix partial overload virtual function v_PhysEvaluate (!1980)
+- Matrix free ops shape cleanup (!1735) 
+- Fix NodalTri processing and static condensation matrix release (!1989)
+- Fix third-party Scotch patch (!1998)
+- Fixed Modified Arnoldi driver to remove discontinuities from random vectors (!2002)
+
+**CI**
+- Fix CubeAllElements performance test tolerance (!1943)
+- Remove `allow_failure` from compiler warnings and formatting (!1958, !1966)
+- remove CI image tag when dockerhub deploy completes (!1960)
+- Use recursive strategy for submodule (!1997)
+- cleanup CI environment images after packaging (!1991)
+
+**NekMesh**
+- Add high-order pyramid and prism support from gmsh (!1956)
+
+**Python**
+- Transition bindings to use pybind11 (!1950)
+
+**Documentation**
+- Updated the User-guide with additional inofrmation for outflow BC, addressing the issue #103 (!1990)
+
+
 v5.7.0
 -----
 **Library**
@@ -19,6 +56,7 @@ v5.7.0
 - Fix variable p in tetrahedrons (!1881)
 - Fix BwdTrans for Pyr with var P (!1886)
 - Allow wrapper array around a existing raw pointer (!1848)
+- Tweaked some long tests to make them faster (!1918)
 
 **IncNavierStokesSolver**
 - Fix initial and boundary conditions in the moving reference frame (!1692, !1820)
@@ -34,6 +72,12 @@ v5.7.0
 
 **NekMesh**
 - Added revolve module (!1825)
+- Fix Prism Reordering in Process PerAlign (!1899)
+- Extend quality measures in ProcessJac and add histogram generation(!1751)
+- Reducing run time of some tests in NekMesh(!1922)
+- Extend quality measures in ProcessJac and add histogram generation (!1751)
+- Reducing run time of some tests in NekMesh (!1922)
+- Added a reader for the CGNS input format (!1889)
 
 **FieldConvert**
 - Add vortexinducedvelocity module to compute the vortex-induced velocity (!1824)
@@ -44,9 +88,14 @@ v5.7.0
 
 **Documentation**
 - Add initial documentation for the IncNavierStokesSolver (!1822)
+- Updated the supported packages in Userguid (!1904)
+- Added a example for RayleighBenardConvection in the user-guide for IncNS (!1919)
+- Fix some typos in tutorials (!1929)
 
 **CI and Packaging**
 - Debian 10 (BUSTER) is no longer supported (!1902)
+- Support is added for Ubuntu Noble Numbat and droped for Bionic Beaver (!1910)
+- Removed Fedora 35/36, added Fedora 39/40 (!1909)
 
 v5.6.0
 ------

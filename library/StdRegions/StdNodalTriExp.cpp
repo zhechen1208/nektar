@@ -64,8 +64,8 @@ bool StdNodalTriExp::v_IsNodalNonTensorialExp()
 // Nodal basis specific routines
 //-------------------------------
 
-void StdNodalTriExp::NodalToModal(const Array<OneD, const NekDouble> &inarray,
-                                  Array<OneD, NekDouble> &outarray)
+void StdNodalTriExp::v_NodalToModal(const Array<OneD, const NekDouble> &inarray,
+                                    Array<OneD, NekDouble> &outarray)
 {
     StdMatrixKey Nkey(eInvNBasisTrans, DetShapeType(), *this,
                       NullConstFactorMap, NullVarCoeffMap,
@@ -157,7 +157,7 @@ void StdNodalTriExp::v_BwdTrans_SumFac(
     Array<OneD, NekDouble> &outarray)
 {
     Array<OneD, NekDouble> tmp(m_ncoeffs);
-    NodalToModal(inarray, tmp);
+    v_NodalToModal(inarray, tmp);
     StdTriExp::v_BwdTrans_SumFac(tmp, outarray);
 }
 
@@ -273,7 +273,7 @@ void StdNodalTriExp::v_GetTraceToElementMap(const int eid,
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nEdgeCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nEdgeCoeffs, 1);
     }
 
     Orientation orient = edgeOrient;
@@ -291,7 +291,7 @@ void StdNodalTriExp::v_GetTraceToElementMap(const int eid,
 
     if (orient == eBackwards)
     {
-        reverse(maparray.get(), maparray.get() + nEdgeCoeffs);
+        reverse(maparray.data(), maparray.data() + nEdgeCoeffs);
     }
 }
 
@@ -314,7 +314,7 @@ void StdNodalTriExp::v_GetTraceInteriorToElementMap(
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nEdgeIntCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nEdgeIntCoeffs, 1);
     }
 
     Orientation orient = edgeOrient;
@@ -330,7 +330,7 @@ void StdNodalTriExp::v_GetTraceInteriorToElementMap(
 
     if (orient == eBackwards)
     {
-        reverse(maparray.get(), maparray.get() + nEdgeIntCoeffs);
+        reverse(maparray.data(), maparray.data() + nEdgeIntCoeffs);
     }
 }
 

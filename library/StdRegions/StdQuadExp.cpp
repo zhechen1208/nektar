@@ -175,16 +175,16 @@ void StdQuadExp::v_BwdTrans_SumFacKernel(
 
     if (colldir0 && colldir1)
     {
-        Vmath::Vcopy(m_ncoeffs, inarray.get(), 1, outarray.get(), 1);
+        Vmath::Vcopy(m_ncoeffs, inarray.data(), 1, outarray.data(), 1);
     }
     else if (colldir0)
     {
         Blas::Dgemm('N', 'T', nquad0, nquad1, nmodes1, 1.0, &inarray[0], nquad0,
-                    base1.get(), nquad1, 0.0, &outarray[0], nquad0);
+                    base1.data(), nquad1, 0.0, &outarray[0], nquad0);
     }
     else if (colldir1)
     {
-        Blas::Dgemm('N', 'N', nquad0, nmodes1, nmodes0, 1.0, base0.get(),
+        Blas::Dgemm('N', 'N', nquad0, nmodes1, nmodes0, 1.0, base0.data(),
                     nquad0, &inarray[0], nmodes0, 0.0, &outarray[0], nquad0);
     }
     else
@@ -194,10 +194,10 @@ void StdQuadExp::v_BwdTrans_SumFacKernel(
 
         // Those two calls correpsond to the operation
         // out = B0*in*Transpose(B1);
-        Blas::Dgemm('N', 'N', nquad0, nmodes1, nmodes0, 1.0, base0.get(),
+        Blas::Dgemm('N', 'N', nquad0, nmodes1, nmodes0, 1.0, base0.data(),
                     nquad0, &inarray[0], nmodes0, 0.0, &wsp[0], nquad0);
         Blas::Dgemm('N', 'T', nquad0, nquad1, nmodes1, 1.0, &wsp[0], nquad0,
-                    base1.get(), nquad1, 0.0, &outarray[0], nquad0);
+                    base1.data(), nquad1, 0.0, &outarray[0], nquad0);
     }
 }
 
@@ -238,7 +238,7 @@ void StdQuadExp::v_FwdTransBndConstrained(
         int npoints[2] = {m_base[0]->GetNumPoints(), m_base[1]->GetNumPoints()};
         int nmodes[2]  = {m_base[0]->GetNumModes(), m_base[1]->GetNumModes()};
 
-        fill(outarray.get(), outarray.get() + m_ncoeffs, 0.0);
+        fill(outarray.data(), outarray.data() + m_ncoeffs, 0.0);
 
         Array<OneD, NekDouble> physEdge[4];
         Array<OneD, NekDouble> coeffEdge[4];
@@ -312,8 +312,8 @@ void StdQuadExp::v_FwdTransBndConstrained(
         }
 
         Blas::Dgemv('N', nInteriorDofs, nInteriorDofs, 1.0,
-                    &(matsys->GetPtr())[0], nInteriorDofs, rhs.get(), 1, 0.0,
-                    result.get(), 1);
+                    &(matsys->GetPtr())[0], nInteriorDofs, rhs.data(), 1, 0.0,
+                    result.data(), 1);
 
         for (i = 0; i < nInteriorDofs; i++)
         {
@@ -457,17 +457,19 @@ void StdQuadExp::v_IProductWRTBase_SumFacKernel(
 
     if (colldir0 && colldir1)
     {
-        Vmath::Vcopy(m_ncoeffs, inarray.get(), 1, outarray.get(), 1);
+        Vmath::Vcopy(m_ncoeffs, inarray.data(), 1, outarray.data(), 1);
     }
     else if (colldir0)
     {
-        Blas::Dgemm('N', 'N', nmodes0, nmodes1, nquad1, 1.0, inarray.get(),
-                    nmodes0, base1.get(), nquad1, 0.0, outarray.get(), nmodes0);
+        Blas::Dgemm('N', 'N', nmodes0, nmodes1, nquad1, 1.0, inarray.data(),
+                    nmodes0, base1.data(), nquad1, 0.0, outarray.data(),
+                    nmodes0);
     }
     else if (colldir1)
     {
-        Blas::Dgemm('T', 'N', nmodes0, nquad1, nquad0, 1.0, base0.get(), nquad0,
-                    inarray.get(), nquad0, 0.0, outarray.get(), nmodes0);
+        Blas::Dgemm('T', 'N', nmodes0, nquad1, nquad0, 1.0, base0.data(),
+                    nquad0, inarray.data(), nquad0, 0.0, outarray.data(),
+                    nmodes0);
     }
     else
     {
@@ -475,8 +477,8 @@ void StdQuadExp::v_IProductWRTBase_SumFacKernel(
                  "Workspace size is not sufficient");
 
 #if 1
-        Blas::Dgemm('T', 'N', nmodes0, nquad1, nquad0, 1.0, base0.get(), nquad0,
-                    inarray.get(), nquad0, 0.0, wsp.get(), nmodes0);
+        Blas::Dgemm('T', 'N', nmodes0, nquad1, nquad0, 1.0, base0.data(),
+                    nquad0, inarray.data(), nquad0, 0.0, wsp.data(), nmodes0);
 
 #else
         for (int i = 0; i < nmodes0; ++i)
@@ -484,13 +486,14 @@ void StdQuadExp::v_IProductWRTBase_SumFacKernel(
             for (int j = 0; j < nquad1; ++j)
             {
                 wsp[j * nmodes0 + i] =
-                    Blas::Ddot(nquad0, base0.get() + i * nquad0, 1,
-                               inarray.get() + j * nquad0, 1);
+                    Blas::Ddot(nquad0, base0.data() + i * nquad0, 1,
+                               inarray.data() + j * nquad0, 1);
             }
         }
 #endif
-        Blas::Dgemm('N', 'N', nmodes0, nmodes1, nquad1, 1.0, wsp.get(), nmodes0,
-                    base1.get(), nquad1, 0.0, outarray.get(), nmodes0);
+        Blas::Dgemm('N', 'N', nmodes0, nmodes1, nquad1, 1.0, wsp.data(),
+                    nmodes0, base1.data(), nquad1, 0.0, outarray.data(),
+                    nmodes0);
     }
 }
 
@@ -537,13 +540,13 @@ void StdQuadExp::v_FillMode(const int mode, Array<OneD, NekDouble> &outarray)
 
     for (i = 0; i < nquad1; ++i)
     {
-        Vmath::Vcopy(nquad0, (NekDouble *)(base0.get() + mode0 * nquad0), 1,
+        Vmath::Vcopy(nquad0, (NekDouble *)(base0.data() + mode0 * nquad0), 1,
                      &outarray[0] + i * nquad0, 1);
     }
 
     for (i = 0; i < nquad0; ++i)
     {
-        Vmath::Vmul(nquad1, (NekDouble *)(base1.get() + mode1 * nquad1), 1,
+        Vmath::Vmul(nquad1, (NekDouble *)(base1.data() + mode1 * nquad1), 1,
                     &outarray[0] + i, nquad0, &outarray[0] + i, nquad0);
     }
 }
@@ -604,7 +607,8 @@ int StdQuadExp::v_GetTraceNumPoints(const int i) const
 }
 
 const LibUtilities::BasisKey StdQuadExp::v_GetTraceBasisKey(
-    const int i, [[maybe_unused]] const int j) const
+    const int i, [[maybe_unused]] const int j,
+    [[maybe_unused]] bool UseGLL) const
 {
     ASSERTL2((i >= 0) && (i <= 3), "edge id is out of range");
 
@@ -689,7 +693,7 @@ void StdQuadExp::v_GetCoords(Array<OneD, NekDouble> &coords_0,
 
     for (i = 0; i < nq1; ++i)
     {
-        Blas::Dcopy(nq0, z0.get(), 1, &coords_0[0] + i * nq0, 1);
+        Blas::Dcopy(nq0, z0.data(), 1, &coords_0[0] + i * nq0, 1);
         Vmath::Fill(nq0, z1[i], &coords_1[0] + i * nq0, 1);
     }
 }
@@ -719,6 +723,14 @@ NekDouble StdQuadExp::v_PhysEvaluateBasis(
 
     return StdExpansion::BaryEvaluateBasis<0>(coords[0], mode % nm1) *
            StdExpansion::BaryEvaluateBasis<1>(coords[1], mode / nm0);
+}
+
+NekDouble StdQuadExp::v_PhysEvalFirstDeriv(
+    const Array<OneD, NekDouble> &coord,
+    const Array<OneD, const NekDouble> &inarray,
+    std::array<NekDouble, 3> &firstOrderDerivs)
+{
+    return BaryTensorDeriv(coord, inarray, firstOrderDerivs);
 }
 
 //////////////
@@ -1085,7 +1097,7 @@ void StdQuadExp::v_GetTraceInteriorToElementMap(
     }
     else
     {
-        fill(signarray.get(), signarray.get() + nEdgeIntCoeffs, 1);
+        fill(signarray.data(), signarray.data() + nEdgeIntCoeffs, 1);
     }
 
     if (bType == LibUtilities::eModified_A)
@@ -1179,7 +1191,7 @@ void StdQuadExp::v_GetTraceInteriorToElementMap(
         }
         if (edgeOrient == eBackwards)
         {
-            reverse(maparray.get(), maparray.get() + nEdgeIntCoeffs);
+            reverse(maparray.data(), maparray.data() + nEdgeIntCoeffs);
         }
     }
     else
@@ -1577,14 +1589,14 @@ void StdQuadExp::v_MultiplyByStdQuadratureMetric(
     // multiply by integration constants
     for (i = 0; i < nquad1; ++i)
     {
-        Vmath::Vmul(nquad0, inarray.get() + i * nquad0, 1, w0.get(), 1,
-                    outarray.get() + i * nquad0, 1);
+        Vmath::Vmul(nquad0, inarray.data() + i * nquad0, 1, w0.data(), 1,
+                    outarray.data() + i * nquad0, 1);
     }
 
     for (i = 0; i < nquad0; ++i)
     {
-        Vmath::Vmul(nquad1, outarray.get() + i, nquad0, w1.get(), 1,
-                    outarray.get() + i, nquad0);
+        Vmath::Vmul(nquad1, outarray.data() + i, nquad0, w1.data(), 1,
+                    outarray.data() + i, nquad0);
     }
 }
 

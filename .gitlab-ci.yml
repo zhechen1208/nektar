@@ -25,6 +25,7 @@ stages:
   - package-test
   - package-deploy-dev
   - package-deploy
+  - cleanup
 
 include:
   - local: .gitlab-ci/packaging.yml
@@ -49,6 +50,9 @@ include:
       - .gitmodules
       - .gitlab-ci.yml
       - CMakeLists.txt
+  except:
+    refs:
+      - /^pkg\/.*$/
 
 .build-env-template: &build-env-template
   <<: *execution-conditions
@@ -140,7 +144,6 @@ include:
       grep --colour=always -A 1 -B 1 -0 "$WARNING_REGEX" $LOG_FILE;
         exit 1;
       fi
-  allow_failure: true
   timeout: 15m
 
 .clang-format-template: &clang-format-template
@@ -156,7 +159,6 @@ include:
     - cd "$CI_PROJECT_DIR"
     - find $TARGETS -iname "*.cpp" -o -iname "*.cpp.in" -o -iname "*.h" -o -iname "*.hpp" |
       xargs clang-format-$CL_F_VER --dry-run -Werror
-  allow_failure: true
   timeout: 15m
 
 .clang-tidy-template: &clang-tidy-template
@@ -176,7 +178,6 @@ include:
     - find $TARGETS -iname "*.cpp" -o -iname "*.h" -o -iname "*.hpp" | xargs clang-format-$CL_F_VER -i
     - git diff > clang-tidy.diff
     - if [ -s clang-tidy.diff ]; then echo "Found changes in clang-tidy"; exit 1; fi
-  allow_failure: true
   timeout: 1h
   artifacts:
     expire_in: 14 days
@@ -194,7 +195,6 @@ include:
     - cd "$CI_PROJECT_DIR"
     - source .gitlab-ci/header-format-filename.sh
     - source .gitlab-ci/header-format-license.sh
-  allow_failure: true
   timeout: 15m
 
 .xml-format-template: &xml-format-template
@@ -208,7 +208,6 @@ include:
   script:
     - cd "$CI_PROJECT_DIR"
     - .gitlab-ci/checkformatXMLfile.sh
-  allow_failure: true
   timeout: 15m
 
 .uncompiled-files-template: &uncompiled-files-template
@@ -263,6 +262,8 @@ debian-bookworm-default-build-and-test:
 debian-bookworm-full-build-and-test:
   <<: *build-and-test-template
   needs: ["debian-bookworm-full-build-env"]
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
 
 debian-bookworm-full-avx2-build-and-test:
   <<: *build-and-test-template
@@ -443,6 +444,13 @@ tutorials-build:
   <<: *build-env-ubuntu-template-default
   stage: build-env-full
 
+ubuntu-noble-default-build-env:
+  <<: *build-env-ubuntu-template-default
+
+ubuntu-noble-full-build-env:
+  <<: *build-env-ubuntu-template-full
+  needs: ["ubuntu-noble-default-build-env"]
+
 ubuntu-jammy-default-build-env:
   <<: *build-env-ubuntu-template-default
 
@@ -457,44 +465,53 @@ ubuntu-focal-full-build-env:
   <<: *build-env-ubuntu-template-full
   needs: ["ubuntu-focal-default-build-env"]
 
-ubuntu-bionic-default-build-env:
-  <<: *build-env-ubuntu-template-default
-
-ubuntu-bionic-full-build-env:
-  <<: *build-env-ubuntu-template-full
-  needs: ["ubuntu-bionic-default-build-env"]
-
 ubuntu-jammy-default-build-and-test:
   <<: *build-and-test-template
   needs: ["ubuntu-jammy-default-build-env"]
 
 ubuntu-jammy-full-build-and-test:
   <<: *build-and-test-template
-  needs: ["ubuntu-jammy-full-build-env"]
+  needs: ["ubuntu-focal-full-build-env"]
 
-ubuntu-jammy-full-clang14-build-and-test:
+ubuntu-focal-default-build-and-test:
   <<: *build-and-test-template
-  needs: ["ubuntu-jammy-full-build-env"]
-  variables:
-    BUILD_CC: clang-14
-    BUILD_CXX: clang++-14
+  needs: ["ubuntu-focal-default-build-env"]
 
-ubuntu-jammy-full-clang14-avx2-build-and-test:
+ubuntu-focal-full-build-and-test:
   <<: *build-and-test-template
-  needs: ["ubuntu-jammy-full-build-env"]
+  needs: ["ubuntu-focal-full-build-env"]
+
+ubuntu-noble-default-build-and-test:
+  <<: *build-and-test-template
+  needs: ["ubuntu-noble-default-build-env"]
+
+ubuntu-noble-full-build-and-test:
+  <<: *build-and-test-template
+  needs: ["ubuntu-noble-full-build-env"]
+
+ubuntu-noble-full-clang18-build-and-test:
+  <<: *build-and-test-template
+  needs: ["ubuntu-noble-full-build-env"]
   variables:
-    BUILD_CC: clang-14
-    BUILD_CXX: clang++-14
+    BUILD_CC: clang-18
+    BUILD_CXX: clang++-18
+
+ubuntu-noble-full-clang18-avx2-build-and-test:
+  <<: *build-and-test-template
+  needs: ["ubuntu-noble-full-build-env"]
+  variables:
+    BUILD_CC: clang-18
+    BUILD_CXX: clang++-18
     BUILD_SIMD: avx2
   tags:
     - avx2
 
-ubuntu-jammy-full-clang14-avx512-build-and-test:
+ubuntu-noble-full-clang18-avx512-build-and-test:
   <<: *build-and-test-template
-  needs: ["ubuntu-jammy-full-build-env"]
+  needs: ["ubuntu-noble-full-build-env"]
   variables:
-    BUILD_CC: clang-14
-    BUILD_CXX: clang++-14
+    BUILD_CC: clang-18
+    BUILD_CXX: clang++-18
     BUILD_SIMD: avx512
   tags:
     - avx512
@@ -514,28 +531,6 @@ ubuntu-jammy-full-avx512-coverage:
         coverage_format: cobertura
         path: coverage/cobertura-*.xml
 
-ubuntu-focal-default-build-and-test:
-  <<: *build-and-test-template
-  needs: ["ubuntu-focal-default-build-env"]
-
-ubuntu-focal-full-build-and-test:
-  <<: *build-and-test-template
-  needs: ["ubuntu-focal-full-build-env"]
-
-ubuntu-bionic-default-build-and-test:
-  <<: *build-and-test-template
-  needs: ["ubuntu-bionic-default-build-env"]
-
-ubuntu-bionic-full-build-and-test:
-  <<: *build-and-test-template
-  needs: ["ubuntu-bionic-full-build-env"]
-  variables:
-    OS_DISTRO: ubuntu
-    PYTHON_EXECUTABLE: /usr/bin/python3
-    LD_PRELOAD: libmpi.so # required for python-vtk test
-
-
-# COMPILER WARNINGS
 ubuntu-jammy-default-warnings:
   <<: *compiler-warning-template
   needs: ["ubuntu-jammy-default-build-and-test"]
@@ -543,18 +538,6 @@ ubuntu-jammy-default-warnings:
 ubuntu-jammy-full-warnings:
   <<: *compiler-warning-template
   needs: ["ubuntu-jammy-full-build-and-test"]
-
-ubuntu-jammy-full-clang14-warnings:
-  <<: *compiler-warning-template
-  needs: ["ubuntu-jammy-full-clang14-build-and-test"]
-
-ubuntu-jammy-full-clang14-avx2-warnings:
-  <<: *compiler-warning-template
-  needs: ["ubuntu-jammy-full-clang14-avx2-build-and-test"]
-
-ubuntu-jammy-full-clang14-avx512-warnings:
-  <<: *compiler-warning-template
-  needs: ["ubuntu-jammy-full-clang14-avx512-build-and-test"]
 
 ubuntu-focal-default-warnings:
   <<: *compiler-warning-template
@@ -564,19 +547,32 @@ ubuntu-focal-full-warnings:
   <<: *compiler-warning-template
   needs: ["ubuntu-focal-full-build-and-test"]
 
-ubuntu-bionic-default-warnings:
+ubuntu-noble-default-warnings:
   <<: *compiler-warning-template
-  needs: ["ubuntu-bionic-default-build-and-test"]
+  needs: ["ubuntu-noble-default-build-and-test"]
 
-ubuntu-bionic-full-warnings:
+ubuntu-noble-full-warnings:
   <<: *compiler-warning-template
-  needs: ["ubuntu-bionic-full-build-and-test"]
+  needs: ["ubuntu-noble-full-build-and-test"]
+
+ubuntu-noble-full-clang18-warnings:
+  <<: *compiler-warning-template
+  needs: ["ubuntu-noble-full-clang18-build-and-test"]
+
+ubuntu-noble-full-clang18-avx2-warnings:
+  <<: *compiler-warning-template
+  needs: ["ubuntu-noble-full-clang18-avx2-build-and-test"]
+
+ubuntu-noble-full-clang18-avx512-warnings:
+  <<: *compiler-warning-template
+  needs: ["ubuntu-noble-full-clang18-avx512-build-and-test"]
+
 
 ## UNCOMPILED FILES
-ubuntu-jammy-uncompiled-files:
+ubuntu-noble-uncompiled-files:
   <<: *uncompiled-files-template
-  image: $CI_REGISTRY_IMAGE:env-ubuntu-jammy-full
-  needs: ["ubuntu-jammy-full-build-env"]
+  image: $CI_REGISTRY_IMAGE:env-ubuntu-noble-full
+  needs: ["ubuntu-noble-full-build-env"]
   
 ################################################
 ###################  FEDORA  ###################
@@ -840,6 +836,24 @@ win10-mpi-default-build-and-test:
     - docker push $DH_IMAGE:$CI_COMMIT_SHORT_SHA
     - docker push $DH_IMAGE:latest
     - docker rmi $DH_IMAGE:$CI_COMMIT_SHORT_SHA $DH_IMAGE:latest
+    - docker rmi $CI_IMAGE
+
+# This cleans up the local temporary image if not deploying
+.dockerhub-cleanup-template: &dockerhub_cleanup_template
+  image: docker:stable
+  stage: cleanup
+#  except:
+#    refs:
+#      - master@nektar/nektar
+#      - tags@nektar/nektar
+  script:
+    - CI_IMAGE=$CI_REGISTRY_IMAGE/${image_name}:$CI_COMMIT_SHORT_SHA
+    - apk update
+    - apk add curl
+    - curl --fail-with-body --location "https://www.nektar.info/thirdparty/regctl" > /usr/bin/regctl
+    - chmod 755 /usr/bin/regctl
+    - regctl registry login ${CI_REGISTRY} -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD}
+    - regctl tag rm $CI_IMAGE
 
 # Docker pushrm template: used to automatically deploy the README.md files to
 # the Dockerhub description of each image.
@@ -1002,3 +1016,52 @@ dockerhub-pushrm-nekmesh:
   variables:
     image_name: nekmesh
     short_description: Image for the high-order mesh generator NekMesh.
+
+# Cleanup (if not deploying)
+dockerhub-cleanup-nekmesh:
+  <<: *dockerhub_cleanup_template
+  needs: 
+    - job: dockerhub-build-nekmesh
+    - job: dockerhub-deploy-nekmesh
+      optional: true
+  variables:
+    image_name: nekmesh
+
+dockerhub-cleanup-workbook:
+  <<: *dockerhub_cleanup_template
+  needs:
+    - job: dockerhub-build-workbook
+    - job: dockerhub-deploy-nektar-workbook
+      optional: true
+  variables:
+    image_name: nektar-workbook
+
+dockerhub-cleanup-nektar-dev:
+  <<: *dockerhub_cleanup_template
+  needs:
+    - job: dockerhub-test-nektar-dev
+    - job: dockerhub-deploy-nektar-dev
+      optional: true
+  variables:
+    image_name: nektar-dev
+
+dockerhub-cleanup-nektar:
+  <<: *dockerhub_cleanup_template
+  needs: 
+    - job: dockerhub-test-nektar
+    - job: dockerhub-cleanup-nektar-dev
+    - job: dockerhub-deploy-nektar
+      optional: true
+  variables:
+    image_name: nektar
+
+dockerhub-cleanup-nektar-env:
+  <<: *dockerhub_cleanup_template
+  needs: 
+    - job: dockerhub-cleanup-nektar
+    - job: dockerhub-cleanup-nektar-dev
+    - job: dockerhub-cleanup-nekmesh
+    - job: dockerhub-deploy-nektar-env
+      optional: true
+  variables:
+    image_name: nektar-env

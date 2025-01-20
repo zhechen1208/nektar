@@ -34,6 +34,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <LibUtilities/Foundations/Interp.h>
 #include <StdRegions/StdExpansion3D.h>
 
 #ifdef max
@@ -229,7 +230,7 @@ NekDouble StdExpansion3D::v_PhysEvaluate(
     return StdExpansion::BaryEvaluate<2>(eta[2], &wsp2[0]);
 }
 
-NekDouble StdExpansion3D::v_PhysEvaluate(
+NekDouble StdExpansion3D::v_PhysEvaluateInterp(
     const Array<OneD, DNekMatSharedPtr> &I,
     const Array<OneD, const NekDouble> &physvals)
 {
@@ -263,14 +264,6 @@ NekDouble StdExpansion3D::v_PhysEvaluate(
     value = Blas::Ddot(Qz, interpolatingNodes, 1, &sumFactorization_r[0], 1);
 
     return value;
-}
-
-NekDouble StdExpansion3D::v_PhysEvaluate(
-    [[maybe_unused]] const Array<OneD, NekDouble> &coord,
-    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
-    [[maybe_unused]] std::array<NekDouble, 3> &firstOrderDerivs)
-{
-    return 0;
 }
 
 /**
@@ -493,7 +486,7 @@ LibUtilities::BasisKey EvaluateQuadFaceBasisKey(
 
 LibUtilities::BasisKey EvaluateTriFaceBasisKey(
     const int facedir, const LibUtilities::BasisType faceDirBasisType,
-    const int numpoints, const int nummodes)
+    const int numpoints, const int nummodes, bool UseGLL)
 {
     switch (faceDirBasisType)
     {
@@ -519,8 +512,18 @@ LibUtilities::BasisKey EvaluateTriFaceBasisKey(
                 }
                 case 1:
                 {
-                    const LibUtilities::PointsKey pkey(
-                        numpoints, LibUtilities::eGaussRadauMAlpha1Beta0);
+                    LibUtilities::PointsKey pkey;
+
+                    if (UseGLL)
+                    {
+                        pkey = LibUtilities::PointsKey(
+                            numpoints + 1, LibUtilities::eGaussLobattoLegendre);
+                    }
+                    else
+                    {
+                        pkey = LibUtilities::PointsKey(
+                            numpoints, LibUtilities::eGaussRadauMAlpha1Beta0);
+                    }
                     return LibUtilities::BasisKey(LibUtilities::eModified_B,
                                                   nummodes, pkey);
                 }
@@ -600,4 +603,17 @@ LibUtilities::BasisKey EvaluateTriFaceBasisKey(
     // Keep things happy by returning a value.
     return LibUtilities::NullBasisKey;
 }
+
+void StdExpansion3D::v_PhysInterp(std::shared_ptr<StdExpansion> fromExp,
+                                  const Array<OneD, const NekDouble> &fromData,
+                                  Array<OneD, NekDouble> &toData)
+{
+
+    LibUtilities::Interp3D(fromExp->GetBasis(0)->GetPointsKey(),
+                           fromExp->GetBasis(1)->GetPointsKey(),
+                           fromExp->GetBasis(2)->GetPointsKey(), fromData,
+                           m_base[0]->GetPointsKey(), m_base[1]->GetPointsKey(),
+                           m_base[2]->GetPointsKey(), toData);
+}
+
 } // namespace Nektar::StdRegions

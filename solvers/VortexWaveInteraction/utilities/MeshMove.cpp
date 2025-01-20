@@ -2968,8 +2968,8 @@ void PolyInterp(Array<OneD, NekDouble> xpol, Array<OneD, NekDouble> ypol,
     // cout<<"A elements="<<A.size()<<endl;
     Array<OneD, int> ipivot(N);
     int info = 0;
-    // Lapack::Dgesv( N, 1, A.get(), N, ipivot.get(),  b.get(), N, info);
-    Lapack::Dgetrf(N, N, A.get(), N, ipivot.get(), info);
+    // Lapack::Dgesv( N, 1, A.data(), N, ipivot.data(),  b.data(), N, info);
+    Lapack::Dgetrf(N, N, A.data(), N, ipivot.data(), info);
     if (info < 0)
     {
         std::string message =
@@ -2986,7 +2986,7 @@ void PolyInterp(Array<OneD, NekDouble> xpol, Array<OneD, NekDouble> ypol,
 
     // N means no transponse (direct matrix)
     int ncolumns_b = 1;
-    Lapack::Dgetrs('N', N, ncolumns_b, A.get(), N, ipivot.get(), b.get(), N,
+    Lapack::Dgetrs('N', N, ncolumns_b, A.data(), N, ipivot.data(), b.data(), N,
                    info);
     if (info < 0)
     {
@@ -3067,8 +3067,8 @@ void PolyFit(int polyorder, int npoints, Array<OneD, NekDouble> xin,
     // cout<<"A elements="<<A.size()<<endl;
     Array<OneD, int> ipivot(N);
     int info = 0;
-    // Lapack::Dgesv( N, 1, A.get(), N, ipivot.get(),  b.get(), N, info);
-    Lapack::Dgetrf(N, N, A.get(), N, ipivot.get(), info);
+    // Lapack::Dgesv( N, 1, A.data(), N, ipivot.data(),  b.data(), N, info);
+    Lapack::Dgetrf(N, N, A.data(), N, ipivot.data(), info);
 
     if (info < 0)
     {
@@ -3085,7 +3085,7 @@ void PolyFit(int polyorder, int npoints, Array<OneD, NekDouble> xin,
     }
     // N means no transponse (direct matrix)
     int ncolumns_b = 1;
-    Lapack::Dgetrs('N', N, ncolumns_b, A.get(), N, ipivot.get(), b.get(), N,
+    Lapack::Dgetrs('N', N, ncolumns_b, A.data(), N, ipivot.data(), b.data(), N,
                    info);
     if (info < 0)
     {
@@ -3570,8 +3570,14 @@ void MoveOutsidePointsNnormpos(
         Vmath::Vadd(nvertl, norm, 1, tmp, 1, norm, 1);
         qp_closernormup = Vmath::Imin(nvertl, norm, 1);
 
+// Apparently a bug in GCC 13.2.0 triggers this warning incorrectly
+#pragma GCC diagnostic push
+#if defined(__GNUC__) && (__GNUC__ > 12)
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
         Vmath::Zero(nvertl, norm, 1);
         Vmath::Zero(nvertl, tmp, 1);
+#pragma GCC diagnostic pop
 
         int qp_closernormdown;
         Vmath::Sadd(nvertl, -x, xnew_down, 1, tmp, 1);

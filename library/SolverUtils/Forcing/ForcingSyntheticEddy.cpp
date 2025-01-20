@@ -860,7 +860,7 @@ void ForcingSyntheticEddy::SetCholeskyReyStresses(
                 l++;
             }
             int info = 0;
-            Lapack::Dpptrf('L', m_spacedim, A.get(), info);
+            Lapack::Dpptrf('L', m_spacedim, A.data(), info);
             if (info < 0)
             {
                 std::string message =
@@ -904,19 +904,19 @@ void ForcingSyntheticEddy::ComputeInitialLocationTestCase()
 
     // First eddy (center)
     m_eddyPos[0]    = Array<OneD, NekDouble>(m_spacedim);
-    m_eddyPos[0][0] = (m_rc[0] - m_lref[0]) + 0.2 * 2 * m_lref[0];
+    m_eddyPos[0][0] = (m_rc[0] - m_lref[0]) + 0.6 * 2 * m_lref[0];
     m_eddyPos[0][1] = m_rc[1];
     m_eddyPos[0][2] = m_rc[2];
 
     // Second eddy (top)
     m_eddyPos[1]    = Array<OneD, NekDouble>(m_spacedim);
-    m_eddyPos[1][0] = (m_rc[0] - m_lref[0]) + 0.3 * 2 * m_lref[0];
+    m_eddyPos[1][0] = (m_rc[0] - m_lref[0]) + 0.7 * 2 * m_lref[0];
     m_eddyPos[1][1] = (m_rc[1] - 0.5 * m_lyz[0]) + 0.9 * m_lyz[0];
     m_eddyPos[1][2] = m_rc[2];
 
     // Third eddy (bottom)
     m_eddyPos[2]    = Array<OneD, NekDouble>(m_spacedim);
-    m_eddyPos[2][0] = (m_rc[0] - m_lref[0]) + 0.4 * 2 * m_lref[0];
+    m_eddyPos[2][0] = (m_rc[0] - m_lref[0]) + 0.8 * 2 * m_lref[0];
     m_eddyPos[2][1] = (m_rc[1] - 0.5 * m_lyz[0]) + 0.1 * m_lyz[0];
     m_eddyPos[2][2] = m_rc[2];
 }

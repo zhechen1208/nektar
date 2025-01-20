@@ -1,12 +1,12 @@
 arpack-devel
 blas-devel
 boost-devel
-boost-python3-devel
 ccache
 cmake
 fftw-devel
 gcc-c++
 gcc-gfortran
+git
 hdf5-openmpi-devel
 lapack-devel
 libXmu-devel

@@ -406,18 +406,20 @@ void TetExp::v_AlignVectorToCollapsedDir(
 
     if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
     {
-        Vmath::Vmul(nqtot, &df[3 * dir][0], 1, inarray.get(), 1, tmp2.get(), 1);
-        Vmath::Vmul(nqtot, &df[3 * dir + 1][0], 1, inarray.get(), 1, tmp3.get(),
+        Vmath::Vmul(nqtot, &df[3 * dir][0], 1, inarray.data(), 1, tmp2.data(),
                     1);
-        Vmath::Vmul(nqtot, &df[3 * dir + 2][0], 1, inarray.get(), 1,
-                    outarray[2].get(), 1);
+        Vmath::Vmul(nqtot, &df[3 * dir + 1][0], 1, inarray.data(), 1,
+                    tmp3.data(), 1);
+        Vmath::Vmul(nqtot, &df[3 * dir + 2][0], 1, inarray.data(), 1,
+                    outarray[2].data(), 1);
     }
     else
     {
-        Vmath::Smul(nqtot, df[3 * dir][0], inarray.get(), 1, tmp2.get(), 1);
-        Vmath::Smul(nqtot, df[3 * dir + 1][0], inarray.get(), 1, tmp3.get(), 1);
-        Vmath::Smul(nqtot, df[3 * dir + 2][0], inarray.get(), 1,
-                    outarray[2].get(), 1);
+        Vmath::Smul(nqtot, df[3 * dir][0], inarray.data(), 1, tmp2.data(), 1);
+        Vmath::Smul(nqtot, df[3 * dir + 1][0], inarray.data(), 1, tmp3.data(),
+                    1);
+        Vmath::Smul(nqtot, df[3 * dir + 2][0], inarray.data(), 1,
+                    outarray[2].data(), 1);
     }
 
     NekDouble g0, g1, g1a, g2, g3;
@@ -480,14 +482,15 @@ NekDouble TetExp::v_PhysEvaluate(const Array<OneD, const NekDouble> &coord,
     return StdExpansion3D::v_PhysEvaluate(Lcoord, physvals);
 }
 
-NekDouble TetExp::v_PhysEvaluate(const Array<OneD, NekDouble> &coord,
-                                 const Array<OneD, const NekDouble> &inarray,
-                                 std::array<NekDouble, 3> &firstOrderDerivs)
+NekDouble TetExp::v_PhysEvalFirstDeriv(
+    const Array<OneD, NekDouble> &coord,
+    const Array<OneD, const NekDouble> &inarray,
+    std::array<NekDouble, 3> &firstOrderDerivs)
 {
     Array<OneD, NekDouble> Lcoord(3);
     ASSERTL0(m_geom, "m_geom not defined");
     m_geom->GetLocCoords(coord, Lcoord);
-    return StdTetExp::v_PhysEvaluate(Lcoord, inarray, firstOrderDerivs);
+    return StdTetExp::v_PhysEvalFirstDeriv(Lcoord, inarray, firstOrderDerivs);
 }
 
 /**
@@ -1068,20 +1071,20 @@ void TetExp::GeneralMatrixOp_MatOp(const Array<OneD, const NekDouble> &inarray,
 {
     DNekScalMatSharedPtr mat = GetLocMatrix(mkey);
 
-    if (inarray.get() == outarray.get())
+    if (inarray.data() == outarray.data())
     {
         Array<OneD, NekDouble> tmp(m_ncoeffs);
-        Vmath::Vcopy(m_ncoeffs, inarray.get(), 1, tmp.get(), 1);
+        Vmath::Vcopy(m_ncoeffs, inarray.data(), 1, tmp.data(), 1);
 
         Blas::Dgemv('N', m_ncoeffs, m_ncoeffs, mat->Scale(),
-                    (mat->GetOwnedMatrix())->GetPtr().get(), m_ncoeffs,
-                    tmp.get(), 1, 0.0, outarray.get(), 1);
+                    (mat->GetOwnedMatrix())->GetPtr().data(), m_ncoeffs,
+                    tmp.data(), 1, 0.0, outarray.data(), 1);
     }
     else
     {
         Blas::Dgemv('N', m_ncoeffs, m_ncoeffs, mat->Scale(),
-                    (mat->GetOwnedMatrix())->GetPtr().get(), m_ncoeffs,
-                    inarray.get(), 1, 0.0, outarray.get(), 1);
+                    (mat->GetOwnedMatrix())->GetPtr().data(), m_ncoeffs,
+                    inarray.data(), 1, 0.0, outarray.data(), 1);
     }
 }
 
@@ -1157,10 +1160,12 @@ void TetExp::v_LaplacianMatrixOp_MatFree_Kernel(
                                  false, true, true);
     IProductWRTBase_SumFacKernel(base0, dbase1, base2, wsp4, wsp2, wsp0, true,
                                  false, true);
-    Vmath::Vadd(m_ncoeffs, wsp2.get(), 1, outarray.get(), 1, outarray.get(), 1);
+    Vmath::Vadd(m_ncoeffs, wsp2.data(), 1, outarray.data(), 1, outarray.data(),
+                1);
     IProductWRTBase_SumFacKernel(base0, base1, dbase2, wsp5, wsp2, wsp0, true,
                                  true, false);
-    Vmath::Vadd(m_ncoeffs, wsp2.get(), 1, outarray.get(), 1, outarray.get(), 1);
+    Vmath::Vadd(m_ncoeffs, wsp2.data(), 1, outarray.data(), 1, outarray.data(),
+                1);
 }
 
 void TetExp::v_ComputeLaplacianMetric()

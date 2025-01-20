@@ -34,6 +34,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <LibUtilities/Foundations/Interp.h>
 #include <StdRegions/StdExpansion2D.h>
 
 #ifdef max
@@ -66,7 +67,7 @@ void StdExpansion2D::PhysTensorDeriv(
         if (inarray.data() == outarray_d0.data())
         {
             Array<OneD, NekDouble> wsp(nquad0 * nquad1);
-            Vmath::Vcopy(nquad0 * nquad1, inarray.get(), 1, wsp.get(), 1);
+            Vmath::Vcopy(nquad0 * nquad1, inarray.data(), 1, wsp.data(), 1);
             Blas::Dgemm('N', 'N', nquad0, nquad1, nquad0, 1.0,
                         &(D0->GetPtr())[0], nquad0, &wsp[0], nquad0, 0.0,
                         &outarray_d0[0], nquad0);
@@ -85,7 +86,7 @@ void StdExpansion2D::PhysTensorDeriv(
         if (inarray.data() == outarray_d1.data())
         {
             Array<OneD, NekDouble> wsp(nquad0 * nquad1);
-            Vmath::Vcopy(nquad0 * nquad1, inarray.get(), 1, wsp.get(), 1);
+            Vmath::Vcopy(nquad0 * nquad1, inarray.data(), 1, wsp.data(), 1);
             Blas::Dgemm('N', 'T', nquad0, nquad1, nquad1, 1.0, &wsp[0], nquad0,
                         &(D1->GetPtr())[0], nquad1, 0.0, &outarray_d1[0],
                         nquad0);
@@ -123,7 +124,7 @@ NekDouble StdExpansion2D::v_PhysEvaluate(
     return StdExpansion::BaryEvaluate<1>(coll[1], &wsp[0]);
 }
 
-NekDouble StdExpansion2D::v_PhysEvaluate(
+NekDouble StdExpansion2D::v_PhysEvaluateInterp(
     const Array<OneD, DNekMatSharedPtr> &I,
     const Array<OneD, const NekDouble> &physvals)
 {
@@ -146,14 +147,6 @@ NekDouble StdExpansion2D::v_PhysEvaluate(
     return val;
 }
 
-NekDouble StdExpansion2D::v_PhysEvaluate(
-    [[maybe_unused]] const Array<OneD, NekDouble> &coord,
-    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
-    [[maybe_unused]] std::array<NekDouble, 3> &firstOrderDerivs)
-{
-    return 0;
-}
-
 //////////////////////////////
 // Integration Methods
 //////////////////////////////
@@ -171,13 +164,13 @@ NekDouble StdExpansion2D::Integral(const Array<OneD, const NekDouble> &inarray,
     // multiply by integration constants
     for (i = 0; i < nquad1; ++i)
     {
-        Vmath::Vmul(nquad0, &inarray[0] + i * nquad0, 1, w0.get(), 1,
+        Vmath::Vmul(nquad0, &inarray[0] + i * nquad0, 1, w0.data(), 1,
                     &tmp[0] + i * nquad0, 1);
     }
 
     for (i = 0; i < nquad0; ++i)
     {
-        Vmath::Vmul(nquad1, &tmp[0] + i, nquad0, w1.get(), 1, &tmp[0] + i,
+        Vmath::Vmul(nquad1, &tmp[0] + i, nquad0, w1.data(), 1, &tmp[0] + i,
                     nquad0);
     }
     Int = Vmath::Vsum(nquad0 * nquad1, tmp, 1);
@@ -421,7 +414,7 @@ void StdExpansion2D::v_GetElmtTraceToTraceMap(
     }
     else
     {
-        std::fill(signarray.get(), signarray.get() + P, 1);
+        std::fill(signarray.data(), signarray.data() + P, 1);
     }
 
     // Zero signmap and set maparray to zero if
@@ -453,7 +446,7 @@ void StdExpansion2D::v_GetElmtTraceToTraceMap(
                                     "and element edge dimension not currently "
                                     "possible for GLL-Lagrange bases");
 
-            std::reverse(maparray.get(), maparray.get() + P);
+            std::reverse(maparray.data(), maparray.data() + P);
         }
         else
         {
@@ -481,6 +474,17 @@ void StdExpansion2D::v_GetTraceToElementMap(const int eid,
     {
         maparray[i] = map1[map2[i]];
     }
+}
+
+void StdExpansion2D::v_PhysInterp(std::shared_ptr<StdExpansion> fromExp,
+                                  const Array<OneD, const NekDouble> &fromData,
+                                  Array<OneD, NekDouble> &toData)
+{
+
+    LibUtilities::Interp2D(fromExp->GetBasis(0)->GetPointsKey(),
+                           fromExp->GetBasis(1)->GetPointsKey(), fromData,
+                           m_base[0]->GetPointsKey(), m_base[1]->GetPointsKey(),
+                           toData);
 }
 
 } // namespace Nektar::StdRegions

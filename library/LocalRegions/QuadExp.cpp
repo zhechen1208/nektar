@@ -261,7 +261,7 @@ void QuadExp::v_FwdTransBndConstrained(
         int npoints[2] = {m_base[0]->GetNumPoints(), m_base[1]->GetNumPoints()};
         int nmodes[2]  = {m_base[0]->GetNumModes(), m_base[1]->GetNumModes()};
 
-        fill(outarray.get(), outarray.get() + m_ncoeffs, 0.0);
+        fill(outarray.data(), outarray.data() + m_ncoeffs, 0.0);
 
         if (nmodes[0] == 1 && nmodes[1] == 1)
         {
@@ -295,8 +295,8 @@ void QuadExp::v_FwdTransBndConstrained(
         {
             if (orient[i] == StdRegions::eBackwards)
             {
-                reverse((physEdge[i]).get(),
-                        (physEdge[i]).get() + npoints[i % 2]);
+                reverse((physEdge[i]).data(),
+                        (physEdge[i]).data() + npoints[i % 2]);
             }
         }
 
@@ -357,7 +357,7 @@ void QuadExp::v_FwdTransBndConstrained(
 
             Blas::Dgemv('N', nInteriorDofs, nInteriorDofs, matsys->Scale(),
                         &((matsys->GetOwnedMatrix())->GetPtr())[0],
-                        nInteriorDofs, rhs.get(), 1, 0.0, result.get(), 1);
+                        nInteriorDofs, rhs.data(), 1, 0.0, result.data(), 1);
 
             for (i = 0; i < nInteriorDofs; i++)
             {
@@ -472,14 +472,16 @@ void QuadExp::v_AlignVectorToCollapsedDir(
 
     if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
     {
-        Vmath::Vmul(nqtot, &df[2 * dir][0], 1, inarray.get(), 1, tmp1.get(), 1);
-        Vmath::Vmul(nqtot, &df[2 * dir + 1][0], 1, inarray.get(), 1, tmp2.get(),
+        Vmath::Vmul(nqtot, &df[2 * dir][0], 1, inarray.data(), 1, tmp1.data(),
                     1);
+        Vmath::Vmul(nqtot, &df[2 * dir + 1][0], 1, inarray.data(), 1,
+                    tmp2.data(), 1);
     }
     else
     {
-        Vmath::Smul(nqtot, df[2 * dir][0], inarray.get(), 1, tmp1.get(), 1);
-        Vmath::Smul(nqtot, df[2 * dir + 1][0], inarray.get(), 1, tmp2.get(), 1);
+        Vmath::Smul(nqtot, df[2 * dir][0], inarray.data(), 1, tmp1.data(), 1);
+        Vmath::Smul(nqtot, df[2 * dir + 1][0], inarray.data(), 1, tmp2.data(),
+                    1);
     }
 }
 
@@ -582,14 +584,15 @@ NekDouble QuadExp::v_PhysEvaluate(const Array<OneD, const NekDouble> &coord,
     return StdExpansion2D::v_PhysEvaluate(Lcoord, physvals);
 }
 
-NekDouble QuadExp::v_PhysEvaluate(const Array<OneD, NekDouble> &coord,
-                                  const Array<OneD, const NekDouble> &inarray,
-                                  std::array<NekDouble, 3> &firstOrderDerivs)
+NekDouble QuadExp::v_PhysEvalFirstDeriv(
+    const Array<OneD, NekDouble> &coord,
+    const Array<OneD, const NekDouble> &inarray,
+    std::array<NekDouble, 3> &firstOrderDerivs)
 {
     Array<OneD, NekDouble> Lcoord(2);
     ASSERTL0(m_geom, "m_geom not defined");
     m_geom->GetLocCoords(coord, Lcoord);
-    return StdQuadExp::v_PhysEvaluate(Lcoord, inarray, firstOrderDerivs);
+    return StdQuadExp::v_PhysEvalFirstDeriv(Lcoord, inarray, firstOrderDerivs);
 }
 
 void QuadExp::v_GetTracePhysVals(
@@ -676,9 +679,9 @@ void QuadExp::GetEdgeInterpVals(const int edge,
         {
             for (i = 0; i < nq0; i++)
             {
-                outarray[i] =
-                    Blas::Ddot(nq1, mat_gauss->GetOwnedMatrix()->GetPtr().get(),
-                               1, &inarray[i], nq0);
+                outarray[i] = Blas::Ddot(
+                    nq1, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
+                    &inarray[i], nq0);
             }
             break;
         }
@@ -686,9 +689,9 @@ void QuadExp::GetEdgeInterpVals(const int edge,
         {
             for (i = 0; i < nq1; i++)
             {
-                outarray[i] =
-                    Blas::Ddot(nq0, mat_gauss->GetOwnedMatrix()->GetPtr().get(),
-                               1, &inarray[i * nq0], 1);
+                outarray[i] = Blas::Ddot(
+                    nq0, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
+                    &inarray[i * nq0], 1);
             }
             break;
         }
@@ -696,9 +699,9 @@ void QuadExp::GetEdgeInterpVals(const int edge,
         {
             for (i = 0; i < nq0; i++)
             {
-                outarray[i] =
-                    Blas::Ddot(nq1, mat_gauss->GetOwnedMatrix()->GetPtr().get(),
-                               1, &inarray[i], nq0);
+                outarray[i] = Blas::Ddot(
+                    nq1, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
+                    &inarray[i], nq0);
             }
             break;
         }
@@ -706,9 +709,9 @@ void QuadExp::GetEdgeInterpVals(const int edge,
         {
             for (i = 0; i < nq1; i++)
             {
-                outarray[i] =
-                    Blas::Ddot(nq0, mat_gauss->GetOwnedMatrix()->GetPtr().get(),
-                               1, &inarray[i * nq0], 1);
+                outarray[i] = Blas::Ddot(
+                    nq0, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
+                    &inarray[i * nq0], 1);
             }
             break;
         }
@@ -1543,7 +1546,8 @@ void QuadExp::v_LaplacianMatrixOp_MatFree_Kernel(
 
     // outarray = outarray + wsp1
     //          = L * u_hat
-    Vmath::Vadd(m_ncoeffs, wsp1.get(), 1, outarray.get(), 1, outarray.get(), 1);
+    Vmath::Vadd(m_ncoeffs, wsp1.data(), 1, outarray.data(), 1, outarray.data(),
+                1);
 }
 
 void QuadExp::v_ComputeLaplacianMetric()

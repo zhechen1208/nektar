@@ -186,7 +186,7 @@ void StdSegExp::v_BwdTrans(const Array<OneD, const NekDouble> &inarray,
     else
     {
         Blas::Dgemv('N', nquad, m_base[0]->GetNumModes(), 1.0,
-                    (m_base[0]->GetBdata()).get(), nquad, &inarray[0], 1, 0.0,
+                    (m_base[0]->GetBdata()).data(), nquad, &inarray[0], 1, 0.0,
                     &outarray[0], 1);
     }
 }
@@ -299,7 +299,7 @@ void StdSegExp::v_FwdTransBndConstrained(
                                 "expansion type");
         }
 
-        fill(outarray.get(), outarray.get() + m_ncoeffs, 0.0);
+        fill(outarray.data(), outarray.data() + m_ncoeffs, 0.0);
 
         if (m_base[0]->GetBasisType() != LibUtilities::eGauss_Lagrange)
         {
@@ -325,8 +325,8 @@ void StdSegExp::v_FwdTransBndConstrained(
 
                 Blas::Dgemv('N', nInteriorDofs, nInteriorDofs, 1.0,
                             &(matsys->GetPtr())[0], nInteriorDofs,
-                            tmp1.get() + offset, 1, 0.0,
-                            outarray.get() + offset, 1);
+                            tmp1.data() + offset, 1, 0.0,
+                            outarray.data() + offset, 1);
             }
         }
         else
@@ -385,13 +385,13 @@ void StdSegExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &base,
     }
     else
     {
-        Blas::Dgemv('T',nquad,m_ncoeffs,1.0,base.get(),nquad,
-                    &tmp[0],1,0.0,outarray.get(),1);
+        Blas::Dgemv('T',nquad,m_ncoeffs,1.0,base.data(),nquad,
+                    &tmp[0],1,0.0,outarray.data(),1);
     }*/
 
     // Correct implementation
-    Blas::Dgemv('T', nquad, m_ncoeffs, 1.0, base.get(), nquad, &tmp[0], 1, 0.0,
-                outarray.get(), 1);
+    Blas::Dgemv('T', nquad, m_ncoeffs, 1.0, base.data(), nquad, &tmp[0], 1, 0.0,
+                outarray.data(), 1);
 }
 
 /** \brief Inner product of \a inarray over region with respect to the
@@ -438,13 +438,13 @@ void StdSegExp::v_IProductWRTBase_SumFac(
     {
         Vmath::Vmul(nquad, inarray, 1, w, 1, tmp, 1);
 
-        Blas::Dgemv('T', nquad, m_ncoeffs, 1.0, base.get(), nquad, &tmp[0], 1,
-                    0.0, outarray.get(), 1);
+        Blas::Dgemv('T', nquad, m_ncoeffs, 1.0, base.data(), nquad, &tmp[0], 1,
+                    0.0, outarray.data(), 1);
     }
     else
     {
-        Blas::Dgemv('T', nquad, m_ncoeffs, 1.0, base.get(), nquad, &inarray[0],
-                    1, 0.0, outarray.get(), 1);
+        Blas::Dgemv('T', nquad, m_ncoeffs, 1.0, base.data(), nquad, &inarray[0],
+                    1, 0.0, outarray.data(), 1);
     }
 }
 
@@ -466,7 +466,7 @@ void StdSegExp::v_LocCollapsedToLocCoord(
 void StdSegExp::v_FillMode(const int mode, Array<OneD, NekDouble> &outarray)
 {
     int nquad             = m_base[0]->GetNumPoints();
-    const NekDouble *base = m_base[0]->GetBdata().get();
+    const NekDouble *base = m_base[0]->GetBdata().data();
 
     ASSERTL2(mode <= m_ncoeffs,
              "calling argument mode is larger than total expansion order");
@@ -480,6 +480,23 @@ NekDouble StdSegExp::v_PhysEvaluateBasis(
     return StdExpansion::BaryEvaluateBasis<0>(coords[0], mode);
 }
 
+NekDouble StdSegExp::v_PhysEvalFirstDeriv(
+    const Array<OneD, NekDouble> &coord,
+    const Array<OneD, const NekDouble> &inarray,
+    std::array<NekDouble, 3> &firstOrderDerivs)
+{
+    return StdExpansion1D::BaryTensorDeriv(coord, inarray, firstOrderDerivs);
+}
+
+NekDouble StdSegExp::v_PhysEvalFirstSecondDeriv(
+    const Array<OneD, NekDouble> &coord,
+    const Array<OneD, const NekDouble> &inarray,
+    std::array<NekDouble, 3> &firstOrderDerivs,
+    std::array<NekDouble, 6> &secondOrderDerivs)
+{
+    return StdExpansion1D::BaryTensorDeriv(coord, inarray, firstOrderDerivs,
+                                           secondOrderDerivs);
+}
 void StdSegExp::v_LaplacianMatrixOp(const Array<OneD, const NekDouble> &inarray,
                                     Array<OneD, NekDouble> &outarray,
                                     [[maybe_unused]] const StdMatrixKey &mkey)
@@ -494,6 +511,14 @@ void StdSegExp::v_LaplacianMatrixOp(const Array<OneD, const NekDouble> &inarray,
     // Laplacian matrix operation
     v_PhysDeriv(physValues, dPhysValuesdx);
     v_IProductWRTBase(m_base[0]->GetDbdata(), dPhysValuesdx, outarray, 1);
+}
+
+void StdSegExp::v_LaplacianMatrixOp(const int k1, const int k2,
+                                    const Array<OneD, const NekDouble> &inarray,
+                                    Array<OneD, NekDouble> &outarray,
+                                    const StdMatrixKey &mkey)
+{
+    StdExpansion::LaplacianMatrixOp_MatFree(k1, k2, inarray, outarray, mkey);
 }
 
 void StdSegExp::v_HelmholtzMatrixOp(const Array<OneD, const NekDouble> &inarray,
@@ -514,8 +539,8 @@ void StdSegExp::v_HelmholtzMatrixOp(const Array<OneD, const NekDouble> &inarray,
     // Laplacian matrix operation
     v_PhysDeriv(physValues, dPhysValuesdx);
     v_IProductWRTBase(m_base[0]->GetDbdata(), dPhysValuesdx, outarray, 1);
-    Blas::Daxpy(m_ncoeffs, mkey.GetConstFactor(eFactorLambda), wsp.get(), 1,
-                outarray.get(), 1);
+    Blas::Daxpy(m_ncoeffs, mkey.GetConstFactor(eFactorLambda), wsp.data(), 1,
+                outarray.data(), 1);
 }
 
 void StdSegExp::v_SVVLaplacianFilter(Array<OneD, NekDouble> &array,
@@ -607,14 +632,15 @@ void StdSegExp::v_MultiplyByStdQuadratureMetric(
 
     const Array<OneD, const NekDouble> &w0 = m_base[0]->GetW();
 
-    Vmath::Vmul(nquad0, inarray.get(), 1, w0.get(), 1, outarray.get(), 1);
+    Vmath::Vmul(nquad0, inarray.data(), 1, w0.data(), 1, outarray.data(), 1);
 }
 
 void StdSegExp::v_GetCoords(Array<OneD, NekDouble> &coords_0,
                             [[maybe_unused]] Array<OneD, NekDouble> &coords_1,
                             [[maybe_unused]] Array<OneD, NekDouble> &coords_2)
 {
-    Blas::Dcopy(GetNumPoints(0), (m_base[0]->GetZ()).get(), 1, &coords_0[0], 1);
+    Blas::Dcopy(GetNumPoints(0), (m_base[0]->GetZ()).data(), 1, &coords_0[0],
+                1);
 }
 
 //---------------------------------------------------------------------

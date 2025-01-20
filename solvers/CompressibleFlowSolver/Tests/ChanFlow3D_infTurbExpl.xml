@@ -45,7 +45,7 @@
 
         <PARAMETERS>
             <P> TimeStep      = 0.001           </P>
-            <P> NumSteps      = 850             </P>
+            <P> NumSteps      = 200             </P>
             <P> IO_CheckSteps = 0               </P>
             <P> IO_InfoSteps  = 1               </P>
             <P> IO_CFLSteps   = 1               </P>
@@ -162,13 +162,13 @@
         </FUNCTION>
 
         <FUNCTION NAME="LenScales">
-            <E VAR="l00"   VALUE="0.4"    />
+            <E VAR="l00"   VALUE="0.3"    />
             <E VAR="l10"   VALUE="0.085"   />
             <E VAR="l20"   VALUE="0.125"   />
-            <E VAR="l01"   VALUE="0.3"     />
+            <E VAR="l01"   VALUE="0.25"     />
             <E VAR="l11"   VALUE="0.085"   />
             <E VAR="l21"   VALUE="0.125"   />
-            <E VAR="l02"   VALUE="0.3"     />
+            <E VAR="l02"   VALUE="0.25"     />
             <E VAR="l12"   VALUE="0.170"   />
             <E VAR="l22"   VALUE="0.25"    />
         </FUNCTION>

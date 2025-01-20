@@ -1297,6 +1297,10 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
     map<int, vector<SpatialDomains::ExpansionInfoShPtr>> ExpOrder;
     LibUtilities::BasisKeyVector PtBvec;
 
+    bool UseGLLOnTri = false;
+    // use GLL in all directions on Triangles if Continuous Expansion
+    pSession->MatchSolverInfo("Projection", "Continuous", UseGLLOnTri, false);
+
     bool DoOptOnCollection =
         m_session->DefinesCmdLineArgument("no-exp-opt") ? false : true;
     int cnt = 0;
@@ -1406,9 +1410,9 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                 // Then, get the trace basis key from the element stdExp,
                 // which may be different from Ba, Bb and Bc.
                 LibUtilities::BasisKey TriBa =
-                    elmtStdExp->GetTraceBasisKey(face_id, 0);
+                    elmtStdExp->GetTraceBasisKey(face_id, 0, UseGLLOnTri);
                 LibUtilities::BasisKey TriBb =
-                    elmtStdExp->GetTraceBasisKey(face_id, 1);
+                    elmtStdExp->GetTraceBasisKey(face_id, 1, UseGLLOnTri);
                 // swap TriBa and TriBb orientation is transposed
                 if (geom->GetForient(face_id) >= 9)
                 {
@@ -2413,7 +2417,7 @@ void ExpList::MultiplyByElmtInvMass(const Array<OneD, const NekDouble> &inarray,
 
     // Inverse mass matrix
     NekVector<NekDouble> out(m_ncoeffs, outarray, eWrapper);
-    if (inarray.get() == outarray.get())
+    if (inarray.data() == outarray.data())
     {
         NekVector<NekDouble> in(m_ncoeffs, inarray); // copy data
         out = (*InvMass) * in;
@@ -4231,8 +4235,20 @@ void ExpList::v_AppendFieldData(
     {
         int eid     = ElmtID_to_ExpID[fielddef->m_elementIDs[i]];
         int datalen = (*m_exp)[eid]->GetNcoeffs();
-        fielddata.insert(fielddata.end(), &coeffs[m_coeff_offset[eid]],
-                         &coeffs[m_coeff_offset[eid]] + datalen);
+        if ((*m_exp)[eid]->IsNodalNonTensorialExp())
+        {
+            // need to convert nodal coeff values into orthonormal expansion
+            Array<OneD, NekDouble> orthocoeffs((*m_exp)[eid]->GetNcoeffs());
+            (*m_exp)[eid]->NodalToModal(coeffs + m_coeff_offset[eid],
+                                        orthocoeffs);
+            fielddata.insert(fielddata.end(), &orthocoeffs[0],
+                             &orthocoeffs[0] + datalen);
+        }
+        else
+        {
+            fielddata.insert(fielddata.end(), &coeffs[m_coeff_offset[eid]],
+                             &coeffs[m_coeff_offset[eid]] + datalen);
+        }
     }
 }
 
@@ -5636,7 +5652,7 @@ void ExpList::v_ExtractPhysToBnd(int i,
 void ExpList::v_GetBoundaryNormals(int i,
                                    Array<OneD, Array<OneD, NekDouble>> &normals)
 {
-    int j, n, cnt, nq;
+    int j, n, cnt;
     int coordim = GetCoordim(0);
     Array<OneD, NekDouble> tmp;
     LocalRegions::ExpansionSharedPtr elmt;
@@ -5662,15 +5678,16 @@ void ExpList::v_GetBoundaryNormals(int i,
     for (n = 0; n < GetBndCondExpansions()[i]->GetExpSize(); ++n)
     {
         offset = GetBndCondExpansions()[i]->GetPhys_Offset(n);
-        nq     = GetBndCondExpansions()[i]->GetExp(n)->GetTotPoints();
 
         elmt = GetExp(ElmtID[cnt + n]);
         const Array<OneD, const Array<OneD, NekDouble>> normalsElmt =
             elmt->GetTraceNormal(EdgeID[cnt + n]);
-        // Copy to result
+
+        // Interp/Copy to result
         for (j = 0; j < coordim; ++j)
         {
-            Vmath::Vcopy(nq, normalsElmt[j], 1, tmp = normals[j] + offset, 1);
+            GetBndCondExpansions()[i]->GetExp(n)->PhysInterp(
+                elmt, normalsElmt[j], tmp = normals[j] + offset);
         }
     }
 }

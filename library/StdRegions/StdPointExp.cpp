@@ -54,7 +54,8 @@ void StdPointExp::v_GetCoords(Array<OneD, NekDouble> &coords_0,
                               [[maybe_unused]] Array<OneD, NekDouble> &coords_1,
                               [[maybe_unused]] Array<OneD, NekDouble> &coords_2)
 {
-    Blas::Dcopy(GetNumPoints(0), (m_base[0]->GetZ()).get(), 1, &coords_0[0], 1);
+    Blas::Dcopy(GetNumPoints(0), (m_base[0]->GetZ()).data(), 1, &coords_0[0],
+                1);
 }
 
 void StdPointExp::v_BwdTrans(const Array<OneD, const NekDouble> &inarray,
@@ -69,7 +70,7 @@ void StdPointExp::v_BwdTrans(const Array<OneD, const NekDouble> &inarray,
     else
     {
         Blas::Dgemv('N', nquad, m_base[0]->GetNumModes(), 1.0,
-                    (m_base[0]->GetBdata()).get(), nquad, &inarray[0], 1, 0.0,
+                    (m_base[0]->GetBdata()).data(), nquad, &inarray[0], 1, 0.0,
                     &outarray[0], 1);
     }
 }
@@ -121,8 +122,8 @@ void StdPointExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &base,
     }
     else
     {
-        Blas::Dgemv('T', nquad, m_ncoeffs, 1.0, base.get(), nquad, &tmp[0], 1,
-                    0.0, outarray.get(), 1);
+        Blas::Dgemv('T', nquad, m_ncoeffs, 1.0, base.data(), nquad, &tmp[0], 1,
+                    0.0, outarray.data(), 1);
     }
 }
 

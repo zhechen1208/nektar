@@ -132,11 +132,10 @@ protected:
         const int mode, Array<OneD, NekDouble> &outarray) override;
     STD_REGIONS_EXPORT NekDouble v_PhysEvaluateBasis(
         const Array<OneD, const NekDouble> &coords, int mode) final;
-
     STD_REGIONS_EXPORT NekDouble
-    v_PhysEvaluate(const Array<OneD, NekDouble> &coord,
-                   const Array<OneD, const NekDouble> &inarray,
-                   std::array<NekDouble, 3> &firstOrderDerivs) override;
+    v_PhysEvalFirstDeriv(const Array<OneD, NekDouble> &coord,
+                         const Array<OneD, const NekDouble> &inarray,
+                         std::array<NekDouble, 3> &firstOrderDerivs) override;
 
     //---------------------------
     // Helper functions
@@ -156,7 +155,7 @@ protected:
         Array<OneD, NekDouble> &coords_z) override;
     STD_REGIONS_EXPORT bool v_IsBoundaryInteriorExpansion() const override;
     STD_REGIONS_EXPORT const LibUtilities::BasisKey v_GetTraceBasisKey(
-        const int i, const int j) const override;
+        const int i, const int j, bool UseGLL = false) const override;
 
     //--------------------------
     // Mappings
