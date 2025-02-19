@@ -217,7 +217,7 @@ void SmoothedProfileMethod::v_InitObject(bool DeclareField)
     m_forcesFilter = -1;
     for (size_t i = 0; i < m_session->GetFilters().size(); ++i)
     {
-        if (boost::iequals(m_session->GetFilters()[i].first, "AeroForcesSPM"))
+        if (boost::iequals(m_session->GetFilters()[i].name, "AeroForcesSPM"))
         {
             m_forcesFilter = i;
             break;

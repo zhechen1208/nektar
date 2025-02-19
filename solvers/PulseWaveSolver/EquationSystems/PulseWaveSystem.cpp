@@ -132,28 +132,62 @@ void PulseWaveSystem::v_InitObject(bool DeclareField)
 
     SpatialDomains::BoundaryConditions Allbcs(m_session, m_graph);
 
-    // Set up domains and put geometry to be only one space dimension.
-    size_t cnt                  = 0;
-    bool SetToOneSpaceDimension = true;
-
-    if (m_session->DefinesCmdLineArgument("SetToOneSpaceDimension"))
-    {
-        std::string cmdline = m_session->GetCmdLineArgument<std::string>(
-            "SetToOneSpaceDimension");
-        if (boost::to_upper_copy(cmdline) == "FALSE")
-        {
-            SetToOneSpaceDimension = false;
-        }
-    }
-
     // get parallel communicators as required
     map<int, LibUtilities::CommSharedPtr> domComm;
     GetCommArray(domComm);
 
     SetUpDomainInterfaceBCs(Allbcs, domComm);
 
+    // set up a list of the domain to filter ids
+    auto filterMap    = m_session->GetFilters();
+    unsigned int fcnt = 0;
+    for (auto &x : filterMap)
+    {
+        ASSERTL0(x.domain != -1, "Filter needs DOMAIN attribute when "
+                                 "applied to PulseWaveSolver.")
+        m_domainToFilterIDs[x.domain].push_back(fcnt);
+        ++fcnt;
+    }
+
+    // Set up domains and put geometry to be only one space dimension.
+    size_t cnt = 0;
+    // currently I believe we have to set to one space dimension on
+    // constuction since the advection terms are set to differentiate
+    // with respect to x (or the lcoal ordinate) not as an arc length
+    // derivative. So will not get consistent answers wtihout this
+    bool SetToOneSpaceDimension = true;
+
     for (auto &d : m_domOrder)
     {
+        // need to check if we have filters on this domain and if so
+        // set them up without SetToOneSpaceDimension if so we can
+        // initialisatio them (i.e. history points)
+        if (m_domainToFilterIDs.count(d))
+        {
+            // make temporary expansion list to not settig to one space
+            // dimension
+            Array<OneD, MultiRegions::ExpListSharedPtr> filterFields(
+                m_nVariables);
+            for (size_t j = 0; j < m_nVariables; ++j)
+            {
+                filterFields[j] = MemoryManager<MultiRegions::DisContField>::
+                    AllocateSharedPtr(m_session, m_graph, m_domain[d], Allbcs,
+                                      m_session->GetVariable(j), domComm[d],
+                                      false);
+            }
+
+            // intiialise filters with temporary expansion lsits
+            for (auto &x : m_domainToFilterIDs[d])
+            {
+                m_filters[x].second->SetUpdateOnInitialise(false);
+                m_filters[x].second->Initialise(filterFields, m_time);
+                m_filters[x].second->SetUpdateOnInitialise(true);
+
+                // save vessel start id for update
+                m_filterToVesselID[x] = cnt;
+            }
+        }
+
         for (size_t j = 0; j < m_nVariables; ++j)
         {
             m_vessels[cnt++] =
@@ -295,26 +329,23 @@ void PulseWaveSystem::v_InitObject(bool DeclareField)
         m_alpha_trace[omega] = Array<OneD, NekDouble>(nqTrace);
         m_fields[0]->ExtractTracePhys(m_alpha[omega], m_alpha_trace[omega]);
 
-        if (SetToOneSpaceDimension)
+        m_trace_fwd_normal[omega] = Array<OneD, NekDouble>(nqTrace, 0.0);
+
+        MultiRegions::ExpListSharedPtr trace = m_fields[0]->GetTrace();
+        int nelmt_trace                      = trace->GetExpSize();
+
+        Array<OneD, Array<OneD, NekDouble>> normals(nelmt_trace);
+
+        for (int i = 0; i < nelmt_trace; ++i)
         {
-            m_trace_fwd_normal[omega] = Array<OneD, NekDouble>(nqTrace, 0.0);
-
-            MultiRegions::ExpListSharedPtr trace = m_fields[0]->GetTrace();
-            int nelmt_trace                      = trace->GetExpSize();
-
-            Array<OneD, Array<OneD, NekDouble>> normals(nelmt_trace);
-
-            for (int i = 0; i < nelmt_trace; ++i)
-            {
-                normals[i] = m_trace_fwd_normal[omega] + i;
-            }
-
-            // need to set to 1 for consistency since boundary
-            // conditions may not have coordim = 1
-            trace->GetExp(0)->GetGeom()->SetCoordim(1);
-
-            trace->GetNormals(normals);
+            normals[i] = m_trace_fwd_normal[omega] + i;
         }
+
+        // need to set to 1 for consistency since boundary
+        // conditions may not have coordim = 1
+        trace->GetExp(0)->GetGeom()->SetCoordim(1);
+
+        trace->GetNormals(normals);
         omega++;
     }
 
@@ -458,8 +489,8 @@ void PulseWaveSystem::GetCommArray(
         while (search)
         {
             size_t dorank = 0; // search index over processors
-            set<int>
-                proclist;   // has proc been identified for a comm at this level
+            set<int> proclist; // has proc been identified for a comm at
+            // this level
             int flag = 100; // colour for communicators in this search level
 
             while (dorank < nprocs)
@@ -683,7 +714,7 @@ void PulseWaveSystem::GetCommArray(
 
             Array<OneD, NekDouble> shareddom(totShared, -1.0);
             cnt = 0; // collect a list of domains that each shared commm is
-                     // attached to
+            // attached to
             for (auto &s : SharedProc)
             {
                 shareddom[numShared[rank] + cnt] = s.first;
@@ -736,7 +767,8 @@ void PulseWaveSystem::GetCommArray(
             m_comm->AllReduce(maxoffset, LibUtilities::ReduceMax);
             maxoffset++;
 
-            // make a map relating the order of the SharedProc to the domain id
+            // make a map relating the order of the SharedProc to the domain
+            // id
             map<int, int> ShrToDom;
             cnt = 0;
             for (auto &s : SharedProc)
@@ -1176,8 +1208,8 @@ void PulseWaveSystem::SetUpDomainInterfaceBCs(
                 MemoryManager<
                     SpatialDomains::BoundaryRegion>::AllocateSharedPtr());
 
-            // Set up Composite (GemetryVector) to contain vertex and put into
-            // bRegion
+            // Set up Composite (GemetryVector) to contain vertex and put
+            // into bRegion
             SpatialDomains::CompositeSharedPtr gvec =
                 MemoryManager<SpatialDomains::Composite>::AllocateSharedPtr();
             gvec->m_geomVec.push_back(b.second);
@@ -1226,7 +1258,7 @@ void PulseWaveSystem::v_DoInitialise(
     int omega = 0;
     for (auto &d : m_domOrder)
     {
-        for (size_t i = 0; i < 2; ++i)
+        for (size_t i = 0; i < m_nVariables; ++i)
         {
             m_fields[i] = m_vessels[m_nVariables * omega + i];
         }
@@ -1240,10 +1272,28 @@ void PulseWaveSystem::v_DoInitialise(
         omega++;
     }
 
-    // Reset 2 variables to first vessels
-    for (size_t i = 0; i < 2; ++i)
+    // Reset  variables to first vessels
+    for (size_t i = 0; i < m_nVariables; ++i)
     {
         m_fields[i] = m_vessels[i];
+    }
+
+    // Update filters.
+    for (auto &d : m_domainToFilterIDs)
+    {
+        Array<OneD, MultiRegions::ExpListSharedPtr> filterFields(m_nVariables);
+
+        int vesselID = m_filterToVesselID[d.second[0]];
+        for (size_t j = 0; j < m_nVariables; ++j)
+        {
+            filterFields[j] = m_vessels[vesselID + j];
+        }
+
+        // loop over filters in domain
+        for (auto &f : d.second)
+        {
+            m_filters[f].second->Update(filterFields, m_time);
+        }
     }
 }
 
@@ -1266,7 +1316,6 @@ void PulseWaveSystem::v_DoInitialise(
  */
 void PulseWaveSystem::v_DoSolve()
 {
-    // NekDouble IntegrationTime = 0.0;
     size_t i;
     int n;
     int nchk = 1;
@@ -1291,8 +1340,6 @@ void PulseWaveSystem::v_DoSolve()
         time_v_IntStep.Stop();
         time_v_IntStep.AccumulateRegion("PulseWaveSystem::TimeIntegrationStep",
                                         0);
-        // IntegrationTime += timer.TimePerTest(1);
-
         // Write out status information.
         if (m_infosteps && !((n + 1) % m_infosteps) &&
             m_session->GetComm()->GetRank() == 0)
@@ -1301,38 +1348,72 @@ void PulseWaveSystem::v_DoSolve()
                  << "\t Time-step: " << m_timestep << "\t" << endl;
         }
 
+        // Copy Array To Vessel Phys Fields
+        for (size_t i = 0; i < m_nVariables; ++i)
+        {
+            Vmath::Vcopy(fields[i].size(), fields[i], 1,
+                         m_vessels[i]->UpdatePhys(), 1);
+        }
+
         // Transform data if needed
         if (m_checksteps && !((n + 1) % m_checksteps))
         {
             for (i = 0; i < m_nVariables; ++i)
             {
-                size_t cnt = 0;
                 for (size_t omega = 0; omega < m_nDomains; omega++)
                 {
-                    m_vessels[omega * m_nVariables + i]->FwdTrans(
-                        fields[i] + cnt,
-                        m_vessels[omega * m_nVariables + i]->UpdateCoeffs());
-                    cnt += m_vessels[omega * m_nVariables + i]->GetTotPoints();
+                    unsigned int offset = omega * m_nVariables + i;
+                    m_vessels[offset]->FwdTrans(
+                        fields[i] + m_fieldPhysOffset[omega],
+                        m_vessels[offset]->UpdateCoeffs());
                 }
             }
             CheckPoint_Output(nchk++);
         }
 
+        // Update filters.
+        for (auto &d : m_domainToFilterIDs)
+        {
+            Array<OneD, MultiRegions::ExpListSharedPtr> filterFields(
+                m_nVariables);
+            int vesselID = m_filterToVesselID[d.second[0]];
+            for (size_t j = 0; j < m_nVariables; ++j)
+            {
+                filterFields[j] = m_vessels[vesselID + j];
+            }
+
+            // loop over filters in domain
+            for (auto &f : d.second)
+            {
+                m_filters[f].second->Update(filterFields, m_time);
+            }
+        }
+
     } // end of timeintegration
 
-    // Copy Array To Vessel Phys Fields
-    for (size_t i = 0; i < m_nVariables; ++i)
-    {
-        Vmath::Vcopy(fields[i].size(), fields[i], 1, m_vessels[i]->UpdatePhys(),
-                     1);
-    }
-
     /**  if(m_session->GetComm()->GetRank() == 0)
-       {
-           cout << "Time-integration timing: " << IntegrationTime << " s" <<
-       endl
-                << endl;
-       } **/
+         {
+         cout << "Time-integration timing: " << IntegrationTime << " s" <<
+         endl
+         << endl;
+         } **/
+
+    // Finalise filters.
+    for (auto &d : m_domainToFilterIDs)
+    {
+        Array<OneD, MultiRegions::ExpListSharedPtr> filterFields(m_nVariables);
+        int vesselID = m_filterToVesselID[d.second[0]];
+        for (size_t j = 0; j < m_nVariables; ++j)
+        {
+            filterFields[j] = m_vessels[vesselID + j];
+        }
+
+        // loop over filters in domain
+        for (auto &f : d.second)
+        {
+            m_filters[f].second->Finalise(filterFields, m_time);
+        }
+    }
 }
 
 void PulseWaveSystem::FillDataFromInterfacePoint(
@@ -1552,15 +1633,18 @@ void PulseWaveSystem::BifurcationRiemann(Array<OneD, NekDouble> &Au,
         /*
          * We solve the six constraint equations via a multivariate Newton
          * iteration. Equations are:
-         * 1. Forward characteristic:          W1(A_L,  U_L)  = W1(Au_L,  Uu_L)
-         * 2. Backward characteristic 1:       W2(A_R1, U_R1) = W2(Au_R1, Uu_R1)
-         * 3. Backward characteristic 2:       W2(A_R2, U_R2) = W2(Au_R2, Uu_R2)
-         * 4. Conservation of mass:            Au_L * Uu_L    = Au_R1 * Uu_R1 +
-         *                                                      Au_R2 * Uu_R2
-         * 5. Continuity of total pressure 1:  rho * Uu_L  * Uu_L  / 2 + p(Au_L)
-         * = rho * Uu_R1 * Uu_R1 / 2 + p(Au_R1)
-         * 6. Continuity of total pressure 2:  rho * Uu_L  * Uu_L  / 2 + p(Au_L)
-         * = rho * Uu_R2 * Uu_R2 / 2 + p(Au_R2)
+         * 1. Forward characteristic:          W1(A_L,  U_L)  = W1(Au_L,
+         * Uu_L)
+         * 2. Backward characteristic 1:       W2(A_R1, U_R1) = W2(Au_R1,
+         * Uu_R1)
+         * 3. Backward characteristic 2:       W2(A_R2, U_R2) = W2(Au_R2,
+         * Uu_R2)
+         * 4. Conservation of mass:            Au_L * Uu_L    = Au_R1 *
+         * Uu_R1 + Au_R2 * Uu_R2
+         * 5. Continuity of total pressure 1:  rho * Uu_L  * Uu_L  / 2 +
+         * p(Au_L) = rho * Uu_R1 * Uu_R1 / 2 + p(Au_R1)
+         * 6. Continuity of total pressure 2:  rho * Uu_L  * Uu_L  / 2 +
+         * p(Au_L) = rho * Uu_R2 * Uu_R2 / 2 + p(Au_R2)
          */
         for (size_t i = 0; i < 3; ++i)
         {
@@ -1662,17 +1746,18 @@ void PulseWaveSystem::MergingRiemann(Array<OneD, NekDouble> &Au,
         /*
          * We solve the six constraint equations via a multivariate Newton
          * iteration. Equations are:
-         * 1. Backward characteristic:          W2(A_R,  U_R)  = W1(Au_R, Uu_R)
+         * 1. Backward characteristic:          W2(A_R,  U_R)  = W1(Au_R,
+         * Uu_R)
          * 2. Forward characteristic 1:         W1(A_L1, U_L1) = W1(Au_L1,
          * Uu_R1)
          * 3. Forward characteristic 2:         W1(A_L2, U_L2) = W1(Au_L2,
          * Uu_L2)
-         * 4. Conservation of mass:             Au_R * Uu_R    = Au_L1 * Uu_L1 +
-         *                                                       Au_L2 * Uu_L2
-         * 5. Continuity of total pressure 1:  rho * Uu_R  * Uu_R  / 2 + p(Au_R)
-         * = rho * Uu_L1 * Uu_L1 / 2 + p(Au_L1)
-         * 6. Continuity of total pressure 2:  rho * Uu_R  * Uu_R  / 2 + p(Au_R)
-         * = rho * Uu_L2 * Uu_L2 / 2 + p(Au_L2)
+         * 4. Conservation of mass:             Au_R * Uu_R    = Au_L1 *
+         * Uu_L1 + Au_L2 * Uu_L2
+         * 5. Continuity of total pressure 1:  rho * Uu_R  * Uu_R  / 2 +
+         * p(Au_R) = rho * Uu_L1 * Uu_L1 / 2 + p(Au_L1)
+         * 6. Continuity of total pressure 2:  rho * Uu_R  * Uu_R  / 2 +
+         * p(Au_R) = rho * Uu_L2 * Uu_L2 / 2 + p(Au_L2)
          */
         for (size_t i = 0; i < 3; ++i)
         {
@@ -1770,8 +1855,8 @@ void PulseWaveSystem::InterfaceRiemann(Array<OneD, NekDouble> &Au,
          * 1. Forward characteristic:        W1(A_L, U_L) = W1(Au_L, Uu_L)
          * 2. Backward characteristic:       W2(A_R, U_R) = W2(Au_R, Uu_R)
          * 3. Conservation of mass:          Au_L * Uu_L = Au_R * Uu_R
-         * 4. Continuity of total pressure:  rho * Uu_L * Uu_L / 2 + p(Au_L) =
-         *                                   rho * Uu_R * Uu_R / 2 + p(Au_R)
+         * 4. Continuity of total pressure:  rho * Uu_L * Uu_L / 2 + p(Au_L)
+         * = rho * Uu_R * Uu_R / 2 + p(Au_R)
          */
         for (size_t i = 0; i < 2; ++i)
         {
@@ -1825,8 +1910,8 @@ void PulseWaveSystem::InterfaceRiemann(Array<OneD, NekDouble> &Au,
 void PulseWaveSystem::v_Output(void)
 {
     /**
-     * Write the field data to file. The file is named according to the session
-     * name with the extension .fld appended.
+     * Write the field data to file. The file is named according to the
+     * session name with the extension .fld appended.
      */
     std::string outname = m_sessionName + ".fld";
 
@@ -1957,8 +2042,8 @@ NekDouble PulseWaveSystem::v_L2Error(
         {
             size_t vesselid = field + omega * m_nVariables;
 
-            // since exactsoln is passed for just the first field size we need
-            // to reset it each domain
+            // since exactsoln is passed for just the first field size we
+            // need to reset it each domain
             Array<OneD, NekDouble> exactsoln(m_vessels[vesselid]->GetNpoints());
             m_fields[field] = m_vessels[omega * m_nVariables];
             EvaluateExactSolution(field, exactsoln, m_time);

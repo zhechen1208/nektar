@@ -117,6 +117,8 @@ protected:
     // keep local copy so can be reordered in parallle
     std::map<int, SpatialDomains::CompositeMap> m_domain;
     std::vector<int> m_domOrder;
+    std::map<int, std::vector<int>> m_domainToFilterIDs;
+    std::map<int, int> m_filterToVesselID;
 
     Array<OneD, Array<OneD, NekDouble>> m_pressure;
     PulseWavePressureAreaSharedPtr m_pressureArea;

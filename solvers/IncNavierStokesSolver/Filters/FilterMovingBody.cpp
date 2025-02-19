@@ -58,32 +58,17 @@ FilterMovingBody::FilterMovingBody(
     : Filter(pSession, pEquation)
 {
     // OutputFile
-    auto it = pParams.find("OutputFile");
-    if (it == pParams.end())
-    {
-        m_outputFile_fce = pSession->GetSessionName();
-        m_outputFile_mot = pSession->GetSessionName();
-    }
-    else
-    {
-        ASSERTL0(it->second.length() > 0, "Missing parameter 'OutputFile'.");
+    // forces
+    std::string ext;
+    ext              = ".fce";
+    m_outputFile_fce = Filter::SetupOutput(ext, pParams);
 
-        m_outputFile_fce = it->second;
-        m_outputFile_mot = it->second;
-    }
-    if (!(m_outputFile_fce.length() >= 4 &&
-          m_outputFile_fce.substr(m_outputFile_fce.length() - 4) == ".fce"))
-    {
-        m_outputFile_fce += ".fce";
-    }
-    if (!(m_outputFile_mot.length() >= 4 &&
-          m_outputFile_mot.substr(m_outputFile_mot.length() - 4) == ".mot"))
-    {
-        m_outputFile_mot += ".mot";
-    }
+    // Motion
+    ext              = ".mot";
+    m_outputFile_mot = Filter::SetupOutput(ext, pParams);
 
     // OutputFrequency
-    it = pParams.find("OutputFrequency");
+    auto it = pParams.find("OutputFrequency");
     if (it == pParams.end())
     {
         m_outputFrequency = 1;

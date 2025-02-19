@@ -177,7 +177,7 @@ void PulseWavePropagation::DoOdeRhs(
         timer.Start();
         for (i = 0; i < m_nVariables; ++i)
         {
-            physarray[i] = inarray[i] + cnt;
+            physarray[i] = inarray[i] + cnt; // note this is doing a hidden copy
             out[i]       = outarray[i] + cnt;
         }
 
@@ -319,13 +319,13 @@ void PulseWavePropagation::GetFluxVector(
 
     LibUtilities::Timer timer;
 
+    timer.Start();
     for (size_t j = 0; j < nq; ++j)
     {
-        timer.Start();
         flux[0][0][j] = physfield[0][j] * physfield[1][j];
-        timer.Stop();
-        timer.AccumulateRegion("PulseWavePropagation:GetFluxVector-flux", 3);
     }
+    timer.Stop();
+    timer.AccumulateRegion("PulseWavePropagation:GetFluxVector-flux", 3);
 
     // d/dx of AU, for the viscoelastic tube law and extra fields
     m_fields[0]->PhysDeriv(flux[0][0], dAUdx);

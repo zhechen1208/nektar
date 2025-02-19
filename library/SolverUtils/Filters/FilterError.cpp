@@ -45,19 +45,8 @@ FilterError::FilterError(const LibUtilities::SessionReaderSharedPtr &pSession,
     : Filter(pSession, pEquation)
 {
     std::string outName;
-
-    // OutputFile
-    auto it = pParams.find("OutputFile");
-    if (it == pParams.end())
-    {
-        outName = m_session->GetSessionName();
-    }
-    else
-    {
-        ASSERTL0(it->second.length() > 0, "Empty parameter 'OutputFile'.");
-        outName = it->second;
-    }
-    outName += ".err";
+    std::string ext = ".err";
+    outName         = Filter::SetupOutput(ext, pParams);
 
     // Lock equation system pointer
     auto equationSys = m_equ.lock();
@@ -84,7 +73,7 @@ FilterError::FilterError(const LibUtilities::SessionReaderSharedPtr &pSession,
     }
 
     // OutputFrequency
-    it = pParams.find("OutputFrequency");
+    auto it = pParams.find("OutputFrequency");
     if (it == pParams.end())
     {
         m_outputFrequency = 1;
