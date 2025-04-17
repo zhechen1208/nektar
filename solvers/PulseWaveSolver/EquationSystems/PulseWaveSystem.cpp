@@ -40,7 +40,6 @@
 #include <LibUtilities/TimeIntegration/TimeIntegrationScheme.h>
 #include <MultiRegions/ContField.h>
 #include <PulseWaveSolver/EquationSystems/PulseWaveSystem.h>
-using namespace std;
 
 namespace Nektar
 {
@@ -66,13 +65,6 @@ PulseWaveSystem::PulseWaveSystem(
     const LibUtilities::SessionReaderSharedPtr &pSession,
     const SpatialDomains::MeshGraphSharedPtr &pGraph)
     : UnsteadySystem(pSession, pGraph)
-{
-}
-
-/**
- *  Destructor
- */
-PulseWaveSystem::~PulseWaveSystem()
 {
 }
 
@@ -133,7 +125,7 @@ void PulseWaveSystem::v_InitObject(bool DeclareField)
     SpatialDomains::BoundaryConditions Allbcs(m_session, m_graph);
 
     // get parallel communicators as required
-    map<int, LibUtilities::CommSharedPtr> domComm;
+    std::map<int, LibUtilities::CommSharedPtr> domComm;
     GetCommArray(domComm);
 
     SetUpDomainInterfaceBCs(Allbcs, domComm);
@@ -353,7 +345,7 @@ void PulseWaveSystem::v_InitObject(bool DeclareField)
 }
 
 void PulseWaveSystem::GetCommArray(
-    map<int, LibUtilities::CommSharedPtr> &retval)
+    std::map<int, LibUtilities::CommSharedPtr> &retval)
 {
 
     // set up defualt serial communicator
@@ -443,7 +435,7 @@ void PulseWaveSystem::GetCommArray(
         // communicator and number of processors in parallel
 
         // communicator
-        map<int, int> SharedProc;
+        std::map<int, int> SharedProc;
         Array<OneD, int> commtmp1(dmax, 0);
 
         for (auto &d : m_domain)
@@ -481,15 +473,15 @@ void PulseWaveSystem::GetCommArray(
         // now work out a comm ordering;
         Array<OneD, int> procs(2);
         int commcall = 0;
-        map<int, pair<int, int>> CreateComm;
+        std::map<int, std::pair<int, int>> CreateComm;
 
         bool search = true;
         Array<OneD, int> setdone(3);
 
         while (search)
         {
-            size_t dorank = 0; // search index over processors
-            set<int> proclist; // has proc been identified for a comm at
+            size_t dorank = 0;      // search index over processors
+            std::set<int> proclist; // has proc been identified for a comm at
             // this level
             int flag = 100; // colour for communicators in this search level
 
@@ -546,8 +538,9 @@ void PulseWaveSystem::GetCommArray(
                                 {
                                     if (d.second == sharedproc)
                                     {
-                                        CreateComm[d.first] = pair<int, int>(
-                                            commcall, flag + d.first);
+                                        CreateComm[d.first] =
+                                            std::pair<int, int>(commcall,
+                                                                flag + d.first);
                                         createdComm = true;
                                     }
                                 }
@@ -581,8 +574,9 @@ void PulseWaveSystem::GetCommArray(
                                 {
                                     if (d.second == (int)dorank)
                                     {
-                                        CreateComm[d.first] = pair<int, int>(
-                                            commcall, flag + d.first);
+                                        CreateComm[d.first] =
+                                            std::pair<int, int>(commcall,
+                                                                flag + d.first);
                                         createdComm = true;
                                     }
                                 }
@@ -769,7 +763,7 @@ void PulseWaveSystem::GetCommArray(
 
             // make a map relating the order of the SharedProc to the domain
             // id
-            map<int, int> ShrToDom;
+            std::map<int, int> ShrToDom;
             cnt = 0;
             for (auto &s : SharedProc)
             {
@@ -779,7 +773,7 @@ void PulseWaveSystem::GetCommArray(
 
             // Set up a set the domain ids listed in the ordering of
             // the SharedProc unique numbering
-            set<int> doneDom;
+            std::set<int> doneDom;
             for (size_t i = 0; i < nShrProc; ++i)
             {
                 int minId =
@@ -804,7 +798,7 @@ void PulseWaveSystem::GetCommArray(
 
 void PulseWaveSystem::SetUpDomainInterfaces(void)
 {
-    map<int, std::vector<InterfacePointShPtr>> VidToDomain;
+    std::map<int, std::vector<InterfacePointShPtr>> VidToDomain;
 
     // First set up domain to determine how many vertices meet at a
     // vertex.  This allows us to
@@ -881,7 +875,7 @@ void PulseWaveSystem::SetUpDomainInterfaces(void)
     }
 
     // Set up comms for parallel cases
-    map<int, int> domId;
+    std::map<int, int> domId;
 
     size_t cnt = 0;
     for (auto &d : m_domain)
@@ -953,7 +947,7 @@ void PulseWaveSystem::SetUpDomainInterfaces(void)
             for (size_t i = 0; i < v.second.size(); ++i)
             {
                 dom[cnt] =
-                    max(dom[cnt], (NekDouble)domId[v.second[i]->m_domain]);
+                    std::max(dom[cnt], (NekDouble)domId[v.second[i]->m_domain]);
             }
         }
         else if (nvid[cnt] == 3.0)
@@ -968,8 +962,8 @@ void PulseWaveSystem::SetUpDomainInterfaces(void)
             {
                 if (v.second[i]->m_elmtVert == val)
                 {
-                    dom[cnt] =
-                        max(dom[cnt], (NekDouble)domId[v.second[i]->m_domain]);
+                    dom[cnt] = std::max(
+                        dom[cnt], (NekDouble)domId[v.second[i]->m_domain]);
                 }
             }
         }
@@ -1079,7 +1073,7 @@ void PulseWaveSystem::SetUpDomainInterfaces(void)
 
 void PulseWaveSystem::SetUpDomainInterfaceBCs(
     SpatialDomains::BoundaryConditions &Allbcs,
-    map<int, LibUtilities::CommSharedPtr> &domComm)
+    std::map<int, LibUtilities::CommSharedPtr> &domComm)
 {
 
     const SpatialDomains::BoundaryRegionCollection &bregions =
@@ -1094,7 +1088,7 @@ void PulseWaveSystem::SetUpDomainInterfaceBCs(
     for (auto &d : m_domOrder)
     {
 
-        map<int, SpatialDomains::GeometrySharedPtr> domvids;
+        std::map<int, SpatialDomains::GeometrySharedPtr> domvids;
 
         // Loop over each domain and find which vids are only touched
         // by one element
@@ -1155,7 +1149,7 @@ void PulseWaveSystem::SetUpDomainInterfaceBCs(
             // collect lcoal vids on this domain on all processor
             domComm[d]->AllReduce(locids, LibUtilities::ReduceMax);
 
-            set<int> chkvids;
+            std::set<int> chkvids;
             for (size_t i = 0; i < totvids; ++i)
             {
                 if (chkvids.count(locids[i]))
@@ -1250,7 +1244,7 @@ void PulseWaveSystem::v_DoInitialise(
 {
     if (m_session->GetComm()->GetRank() == 0)
     {
-        cout << "Initial Conditions: " << endl;
+        std::cout << "Initial Conditions: " << std::endl;
     }
 
     /* Loop over all subdomains to initialize all with the Initial
@@ -1265,7 +1259,7 @@ void PulseWaveSystem::v_DoInitialise(
 
         if (m_session->GetComm()->GetRank() == 0)
         {
-            cout << "Subdomain: " << omega << endl;
+            std::cout << "Subdomain: " << omega << std::endl;
         }
 
         SetInitialConditions(0.0, false, d);
@@ -1344,8 +1338,8 @@ void PulseWaveSystem::v_DoSolve()
         if (m_infosteps && !((n + 1) % m_infosteps) &&
             m_session->GetComm()->GetRank() == 0)
         {
-            cout << "Steps: " << n + 1 << "\t Time: " << m_time
-                 << "\t Time-step: " << m_timestep << "\t" << endl;
+            std::cout << "Steps: " << n + 1 << "\t Time: " << m_time
+                      << "\t Time-step: " << m_timestep << "\t" << std::endl;
         }
 
         // Copy Array To Vessel Phys Fields

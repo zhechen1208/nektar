@@ -40,14 +40,13 @@
 #include <LocalRegions/Expansion3D.h>
 #include <iomanip>
 
-using namespace std;
-
 namespace Nektar
 {
 
 std::string FilterMovingBody::className =
     SolverUtils::GetFilterFactory().RegisterCreatorFunction(
         "MovingBody", FilterMovingBody::create, "Moving Body Filter");
+
 /**
  *
  */
@@ -88,13 +87,6 @@ FilterMovingBody::FilterMovingBody(
     ASSERTL0(it != pParams.end(), "Missing parameter 'Boundary'.");
     ASSERTL0(it->second.length() > 0, "Missing parameter 'Boundary'.");
     m_BoundaryString = it->second;
-}
-
-/**
- *
- */
-FilterMovingBody::~FilterMovingBody()
-{
 }
 
 /**
@@ -174,7 +166,7 @@ void FilterMovingBody::v_Initialise(
         m_outputStream[0] << "Fy (visc)";
         m_outputStream[0].width(15);
         m_outputStream[0] << "Fy (tot)";
-        m_outputStream[0] << endl;
+        m_outputStream[0] << std::endl;
 
         // Open output stream for cable motions
         m_outputStream[1].open(m_outputFile_mot.c_str());
@@ -195,7 +187,7 @@ void FilterMovingBody::v_Initialise(
         m_outputStream[1] << "Vel_y";
         m_outputStream[1].width(15);
         m_outputStream[1] << "Acel_y";
-        m_outputStream[1] << endl;
+        m_outputStream[1] << std::endl;
     }
 }
 
@@ -517,25 +509,25 @@ void FilterMovingBody::UpdateForce(
             for (size_t i = 0; i < Num_z_pos; i++)
             {
                 m_outputStream[0].width(8);
-                m_outputStream[0] << setprecision(6) << time;
+                m_outputStream[0] << std::setprecision(6) << time;
 
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(6) << z_coords[i];
+                m_outputStream[0] << std::setprecision(6) << z_coords[i];
 
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << Fxp[i];
+                m_outputStream[0] << std::setprecision(8) << Fxp[i];
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << Fxv[i];
+                m_outputStream[0] << std::setprecision(8) << Fxv[i];
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << Fx[i];
+                m_outputStream[0] << std::setprecision(8) << Fx[i];
 
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << Fyp[i];
+                m_outputStream[0] << std::setprecision(8) << Fyp[i];
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << Fyv[i];
+                m_outputStream[0] << std::setprecision(8) << Fyv[i];
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << Fy[i];
-                m_outputStream[0] << endl;
+                m_outputStream[0] << std::setprecision(8) << Fy[i];
+                m_outputStream[0] << std::endl;
             }
         }
     }
@@ -606,50 +598,50 @@ void FilterMovingBody::UpdateForce(
         if (colrank == 0)
         {
             m_outputStream[0].width(8);
-            m_outputStream[0] << setprecision(6) << time;
+            m_outputStream[0] << std::setprecision(6) << time;
 
             m_outputStream[0].width(15);
-            m_outputStream[0] << setprecision(6) << z_coords[0];
+            m_outputStream[0] << std::setprecision(6) << z_coords[0];
 
             m_outputStream[0].width(15);
-            m_outputStream[0] << setprecision(8) << fces[2];
+            m_outputStream[0] << std::setprecision(8) << fces[2];
             m_outputStream[0].width(15);
-            m_outputStream[0] << setprecision(8) << fces[4];
+            m_outputStream[0] << std::setprecision(8) << fces[4];
             m_outputStream[0].width(15);
-            m_outputStream[0] << setprecision(8) << fces[0];
+            m_outputStream[0] << std::setprecision(8) << fces[0];
 
             m_outputStream[0].width(15);
-            m_outputStream[0] << setprecision(8) << fces[3];
+            m_outputStream[0] << std::setprecision(8) << fces[3];
             m_outputStream[0].width(15);
-            m_outputStream[0] << setprecision(8) << fces[5];
+            m_outputStream[0] << std::setprecision(8) << fces[5];
             m_outputStream[0].width(15);
-            m_outputStream[0] << setprecision(8) << fces[1];
-            m_outputStream[0] << endl;
+            m_outputStream[0] << std::setprecision(8) << fces[1];
+            m_outputStream[0] << std::endl;
 
             for (size_t i = 1; i < nstrips; i++)
             {
                 vColComm->Recv(i, fces);
 
                 m_outputStream[0].width(8);
-                m_outputStream[0] << setprecision(6) << time;
+                m_outputStream[0] << std::setprecision(6) << time;
 
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(6) << z_coords[i];
+                m_outputStream[0] << std::setprecision(6) << z_coords[i];
 
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << fces[2];
+                m_outputStream[0] << std::setprecision(8) << fces[2];
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << fces[4];
+                m_outputStream[0] << std::setprecision(8) << fces[4];
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << fces[0];
+                m_outputStream[0] << std::setprecision(8) << fces[0];
 
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << fces[3];
+                m_outputStream[0] << std::setprecision(8) << fces[3];
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << fces[5];
+                m_outputStream[0] << std::setprecision(8) << fces[5];
                 m_outputStream[0].width(15);
-                m_outputStream[0] << setprecision(8) << fces[1];
-                m_outputStream[0] << endl;
+                m_outputStream[0] << std::setprecision(8) << fces[1];
+                m_outputStream[0] << std::endl;
             }
         }
         else
@@ -700,22 +692,22 @@ void FilterMovingBody::UpdateMotion(
     {
         z_coords = Length / npts * n;
         m_outputStream[1].width(8);
-        m_outputStream[1] << setprecision(6) << time;
+        m_outputStream[1] << std::setprecision(6) << time;
         m_outputStream[1].width(15);
-        m_outputStream[1] << setprecision(6) << z_coords;
+        m_outputStream[1] << std::setprecision(6) << z_coords;
         m_outputStream[1].width(15);
-        m_outputStream[1] << setprecision(8) << MotionVars[n];
+        m_outputStream[1] << std::setprecision(8) << MotionVars[n];
         m_outputStream[1].width(15);
-        m_outputStream[1] << setprecision(8) << MotionVars[npts + n];
+        m_outputStream[1] << std::setprecision(8) << MotionVars[npts + n];
         m_outputStream[1].width(15);
-        m_outputStream[1] << setprecision(8) << MotionVars[2 * npts + n];
+        m_outputStream[1] << std::setprecision(8) << MotionVars[2 * npts + n];
         m_outputStream[1].width(15);
-        m_outputStream[1] << setprecision(8) << MotionVars[3 * npts + n];
+        m_outputStream[1] << std::setprecision(8) << MotionVars[3 * npts + n];
         m_outputStream[1].width(15);
-        m_outputStream[1] << setprecision(8) << MotionVars[4 * npts + n];
+        m_outputStream[1] << std::setprecision(8) << MotionVars[4 * npts + n];
         m_outputStream[1].width(15);
-        m_outputStream[1] << setprecision(8) << MotionVars[5 * npts + n];
-        m_outputStream[1] << endl;
+        m_outputStream[1] << std::setprecision(8) << MotionVars[5 * npts + n];
+        m_outputStream[1] << std::endl;
     }
 }
 

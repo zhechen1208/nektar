@@ -77,9 +77,6 @@ typedef std::shared_ptr<InterfacePoint> InterfacePointShPtr;
 class PulseWaveSystem : public UnsteadySystem
 {
 public:
-    /// Destructor
-    ~PulseWaveSystem() override;
-
     int GetNdomains()
     {
         return m_nDomains;
@@ -136,6 +133,8 @@ protected:
     /// Initialises PulseWaveSystem class members.
     PulseWaveSystem(const LibUtilities::SessionReaderSharedPtr &pSession,
                     const SpatialDomains::MeshGraphSharedPtr &pGraph);
+
+    ~PulseWaveSystem() override = default;
 
     void v_InitObject(bool DeclareField = false) override;
 

@@ -39,12 +39,10 @@
 #include <LibUtilities/BasicUtils/Timer.h>
 #include <PulseWaveSolver/EquationSystems/PulseWavePropagation.h>
 
-using namespace std;
-
 namespace Nektar
 {
 
-string PulseWavePropagation::className =
+std::string PulseWavePropagation::className =
     GetEquationSystemFactory().RegisterCreatorFunction(
         "PulseWavePropagation", PulseWavePropagation::create,
         "Pulse Wave Propagation equation.");
@@ -100,8 +98,8 @@ void PulseWavePropagation::v_InitObject([[maybe_unused]] bool DeclareField)
     }
 
     // Create advection object
-    string advName;
-    string riemName;
+    std::string advName;
+    std::string riemName;
     switch (m_upwindTypePulse)
     {
         case eUpwindPulse:
@@ -131,10 +129,6 @@ void PulseWavePropagation::v_InitObject([[maybe_unused]] bool DeclareField)
 
     m_advObject->SetRiemannSolver(m_riemannSolver);
     m_advObject->InitObject(m_session, m_fields);
-}
-
-PulseWavePropagation::~PulseWavePropagation()
-{
 }
 
 /**

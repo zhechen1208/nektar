@@ -35,10 +35,9 @@
 
 #include <IncNavierStokesSolver/Filters/FilterAeroForcesSPM.h>
 
-using namespace std;
-
 namespace Nektar
 {
+
 std::string FilterAeroForcesSPM::className =
     SolverUtils::GetFilterFactory().RegisterCreatorFunction(
         "AeroForcesSPM", FilterAeroForcesSPM::create);
@@ -84,13 +83,6 @@ FilterAeroForcesSPM::FilterAeroForcesSPM(
 /**
  *
  */
-FilterAeroForcesSPM::~FilterAeroForcesSPM()
-{
-}
-
-/**
- *
- */
 void FilterAeroForcesSPM::v_Initialise(
     const Array<OneD, const MultiRegions::ExpListSharedPtr> &pFields,
     [[maybe_unused]] const NekDouble &time)
@@ -121,7 +113,7 @@ void FilterAeroForcesSPM::v_Initialise(
         m_session->MatchSolverInfo("Driver", "Adaptive", adaptive, false);
         if (adaptive)
         {
-            m_outputStream.open(m_outputFile.c_str(), ofstream::app);
+            m_outputStream.open(m_outputFile.c_str(), std::ofstream::app);
         }
         else
         {
@@ -137,7 +129,7 @@ void FilterAeroForcesSPM::v_Initialise(
             m_outputStream << "F_" << m_dirNames[i];
         }
 
-        m_outputStream << endl;
+        m_outputStream << std::endl;
     }
 
     m_index = 0;
@@ -164,15 +156,15 @@ void FilterAeroForcesSPM::v_Update(
     {
         // Write time
         m_outputStream.width(8);
-        m_outputStream << setprecision(6) << time;
+        m_outputStream << std::setprecision(6) << time;
         // Write forces
         for (int i = 0; i < m_spaceDim; ++i)
         {
             m_outputStream.width(15);
-            m_outputStream << setprecision(8) << m_Forces[i];
+            m_outputStream << std::setprecision(8) << m_Forces[i];
         }
         m_outputStream.width(10);
-        m_outputStream << endl;
+        m_outputStream << std::endl;
     }
 }
 

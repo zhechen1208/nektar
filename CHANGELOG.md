@@ -21,6 +21,13 @@ v5.8.0
 - Fixed Modified Arnoldi driver to remove discontinuities from random vectors (!2002)
 - Addedd support for backing up filters output when the file name have already existis (!2006)
 - Partially revert Geometry::v_ContainsPoint (!2007)
+- Make the CWIPI third-party patch work with IntelLLVM (!2053)
+- Use C++17 value template for traits (!2081)
+- Add H1-norm to Error filter (!1834)
+- Delete redundant lines in the Navier-Stokes diffusion functions (!2058)
+- Various tidy-up for solvers (!2056)
+- Add Compilation option for boost filesystem (!2092)
+- Update minimum Cmake version to 3.10 (!2096)
 
 **CI**
 - Fix CubeAllElements performance test tolerance (!1943)
@@ -31,16 +38,19 @@ v5.8.0
 
 **NekMesh**
 - Add high-order pyramid and prism support from gmsh (!1956)
+- Industrial Pipeline Mesh Curving and CAD-Mesh link Reconstruction for all type of elements (!2057)
 
 **Python**
 - Transition bindings to use pybind11 (!1950)
 
 **Documentation**
-- Updated the User-guide with additional inofrmation for outflow BC, addressing the issue #103 (!1988)
 - Updated the User-guide with additional inofrmation for outflow BC, addressing the issue #103 (!1990)
 
 **PulseWaveSolver**
 - Added ability to output history points (and other filters) (!2000)
+
+**Miscellaneous**
+- Deprecate use of TimeIntegrationMethod in SolverInfo (!2059)
 	
 v5.7.0
 -----

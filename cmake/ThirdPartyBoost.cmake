@@ -11,7 +11,11 @@ MESSAGE(STATUS "Searching for Boost:")
 
 # Minimum version and boost libraries required
 SET(MIN_VER "1.60.0")
-SET(NEEDED_BOOST_LIBS iostreams system program_options)
+IF (NEKTAR_USE_BOOST_FILESYSTEM)
+    SET(NEEDED_BOOST_LIBS iostreams filesystem system program_options)
+ELSE()
+    SET(NEEDED_BOOST_LIBS iostreams system program_options)
+ENDIF()
 
 SET(Boost_NO_BOOST_CMAKE ON)
 IF( BOOST_ROOT )

@@ -114,6 +114,8 @@ void UnsteadySystem::v_InitObject(bool DeclareField)
         }
         else
         {
+            std::cout << "TimeIntegrationMethod is deprecated, please use "
+                         "TIMEINTEGRATIONSCHEME";
             timeInt.method = m_session->GetSolverInfo("TimeIntegrationMethod");
         }
 
