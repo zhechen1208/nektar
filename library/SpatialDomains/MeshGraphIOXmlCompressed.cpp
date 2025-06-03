@@ -51,10 +51,8 @@
 #include <boost/iostreams/copy.hpp>
 #include <boost/iostreams/filter/zlib.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
-#include <boost/make_shared.hpp>
 
 #include <tinyxml.h>
-using namespace std;
 
 namespace Nektar::SpatialDomains
 {
@@ -155,7 +153,7 @@ void MeshGraphIOXmlCompressed::v_ReadVertices()
         zmove               = expEvaluator.Evaluate(expr_id);
     }
 
-    string IsCompressed;
+    std::string IsCompressed;
     element->QueryStringAttribute("COMPRESSED", &IsCompressed);
 
     if (boost::iequals(IsCompressed,
@@ -303,7 +301,7 @@ void MeshGraphIOXmlCompressed::v_ReadCurves()
         return;
     }
 
-    string IsCompressed;
+    std::string IsCompressed;
     field->QueryStringAttribute("COMPRESSED", &IsCompressed);
 
     if (IsCompressed.size() == 0)
@@ -359,7 +357,7 @@ void MeshGraphIOXmlCompressed::v_ReadCurves()
         }
         else if (boost::iequals(entitytype, "DATAPOINTS"))
         {
-            NekInt id;
+            int32_t id;
             ASSERTL0(x->Attribute("ID", &id),
                      "Failed to get ID from PTS section");
             cpts.id = id;
@@ -467,7 +465,7 @@ void MeshGraphIOXmlCompressed::v_ReadEdges()
 
     ASSERTL0(field, "Unable to find EDGE tag in file.");
 
-    string IsCompressed;
+    std::string IsCompressed;
     field->QueryStringAttribute("COMPRESSED", &IsCompressed);
 
     ASSERTL0(boost::iequals(IsCompressed,
@@ -538,7 +536,7 @@ void MeshGraphIOXmlCompressed::v_ReadFaces()
         ASSERTL0(elementType == "Q" || elementType == "T",
                  (std::string("Unknown 3D face type: ") + elementType).c_str());
 
-        string IsCompressed;
+        std::string IsCompressed;
         element->QueryStringAttribute("COMPRESSED", &IsCompressed);
 
         ASSERTL0(
@@ -655,7 +653,7 @@ void MeshGraphIOXmlCompressed::v_ReadElements1D()
 
     while (segment)
     {
-        string IsCompressed;
+        std::string IsCompressed;
         segment->QueryStringAttribute("COMPRESSED", &IsCompressed);
         ASSERTL0(
             boost::iequals(IsCompressed,
@@ -739,7 +737,7 @@ void MeshGraphIOXmlCompressed::v_ReadElements2D()
             elementType == "Q" || elementType == "T",
             (std::string("Unknown 2D element type: ") + elementType).c_str());
 
-        string IsCompressed;
+        std::string IsCompressed;
         element->QueryStringAttribute("COMPRESSED", &IsCompressed);
 
         ASSERTL0(
@@ -862,7 +860,7 @@ void MeshGraphIOXmlCompressed::v_ReadElements3D()
                 elementType == "H",
             (std::string("Unknown 3D element type: ") + elementType).c_str());
 
-        string IsCompressed;
+        std::string IsCompressed;
         element->QueryStringAttribute("COMPRESSED", &IsCompressed);
 
         ASSERTL0(
@@ -896,7 +894,7 @@ void MeshGraphIOXmlCompressed::v_ReadElements3D()
                 {
                     Geometry2DSharedPtr face =
                         m_meshGraph->GetGeometry2D(data[i].f[j]);
-                    tfaces[j] = static_pointer_cast<TriGeom>(face);
+                    tfaces[j] = std::static_pointer_cast<TriGeom>(face);
                 }
 
                 TetGeomSharedPtr tetgeom(
@@ -931,13 +929,13 @@ void MeshGraphIOXmlCompressed::v_ReadElements3D()
                     }
                     else if (face->GetShapeType() == LibUtilities::eTriangle)
                     {
-                        faces[j] = static_pointer_cast<TriGeom>(face);
+                        faces[j] = std::static_pointer_cast<TriGeom>(face);
                         Ntfaces++;
                     }
                     else if (face->GetShapeType() ==
                              LibUtilities::eQuadrilateral)
                     {
-                        faces[j] = static_pointer_cast<QuadGeom>(face);
+                        faces[j] = std::static_pointer_cast<QuadGeom>(face);
                         Nqfaces++;
                     }
                 }
@@ -978,13 +976,13 @@ void MeshGraphIOXmlCompressed::v_ReadElements3D()
                     }
                     else if (face->GetShapeType() == LibUtilities::eTriangle)
                     {
-                        faces[j] = static_pointer_cast<TriGeom>(face);
+                        faces[j] = std::static_pointer_cast<TriGeom>(face);
                         Ntfaces++;
                     }
                     else if (face->GetShapeType() ==
                              LibUtilities::eQuadrilateral)
                     {
-                        faces[j] = static_pointer_cast<QuadGeom>(face);
+                        faces[j] = std::static_pointer_cast<QuadGeom>(face);
                         Nqfaces++;
                     }
                 }
@@ -1013,7 +1011,7 @@ void MeshGraphIOXmlCompressed::v_ReadElements3D()
                 {
                     Geometry2DSharedPtr face =
                         m_meshGraph->GetGeometry2D(data[i].f[j]);
-                    faces[j] = static_pointer_cast<QuadGeom>(face);
+                    faces[j] = std::static_pointer_cast<QuadGeom>(face);
                 }
 
                 HexGeomSharedPtr hexgeom(
@@ -1037,7 +1035,7 @@ void MeshGraphIOXmlCompressed::v_WriteVertices(TiXmlElement *geomTag,
 
     TiXmlElement *vertTag = new TiXmlElement("VERTEX");
 
-    vector<MeshVertex> vertInfo;
+    std::vector<MeshVertex> vertInfo;
 
     for (auto &i : verts)
     {
@@ -1054,7 +1052,7 @@ void MeshGraphIOXmlCompressed::v_WriteVertices(TiXmlElement *geomTag,
     vertTag->SetAttribute("BITSIZE",
                           LibUtilities::CompressData::GetBitSizeStr());
 
-    string vertStr;
+    std::string vertStr;
     LibUtilities::CompressData::ZlibEncodeToBase64Str(vertInfo, vertStr);
 
     vertTag->LinkEndChild(new TiXmlText(vertStr));
@@ -1074,7 +1072,7 @@ void MeshGraphIOXmlCompressed::v_WriteEdges(TiXmlElement *geomTag,
 
     TiXmlElement *edgeTag = new TiXmlElement(meshDimension == 1 ? "S" : "EDGE");
 
-    vector<MeshEdge> edgeInfo;
+    std::vector<MeshEdge> edgeInfo;
 
     for (auto &i : edges)
     {
@@ -1085,7 +1083,7 @@ void MeshGraphIOXmlCompressed::v_WriteEdges(TiXmlElement *geomTag,
         edgeInfo.push_back(e);
     }
 
-    string edgeStr;
+    std::string edgeStr;
     LibUtilities::CompressData::ZlibEncodeToBase64Str(edgeInfo, edgeStr);
 
     edgeTag->SetAttribute("COMPRESSED",
@@ -1115,9 +1113,9 @@ void MeshGraphIOXmlCompressed::v_WriteTris(TiXmlElement *faceTag,
         return;
     }
 
-    string tag = "T";
+    std::string tag = "T";
 
-    vector<MeshTri> triInfo;
+    std::vector<MeshTri> triInfo;
 
     for (auto &i : tris)
     {
@@ -1130,7 +1128,7 @@ void MeshGraphIOXmlCompressed::v_WriteTris(TiXmlElement *faceTag,
     }
 
     TiXmlElement *x = new TiXmlElement(tag);
-    string triStr;
+    std::string triStr;
     LibUtilities::CompressData::ZlibEncodeToBase64Str(triInfo, triStr);
 
     x->SetAttribute("COMPRESSED",
@@ -1150,9 +1148,9 @@ void MeshGraphIOXmlCompressed::v_WriteQuads(TiXmlElement *faceTag,
         return;
     }
 
-    string tag = "Q";
+    std::string tag = "Q";
 
-    vector<MeshQuad> quadInfo;
+    std::vector<MeshQuad> quadInfo;
 
     for (auto &i : quads)
     {
@@ -1166,7 +1164,7 @@ void MeshGraphIOXmlCompressed::v_WriteQuads(TiXmlElement *faceTag,
     }
 
     TiXmlElement *x = new TiXmlElement(tag);
-    string quadStr;
+    std::string quadStr;
     LibUtilities::CompressData::ZlibEncodeToBase64Str(quadInfo, quadStr);
 
     x->SetAttribute("COMPRESSED",
@@ -1186,9 +1184,9 @@ void MeshGraphIOXmlCompressed::v_WriteHexs(TiXmlElement *elmtTag,
         return;
     }
 
-    string tag = "H";
+    std::string tag = "H";
 
-    vector<MeshHex> elementInfo;
+    std::vector<MeshHex> elementInfo;
 
     for (auto &i : hexs)
     {
@@ -1204,7 +1202,7 @@ void MeshGraphIOXmlCompressed::v_WriteHexs(TiXmlElement *elmtTag,
     }
 
     TiXmlElement *x = new TiXmlElement(tag);
-    string elStr;
+    std::string elStr;
     LibUtilities::CompressData::ZlibEncodeToBase64Str(elementInfo, elStr);
 
     x->SetAttribute("COMPRESSED",
@@ -1224,9 +1222,9 @@ void MeshGraphIOXmlCompressed::v_WritePrisms(TiXmlElement *elmtTag,
         return;
     }
 
-    string tag = "R";
+    std::string tag = "R";
 
-    vector<MeshPrism> elementInfo;
+    std::vector<MeshPrism> elementInfo;
 
     for (auto &i : pris)
     {
@@ -1241,7 +1239,7 @@ void MeshGraphIOXmlCompressed::v_WritePrisms(TiXmlElement *elmtTag,
     }
 
     TiXmlElement *x = new TiXmlElement(tag);
-    string elStr;
+    std::string elStr;
     LibUtilities::CompressData::ZlibEncodeToBase64Str(elementInfo, elStr);
 
     x->SetAttribute("COMPRESSED",
@@ -1261,9 +1259,9 @@ void MeshGraphIOXmlCompressed::v_WritePyrs(TiXmlElement *elmtTag,
         return;
     }
 
-    string tag = "P";
+    std::string tag = "P";
 
-    vector<MeshPyr> elementInfo;
+    std::vector<MeshPyr> elementInfo;
 
     for (auto &i : pyrs)
     {
@@ -1278,7 +1276,7 @@ void MeshGraphIOXmlCompressed::v_WritePyrs(TiXmlElement *elmtTag,
     }
 
     TiXmlElement *x = new TiXmlElement(tag);
-    string elStr;
+    std::string elStr;
     LibUtilities::CompressData::ZlibEncodeToBase64Str(elementInfo, elStr);
 
     x->SetAttribute("COMPRESSED",
@@ -1298,9 +1296,9 @@ void MeshGraphIOXmlCompressed::v_WriteTets(TiXmlElement *elmtTag,
         return;
     }
 
-    string tag = "A";
+    std::string tag = "A";
 
-    vector<MeshTet> elementInfo;
+    std::vector<MeshTet> elementInfo;
 
     for (auto &i : tets)
     {
@@ -1314,7 +1312,7 @@ void MeshGraphIOXmlCompressed::v_WriteTets(TiXmlElement *elmtTag,
     }
 
     TiXmlElement *x = new TiXmlElement(tag);
-    string elStr;
+    std::string elStr;
     LibUtilities::CompressData::ZlibEncodeToBase64Str(elementInfo, elStr);
 
     x->SetAttribute("COMPRESSED",
@@ -1336,8 +1334,8 @@ void MeshGraphIOXmlCompressed::v_WriteCurves(TiXmlElement *geomTag,
 
     TiXmlElement *curveTag = new TiXmlElement("CURVED");
 
-    vector<MeshCurvedInfo> edgeInfo;
-    vector<MeshCurvedInfo> faceInfo;
+    std::vector<MeshCurvedInfo> edgeInfo;
+    std::vector<MeshCurvedInfo> faceInfo;
     MeshCurvedPts curvedPts;
     curvedPts.id = 0;
     int ptOffset = 0;
@@ -1405,7 +1403,7 @@ void MeshGraphIOXmlCompressed::v_WriteCurves(TiXmlElement *geomTag,
     if (edgeInfo.size())
     {
         TiXmlElement *x = new TiXmlElement("E");
-        string dataStr;
+        std::string dataStr;
         LibUtilities::CompressData::ZlibEncodeToBase64Str(edgeInfo, dataStr);
 
         x->LinkEndChild(new TiXmlText(dataStr));
@@ -1415,7 +1413,7 @@ void MeshGraphIOXmlCompressed::v_WriteCurves(TiXmlElement *geomTag,
     if (faceInfo.size())
     {
         TiXmlElement *x = new TiXmlElement("F");
-        string dataStr;
+        std::string dataStr;
         LibUtilities::CompressData::ZlibEncodeToBase64Str(faceInfo, dataStr);
 
         x->LinkEndChild(new TiXmlText(dataStr));
@@ -1427,7 +1425,7 @@ void MeshGraphIOXmlCompressed::v_WriteCurves(TiXmlElement *geomTag,
         TiXmlElement *x = new TiXmlElement("DATAPOINTS");
         x->SetAttribute("ID", curvedPts.id);
         TiXmlElement *subx = new TiXmlElement("INDEX");
-        string dataStr;
+        std::string dataStr;
         LibUtilities::CompressData::ZlibEncodeToBase64Str(curvedPts.index,
                                                           dataStr);
         subx->LinkEndChild(new TiXmlText(dataStr));

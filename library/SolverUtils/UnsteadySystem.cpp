@@ -173,13 +173,6 @@ void UnsteadySystem::v_InitObject(bool DeclareField)
 }
 
 /**
- * Destructor for the class UnsteadyAdvection.
- */
-UnsteadySystem::~UnsteadySystem()
-{
-}
-
-/**
  * @brief Returns the maximum time estimator for CFL control.
  */
 NekDouble UnsteadySystem::MaxTimeStepEstimator()
@@ -752,7 +745,7 @@ void UnsteadySystem::CheckForRestartTime(NekDouble &time, int &nchk)
     }
     if (m_session->DefinesCmdLineArgument("set-start-chknumber"))
     {
-        nchk = boost::lexical_cast<int>(
+        nchk = std::stoi(
             m_session->GetCmdLineArgument<std::string>("set-start-chknumber"));
     }
     ASSERTL0(time >= 0 && nchk >= 0,

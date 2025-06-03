@@ -108,8 +108,12 @@ void PreconditionerDiagonal::DiagonalPreconditionerSum()
         int loc_row  = loc_mat->GetRows();
         for (int i = 0; i < loc_row; ++i)
         {
-            int gid1 = asmMap->GetLocalToGlobalMap(cnt + i);
-            vOutput[gid1] += (*loc_mat)(i, i);
+            if (asmMap->GetLocalToGlobalSign(
+                    cnt + i)) // check required for variable P
+            {
+                int gid1 = asmMap->GetLocalToGlobalMap(cnt + i);
+                vOutput[gid1] += (*loc_mat)(i, i);
+            }
         }
         cnt += loc_row;
     }
@@ -285,7 +289,7 @@ void PreconditionerJacobi::v_BuildPreconditioner()
 
     if (session->DefinesGlobalSysSolnInfo(var, "JacobiIterations"))
     {
-        m_niter = boost::lexical_cast<int>(
+        m_niter = std::stoi(
             session->GetGlobalSysSolnInfo(var, "JacobiIterations").c_str());
     }
     else

@@ -108,8 +108,8 @@ template <> void WriteStream(std::ostream &outfile, std::string data)
     // Convert string to array of int32_t
     for (std::string::size_type i = 0; i < data.size(); ++i)
     {
-        char strChar        = data[i];
-        NekInt32 strCharInt = strChar;
+        char strChar       = data[i];
+        int32_t strCharInt = strChar;
         WriteStream(outfile, strCharInt);
     }
 
@@ -709,7 +709,7 @@ void OutputTecplotBinary::v_WriteTecplotZone(std::ofstream &outfile)
 
         // Write same name as preplot
         int rank        = m_f->m_comm->GetSpaceComm()->GetRank();
-        string zonename = "ZONE " + boost::lexical_cast<string>(rank);
+        string zonename = "ZONE " + std::to_string(rank);
         WriteStream(outfile, zonename);
 
         WriteStream(outfile, -1);  // No parent zone
