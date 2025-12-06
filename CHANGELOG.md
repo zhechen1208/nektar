@@ -10,6 +10,7 @@ v5.10.0
 - Curves and GeomFactors as unique pointers (!2191)
 - Complete support for SSE2, fix SVE compilation, and update SIMD compilation flag (!2308)
 - Fix MatrixFree switch for Prism and Pyr (!2315)
+- Fix memory leak for Helmholtz matrices with time-dependent variable coeffficients (!2321)
 
 
 v5.9.0
