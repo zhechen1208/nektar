@@ -225,7 +225,7 @@ void PyrExp::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
     }
     else
     {
-        v_IProductWRTBase(inarray, outarray);
+        PyrExp::v_IProductWRTBase(inarray, outarray);
 
         // get Mass matrix inverse
         MatrixKey masskey(StdRegions::eInvMass, DetShapeType(), *this);
@@ -273,37 +273,11 @@ void PyrExp::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
 void PyrExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
                                Array<OneD, NekDouble> &outarray)
 {
-    v_IProductWRTBase_SumFac(inarray, outarray);
-}
-
-void PyrExp::v_IProductWRTBase_SumFac(
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, bool multiplybyweights)
-{
-    const int nquad0 = m_base[0]->GetNumPoints();
-    const int nquad1 = m_base[1]->GetNumPoints();
-    const int nquad2 = m_base[2]->GetNumPoints();
-    const int order0 = m_base[0]->GetNumModes();
-    const int order1 = m_base[1]->GetNumModes();
-
-    Array<OneD, NekDouble> wsp(order0 * nquad2 * (nquad1 + order1));
-
-    if (multiplybyweights)
-    {
-        Array<OneD, NekDouble> tmp(nquad0 * nquad1 * nquad2);
-
-        MultiplyByQuadratureMetric(inarray, tmp);
-
-        IProductWRTBase_SumFacKernel(
-            m_base[0]->GetBdata(), m_base[1]->GetBdata(), m_base[2]->GetBdata(),
-            tmp, outarray, wsp, true, true, true);
-    }
-    else
-    {
-        IProductWRTBase_SumFacKernel(
-            m_base[0]->GetBdata(), m_base[1]->GetBdata(), m_base[2]->GetBdata(),
-            inarray, outarray, wsp, true, true, true);
-    }
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
+                            m_base[2]->GetBdata(), inarray, outarray, jac,
+                            Deformed);
 }
 
 /**
@@ -340,18 +314,9 @@ void PyrExp::v_IProductWRTDerivBase(const int dir,
                                     const Array<OneD, const NekDouble> &inarray,
                                     Array<OneD, NekDouble> &outarray)
 {
-    v_IProductWRTDerivBase_SumFac(dir, inarray, outarray);
-}
-
-void PyrExp::v_IProductWRTDerivBase_SumFac(
-    const int dir, const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
-{
     const int nquad0 = m_base[0]->GetNumPoints();
     const int nquad1 = m_base[1]->GetNumPoints();
     const int nquad2 = m_base[2]->GetNumPoints();
-    const int order0 = m_base[0]->GetNumModes();
-    const int order1 = m_base[1]->GetNumModes();
     const int nqtot  = nquad0 * nquad1 * nquad2;
 
     Array<OneD, NekDouble> tmp1(nqtot);
@@ -359,32 +324,27 @@ void PyrExp::v_IProductWRTDerivBase_SumFac(
     Array<OneD, NekDouble> tmp3(nqtot);
     Array<OneD, NekDouble> tmp4(nqtot);
     Array<OneD, NekDouble> tmp6(m_ncoeffs);
-    Array<OneD, NekDouble> wsp(
-        std::max(nqtot, order0 * nquad2 * (nquad1 + order1)));
-
-    MultiplyByQuadratureMetric(inarray, tmp1);
 
     Array<OneD, Array<OneD, NekDouble>> tmp2D{3};
     tmp2D[0] = tmp2;
     tmp2D[1] = tmp3;
     tmp2D[2] = tmp4;
 
-    PyrExp::v_AlignVectorToCollapsedDir(dir, tmp1, tmp2D);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
-                                 m_base[2]->GetBdata(), tmp2, outarray, wsp,
-                                 false, true, true);
+    PyrExp::v_AlignVectorToCollapsedDir(dir, inarray, tmp2D);
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
-                                 m_base[2]->GetBdata(), tmp3, tmp6, wsp, true,
-                                 false, true);
+    v_IProductWRTBaseKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
+                            m_base[2]->GetBdata(), tmp2, outarray, jac,
+                            Deformed);
 
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
+                            m_base[2]->GetBdata(), tmp3, tmp6, jac, Deformed);
     Vmath::Vadd(m_ncoeffs, tmp6, 1, outarray, 1, outarray, 1);
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
-                                 m_base[2]->GetDbdata(), tmp4, tmp6, wsp, true,
-                                 true, false);
-
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
+                            m_base[2]->GetDbdata(), tmp4, tmp6, jac, Deformed);
     Vmath::Vadd(m_ncoeffs, tmp6, 1, outarray, 1, outarray, 1);
 }
 
@@ -1055,11 +1015,6 @@ void PyrExp::v_DropLocStaticCondMatrix(const MatrixKey &mkey)
 
 void PyrExp::v_ComputeLaplacianMetric()
 {
-    if (m_metrics.count(eMetricQuadrature) == 0)
-    {
-        ComputeQuadratureMetric();
-    }
-
     int i, j;
     const unsigned int nqtot = GetTotPoints();
     const unsigned int dim   = 3;
@@ -1222,14 +1177,6 @@ void PyrExp::v_ComputeLaplacianMetric()
                         df[8][0] * df[8][0],
                     &g2[0], 1);
     }
-
-    for (unsigned int i = 0; i < dim; ++i)
-    {
-        for (unsigned int j = i; j < dim; ++j)
-        {
-            MultiplyByQuadratureMetric(m_metrics[m[i][j]], m_metrics[m[i][j]]);
-        }
-    }
 }
 
 void PyrExp::v_LaplacianMatrixOp_MatFree_Kernel(
@@ -1282,7 +1229,7 @@ void PyrExp::v_LaplacianMatrixOp_MatFree_Kernel(
     // wsp1 = du_dxi1 = D_xi1 * inarray = D_xi1 * u
     // wsp2 = du_dxi2 = D_xi2 * inarray = D_xi2 * u
     // wsp2 = du_dxi3 = D_xi3 * inarray = D_xi3 * u
-    StdExpansion3D::PhysTensorDeriv(inarray, wsp0, wsp1, wsp2);
+    PhysTensorDeriv(inarray, wsp0, wsp1, wsp2);
 
     // wsp0 = k = g0 * wsp1 + g1 * wsp2 = g0 * du_dxi1 + g1 * du_dxi2
     // wsp2 = l = g1 * wsp1 + g2 * wsp2 = g0 * du_dxi1 + g1 * du_dxi2
@@ -1298,16 +1245,15 @@ void PyrExp::v_LaplacianMatrixOp_MatFree_Kernel(
                    &wsp1[0], 1, &wsp5[0], 1);
     Vmath::Vvtvp(nqtot, &metric22[0], 1, &wsp2[0], 1, &wsp5[0], 1, &wsp5[0], 1);
 
-    // outarray = m = (D_xi1 * B)^T * k
-    // wsp1     = n = (D_xi2 * B)^T * l
-    IProductWRTBase_SumFacKernel(dbase0, base1, base2, wsp3, outarray, wsp0,
-                                 false, true, true);
-    IProductWRTBase_SumFacKernel(base0, dbase1, base2, wsp4, wsp2, wsp0, true,
-                                 false, true);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
+
+    v_IProductWRTBaseKernel(dbase0, base1, base2, wsp3, outarray, jac,
+                            Deformed);
+    v_IProductWRTBaseKernel(base0, dbase1, base2, wsp4, wsp2, jac, Deformed);
     Vmath::Vadd(m_ncoeffs, wsp2.data(), 1, outarray.data(), 1, outarray.data(),
                 1);
-    IProductWRTBase_SumFacKernel(base0, base1, dbase2, wsp5, wsp2, wsp0, true,
-                                 true, false);
+    v_IProductWRTBaseKernel(base0, base1, dbase2, wsp5, wsp2, jac, Deformed);
     Vmath::Vadd(m_ncoeffs, wsp2.data(), 1, outarray.data(), 1, outarray.data(),
                 1);
 }

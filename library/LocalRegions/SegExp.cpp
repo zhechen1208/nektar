@@ -149,7 +149,6 @@ void SegExp::v_PhysDeriv(const Array<OneD, const NekDouble> &inarray,
     Array<TwoD, const NekDouble> gmat = m_geomFactors->GetDerivFactors();
     Array<OneD, NekDouble> diff(nquad0);
 
-    // StdExpansion1D::PhysTensorDeriv(inarray,diff);
     PhysTensorDeriv(inarray, diff);
     if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
@@ -476,27 +475,6 @@ void SegExp::v_FwdTransBndConstrained(
 // Inner product functions
 //-----------------------------
 
-/** \brief  Inner product of \a inarray over region with respect to
-    the expansion basis (this)->_Base[0] and return in \a outarray
-
-    Wrapper call to SegExp::IProduct_WRT_B
-
-    Input:\n
-
-    - \a inarray: array of function evaluated at the physical
-    collocation points
-
-    Output:\n
-
-    - \a outarray: array of inner product with respect to each
-    basis over region
-*/
-void SegExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
-                               Array<OneD, NekDouble> &outarray)
-{
-    v_IProductWRTBase(m_base[0]->GetBdata(), inarray, outarray, 1);
-}
-
 /**
    \brief  Inner product of \a inarray over region with respect to
    expansion basis \a base and return in \a outarray
@@ -507,16 +485,8 @@ void SegExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
    \phi_p(\xi_{1i}) \f$.
 
    Inputs: \n
-
-   - \a base: an array definiing the local basis for the inner
-   product usually passed from Basis->get_bdata() or
-   Basis->get_Dbdata()
    - \a inarray: physical point array of function to be integrated
    \f$ u(\xi_1) \f$
-   - \a coll_check: Flag to identify when a Basis->collocation()
-   call should be performed to see if this is a GLL_Lagrange basis
-   with a collocation property. (should be set to 0 if taking the
-   inner product with respect to the derivative of basis)
 
    Output: \n
 
@@ -524,24 +494,32 @@ void SegExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
    product of function with ever  mode in the exapnsion
 
 **/
-void SegExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &base,
-                               const Array<OneD, const NekDouble> &inarray,
-                               Array<OneD, NekDouble> &outarray, int coll_check)
+void SegExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
+                               Array<OneD, NekDouble> &outarray)
 {
-    int nquad0                       = m_base[0]->GetNumPoints();
-    Array<OneD, const NekDouble> jac = m_geomFactors->GetJac();
-    Array<OneD, NekDouble> tmp(nquad0);
+    const bool CollDir0 = m_base[0]->Collocation();
 
-    // multiply inarray with Jacobian
-    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
+
+    if (CollDir0)
     {
-        Vmath::Vmul(nquad0, jac, 1, inarray, 1, tmp, 1);
+        int nqtot = GetTotPoints();
+        if (Deformed)
+        {
+            Vmath::Vmul(nqtot, jac, 1, inarray, 1, outarray, 1);
+        }
+        else
+        {
+            Vmath::Smul(nqtot, jac[0], inarray, 1, outarray, 1);
+        }
+        v_MultiplyByStdQuadratureMetric(outarray, outarray);
     }
     else
     {
-        Vmath::Smul(nquad0, jac[0], inarray, 1, tmp, 1);
+        v_IProductWRTBaseKernel(m_base[0]->GetBdata(), inarray, outarray, jac,
+                                Deformed);
     }
-    StdSegExp::v_IProductWRTBase(base, tmp, outarray, coll_check);
 }
 
 void SegExp::v_IProductWRTDerivBase(const int dir,
@@ -556,8 +534,10 @@ void SegExp::v_IProductWRTDerivBase(const int dir,
     const Array<TwoD, const NekDouble> &gmat = m_geomFactors->GetDerivFactors();
 
     Array<OneD, NekDouble> tmp1(nquad);
+    const bool Deformed =
+        m_geomFactors->GetGtype() == SpatialDomains::eDeformed;
 
-    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
+    if (Deformed)
     {
         Vmath::Vmul(nquad, gmat[dir], 1, inarray, 1, tmp1, 1);
     }
@@ -566,7 +546,9 @@ void SegExp::v_IProductWRTDerivBase(const int dir,
         Vmath::Smul(nquad, gmat[dir][0], inarray, 1, tmp1, 1);
     }
 
-    v_IProductWRTBase(m_base[0]->GetDbdata(), tmp1, outarray, 1);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    v_IProductWRTBaseKernel(m_base[0]->GetDbdata(), tmp1, outarray, jac,
+                            Deformed);
 }
 
 void SegExp::v_NormVectorIProductWRTBase(const Array<OneD, const NekDouble> &Fx,
@@ -976,7 +958,11 @@ void SegExp::v_LaplacianMatrixOp(
             break;
     }
 
-    v_IProductWRTBase(m_base[0]->GetDbdata(), dPhysValuesdx, outarray, 1);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    const bool Deformed =
+        m_geomFactors->GetGtype() == SpatialDomains::eDeformed;
+    v_IProductWRTBaseKernel(m_base[0]->GetDbdata(), dPhysValuesdx, outarray,
+                            jac, Deformed);
 }
 
 void SegExp::v_LaplacianMatrixOp(const int k1, const int k2,
@@ -1002,7 +988,7 @@ void SegExp::v_HelmholtzMatrixOp(const Array<OneD, const NekDouble> &inarray,
     BwdTrans(inarray, physValues);
 
     // mass matrix operation
-    v_IProductWRTBase((m_base[0]->GetBdata()), physValues, wsp, 1);
+    v_IProductWRTBase(physValues, wsp);
 
     // Laplacian matrix operation
     switch (m_geom->GetCoordim())
@@ -1077,7 +1063,11 @@ void SegExp::v_HelmholtzMatrixOp(const Array<OneD, const NekDouble> &inarray,
             break;
     }
 
-    v_IProductWRTBase(m_base[0]->GetDbdata(), dPhysValuesdx, outarray, 1);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    const bool Deformed =
+        m_geomFactors->GetGtype() == SpatialDomains::eDeformed;
+    v_IProductWRTBaseKernel(m_base[0]->GetDbdata(), dPhysValuesdx, outarray,
+                            jac, Deformed);
     Blas::Daxpy(m_ncoeffs, lambda, wsp.data(), 1, outarray.data(), 1);
 }
 

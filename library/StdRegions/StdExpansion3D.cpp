@@ -52,71 +52,17 @@ StdExpansion3D::StdExpansion3D(
 {
 }
 
-void StdExpansion3D::PhysTensorDeriv(
-    const Array<OneD, const NekDouble> &inarray, Array<OneD, NekDouble> &out_dx,
-    Array<OneD, NekDouble> &out_dy, Array<OneD, NekDouble> &out_dz)
-{
-    const int nquad0 = m_base[0]->GetNumPoints();
-    const int nquad1 = m_base[1]->GetNumPoints();
-    const int nquad2 = m_base[2]->GetNumPoints();
-
-    Array<OneD, NekDouble> wsp(nquad0 * nquad1 * nquad2);
-
-    // copy inarray to wsp in case inarray is used as outarray
-    Vmath::Vcopy(nquad0 * nquad1 * nquad2, &inarray[0], 1, &wsp[0], 1);
-
-    if (out_dx.size() > 0)
-    {
-        NekDouble *D0 = &((m_base[0]->GetD())->GetPtr())[0];
-
-        Blas::Dgemm('N', 'N', nquad0, nquad1 * nquad2, nquad0, 1.0, D0, nquad0,
-                    &wsp[0], nquad0, 0.0, &out_dx[0], nquad0);
-    }
-
-    if (out_dy.size() > 0)
-    {
-        NekDouble *D1 = &((m_base[1]->GetD())->GetPtr())[0];
-        for (int j = 0; j < nquad2; ++j)
-        {
-            Blas::Dgemm('N', 'T', nquad0, nquad1, nquad1, 1.0,
-                        &wsp[j * nquad0 * nquad1], nquad0, D1, nquad1, 0.0,
-                        &out_dy[j * nquad0 * nquad1], nquad0);
-        }
-    }
-
-    if (out_dz.size() > 0)
-    {
-        NekDouble *D2 = &((m_base[2]->GetD())->GetPtr())[0];
-
-        Blas::Dgemm('N', 'T', nquad0 * nquad1, nquad2, nquad2, 1.0, &wsp[0],
-                    nquad0 * nquad1, D2, nquad2, 0.0, &out_dz[0],
-                    nquad0 * nquad1);
-    }
-}
-
-void StdExpansion3D::BwdTrans_SumFacKernel(
+void StdExpansion3D::IProductWRTBaseKernel(
     const Array<OneD, const NekDouble> &base0,
     const Array<OneD, const NekDouble> &base1,
     const Array<OneD, const NekDouble> &base2,
     const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-    bool doCheckCollDir0, bool doCheckCollDir1, bool doCheckCollDir2)
+    Array<OneD, NekDouble> &outarray, const Array<OneD, NekDouble> &jac,
+    const bool Deformed, [[maybe_unused]] bool CollDir0,
+    [[maybe_unused]] bool CollDir1, [[maybe_unused]] bool CollDir2)
 {
-    v_BwdTrans_SumFacKernel(base0, base1, base2, inarray, outarray, wsp,
-                            doCheckCollDir0, doCheckCollDir1, doCheckCollDir2);
-}
-
-void StdExpansion3D::IProductWRTBase_SumFacKernel(
-    const Array<OneD, const NekDouble> &base0,
-    const Array<OneD, const NekDouble> &base1,
-    const Array<OneD, const NekDouble> &base2,
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-    bool doCheckCollDir0, bool doCheckCollDir1, bool doCheckCollDir2)
-{
-    v_IProductWRTBase_SumFacKernel(base0, base1, base2, inarray, outarray, wsp,
-                                   doCheckCollDir0, doCheckCollDir1,
-                                   doCheckCollDir2);
+    v_IProductWRTBaseKernel(base0, base1, base2, inarray, outarray, jac,
+                            Deformed, CollDir0, CollDir1, CollDir2);
 }
 
 void StdExpansion3D::v_GenStdMatBwdDeriv(const int dir, DNekMatSharedPtr &mat)
@@ -127,69 +73,52 @@ void StdExpansion3D::v_GenStdMatBwdDeriv(const int dir, DNekMatSharedPtr &mat)
     const int nq1 = m_base[1]->GetNumPoints();
     const int nq2 = m_base[2]->GetNumPoints();
     const int nq  = nq0 * nq1 * nq2;
-    const int nm0 = m_base[0]->GetNumModes();
-    const int nm1 = m_base[1]->GetNumModes();
 
-    Array<OneD, NekDouble> alloc(4 * nq + m_ncoeffs + nm0 * nq2 * (nq1 + nm1),
-                                 0.0);
-    Array<OneD, NekDouble> tmp1(alloc);           // Quad metric
-    Array<OneD, NekDouble> tmp2(alloc + nq);      // Dir1 metric
-    Array<OneD, NekDouble> tmp3(alloc + 2 * nq);  // Dir2 metric
-    Array<OneD, NekDouble> tmp4(alloc + 3 * nq);  // Dir3 metric
-    Array<OneD, NekDouble> tmp5(alloc + 4 * nq);  // iprod tmp
-    Array<OneD, NekDouble> wsp(tmp5 + m_ncoeffs); // Wsp
-    switch (dir)
+    const bool CollDir0 = m_base[0]->Collocation();
+    const bool CollDir1 = m_base[1]->Collocation();
+    const bool CollDir2 = m_base[2]->Collocation();
+
+    Array<OneD, NekDouble> in(nq, 0.0);
+    Array<OneD, NekDouble> out(m_ncoeffs);
+    Array<OneD, NekDouble> one(1, 1.0);
+
+    for (int i = 0; i < nq; i++)
     {
-        case 0:
-            for (int i = 0; i < nq; i++)
-            {
-                tmp2[i] = 1.0;
-                IProductWRTBase_SumFacKernel(
-                    m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
-                    m_base[2]->GetBdata(), tmp2, tmp5, wsp, false, true, true);
+        int l = i % nq0;
+        int m = (i / nq0) % nq1;
+        int n = i / (nq0 * nq1);
 
-                tmp2[i] = 0.0;
+        // initialise with inverse of weights t
+        in[i] = 1.0 / (m_weights[0][l] * m_weights[1][m] * m_weights[2][n]);
 
-                for (int j = 0; j < m_ncoeffs; j++)
-                {
-                    (*mat)(j, i) = tmp5[j];
-                }
-            }
-            break;
-        case 1:
-            for (int i = 0; i < nq; i++)
-            {
-                tmp2[i] = 1.0;
-                IProductWRTBase_SumFacKernel(
-                    m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
-                    m_base[2]->GetBdata(), tmp2, tmp5, wsp, true, false, true);
+        // do standard iproduct
+        if (dir == 0)
+        {
+            v_IProductWRTBaseKernel(m_base[0]->GetDbdata(),
+                                    m_base[1]->GetBdata(),
+                                    m_base[2]->GetBdata(), in, out, one, false,
+                                    false, CollDir1, CollDir2);
+        }
+        else if (dir == 1)
+        {
+            v_IProductWRTBaseKernel(m_base[0]->GetBdata(),
+                                    m_base[1]->GetDbdata(),
+                                    m_base[2]->GetBdata(), in, out, one, false,
+                                    CollDir0, false, CollDir2);
+        }
+        else // dir == 2
+        {
+            v_IProductWRTBaseKernel(m_base[0]->GetBdata(),
+                                    m_base[1]->GetBdata(),
+                                    m_base[2]->GetDbdata(), in, out, one, false,
+                                    CollDir0, CollDir1, false);
+        }
+        in[i] = 0.0;
 
-                tmp2[i] = 0.0;
-
-                for (int j = 0; j < m_ncoeffs; j++)
-                {
-                    (*mat)(j, i) = tmp5[j];
-                }
-            }
-            break;
-        case 2:
-            for (int i = 0; i < nq; i++)
-            {
-                tmp2[i] = 1.0;
-                IProductWRTBase_SumFacKernel(
-                    m_base[0]->GetBdata(), m_base[1]->GetBdata(),
-                    m_base[2]->GetDbdata(), tmp2, tmp5, wsp, true, true, false);
-                tmp2[i] = 0.0;
-
-                for (int j = 0; j < m_ncoeffs; j++)
-                {
-                    (*mat)(j, i) = tmp5[j];
-                }
-            }
-            break;
-        default:
-            NEKERROR(ErrorUtil::efatal, "Not a 2D expansion.");
-            break;
+        for (int j = 0; j < m_ncoeffs; j++)
+        {
+            (*mat)(j, i) = out[j];
+        }
     }
 }
 
@@ -283,10 +212,6 @@ void StdExpansion3D::v_LaplacianMatrixOp_MatFree(
         // coefficients associated to the Laplacian operator
         int nqtot = GetTotPoints();
 
-        const Array<OneD, const NekDouble> &base0 = m_base[0]->GetBdata();
-        const Array<OneD, const NekDouble> &base1 = m_base[1]->GetBdata();
-        const Array<OneD, const NekDouble> &base2 = m_base[2]->GetBdata();
-
         // Allocate temporary storage
         Array<OneD, NekDouble> wsp0(7 * nqtot);
         Array<OneD, NekDouble> wsp1(wsp0 + nqtot);
@@ -298,8 +223,7 @@ void StdExpansion3D::v_LaplacianMatrixOp_MatFree(
             // wsp0 = u       = B   * u_hat
             // wsp1 = du_dxi1 = D_xi1 * wsp0 = D_xi1 * u
             // wsp2 = du_dxi2 = D_xi2 * wsp0 = D_xi2 * u
-            BwdTrans_SumFacKernel(base0, base1, base2, inarray, wsp0, wsp1,
-                                  true, true, true);
+            BwdTrans(inarray, wsp0);
             LaplacianMatrixOp_MatFree_Kernel(wsp0, outarray, wsp1);
         }
         else
@@ -335,9 +259,6 @@ void StdExpansion3D::v_HelmholtzMatrixOp_MatFree(
 
         NekDouble lambda = mkey.GetConstFactor(StdRegions::eFactorLambda);
 
-        const Array<OneD, const NekDouble> &base0 = m_base[0]->GetBdata();
-        const Array<OneD, const NekDouble> &base1 = m_base[1]->GetBdata();
-        const Array<OneD, const NekDouble> &base2 = m_base[2]->GetBdata();
         Array<OneD, NekDouble> wsp0(8 * wspsize);
         Array<OneD, NekDouble> wsp1(wsp0 + 1 * wspsize);
         Array<OneD, NekDouble> wsp2(wsp0 + 2 * wspsize);
@@ -350,11 +271,8 @@ void StdExpansion3D::v_HelmholtzMatrixOp_MatFree(
             // wsp0     = B   * u_hat = u
             // wsp1     = W   * wsp0
             // outarray = B^T * wsp1  = B^T * W * B * u_hat = M * u_hat
-            BwdTrans_SumFacKernel(base0, base1, base2, inarray, wsp0, wsp2,
-                                  true, true, true);
-            MultiplyByQuadratureMetric(wsp0, wsp1);
-            IProductWRTBase_SumFacKernel(base0, base1, base2, wsp1, outarray,
-                                         wsp2, true, true, true);
+            BwdTrans(inarray, wsp0);
+            IProductWRTBase(wsp0, outarray);
             LaplacianMatrixOp_MatFree_Kernel(wsp0, wsp1, wsp2);
         }
         else

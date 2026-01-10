@@ -36,9 +36,17 @@
 #include <StdRegions/StdPrismExp.h>
 
 using namespace std;
+#include <LibUtilities/BasicUtils/NekInline.hpp>
+#include <StdRegions/Operators/SwitchLevel1.h>
+#include <StdRegions/Operators/SwitchLevel2.h>
 
 namespace Nektar::StdRegions
 {
+// Declaretion of scalar routine
+using vec_t = tinysimd::scalarT<double>;
+#include <StdRegions/Operators/BwdTransSumFacStdKernels.hpp>
+#include <StdRegions/Operators/IProductWRTBaseSumFacStdKernels.hpp>
+#include <StdRegions/Operators/PhysDerivSumFacStdKernels.hpp>
 
 StdPrismExp::StdPrismExp(const LibUtilities::BasisKey &Ba,
                          const LibUtilities::BasisKey &Bb,
@@ -52,11 +60,89 @@ StdPrismExp::StdPrismExp(const LibUtilities::BasisKey &Ba,
 {
     ASSERTL0(Ba.GetNumModes() <= Bc.GetNumModes(),
              "order in 'a' direction is higher than order in 'c' direction");
+
+    // cache integration weights for future use
+    m_weights.push_back(m_base[0]->GetW());
+    m_weights.push_back(m_base[1]->GetW());
+
+    StdFacKey w2key(eWeights2, Bc);
+    // get weights[2] from manager where points are rescaled
+    m_weights.push_back(GetStdFac(w2key));
 }
 
 //---------------------------------------
 // Differentiation Methods
 //---------------------------------------
+void StdPrismExp::PhysTensorDeriv(const Array<OneD, const NekDouble> &inarray,
+                                  Array<OneD, NekDouble> &out_d0,
+                                  Array<OneD, NekDouble> &out_d1,
+                                  Array<OneD, NekDouble> &out_d2)
+{
+    const int nquad0 = m_base[0]->GetNumPoints();
+    const int nquad1 = m_base[1]->GetNumPoints();
+    const int nquad2 = m_base[2]->GetNumPoints();
+
+    bool Deriv0         = (out_d0.size() > 0);
+    bool Deriv1         = (out_d1.size() > 0);
+    bool Deriv2         = (out_d2.size() > 0);
+    const NekDouble *D0 = m_base[0]->GetD()->GetRawPtr();
+    const NekDouble *D1 = m_base[1]->GetD()->GetRawPtr();
+    const NekDouble *D2 = m_base[2]->GetD()->GetRawPtr();
+
+    Array<OneD, const NekDouble> intmp;
+    // copy inarray data if inarray and outarray are the same.
+    if ((inarray.data() == out_d0.data()) ||
+        (inarray.data() == out_d1.data()) || (inarray.data() == out_d2.data()))
+    {
+        Array<OneD, NekDouble> wsp(nquad0 * nquad1 * nquad2);
+        CopyArray(inarray, wsp);
+        intmp = wsp;
+    }
+    else
+    {
+        intmp = inarray;
+    }
+
+    // Switch statment using boost_pp and macros. This unfolls into a
+    // nested switch statement which runs from SMIN to SMAX for quadratrure
+    // order. If you want to see it unwrapped compile in verbose mode and add
+    // --preprocess to the c++ command. Default case
+#undef PHYSDERIV_DEF
+#define PHYSDERIV_DEF                                                          \
+    PhysDerivTensor3DKernel(nquad0, nquad1, nquad2,                            \
+                            (const vec_t *)intmp.data(), (const vec_t *)D0,    \
+                            (const vec_t *)D1, (const vec_t *)D2,              \
+                            (vec_t *)out_d0.data(), (vec_t *)out_d1.data(),    \
+                            (vec_t *)out_d2.data(), Deriv0, Deriv1, Deriv2)
+
+    // Loop case over quarature points
+#undef PHYSDERIV_Q
+#define PHYSDERIV_Q(r, i)                                                      \
+    case NQ1(i):                                                               \
+        PhysDerivTensor3DKernel(                                               \
+            NQ1(i), NQ1(i), NQ1_M1(i), (const vec_t *)intmp.data(),            \
+            (const vec_t *)D0, (const vec_t *)D1, (const vec_t *)D2,           \
+            (vec_t *)out_d0.data(), (vec_t *)out_d1.data(),                    \
+            (vec_t *)out_d2.data(), Deriv0, Deriv1, Deriv2);                   \
+        break;
+
+    // templated cases on  standard quadrature
+    // usage where quad order goes from SMIN to SMAX
+    if ((nquad0 == nquad1) && (nquad1 == nquad2 + 1))
+    {
+        switch (nquad0)
+        {
+            BOOST_PP_FOR((SMIN, SMAX), STDLEV1TEST, STDLEV1UPDATE, PHYSDERIV_Q);
+            default:
+                PHYSDERIV_DEF;
+                break;
+        }
+    }
+    else
+    {
+        PHYSDERIV_DEF;
+    }
+}
 
 /**
  * \brief Calculate the derivative of the physical points
@@ -221,84 +307,82 @@ void StdPrismExp::v_BwdTrans(const Array<OneD, const NekDouble> &inarray,
                  (m_base[2]->GetBasisType() != LibUtilities::eModified_C),
              "Basis[2] is not a general tensor type");
 
-    if (m_base[0]->Collocation() && m_base[1]->Collocation() &&
-        m_base[2]->Collocation())
+    const Array<OneD, const NekDouble> base0 = m_base[0]->GetBdata();
+    const Array<OneD, const NekDouble> base1 = m_base[1]->GetBdata();
+    const Array<OneD, const NekDouble> base2 = m_base[2]->GetBdata();
+
+    int nquad0  = m_base[0]->GetNumPoints();
+    int nquad1  = m_base[1]->GetNumPoints();
+    int nquad2  = m_base[2]->GetNumPoints();
+    int nmodes0 = m_base[0]->GetNumModes();
+    int nmodes1 = m_base[1]->GetNumModes();
+    int nmodes2 = m_base[2]->GetNumModes();
+
+    bool isModified = (m_base[0]->GetBasisType() == LibUtilities::eModified_A);
+
+    std::vector<vec_t, tinysimd::allocator<vec_t>> wsp0(nmodes0 * nmodes1),
+        wsp1(nmodes0);
+
+    // Switch statment using boost_pp and macros. This unfolls intwo a
+    // nested swtich statement where the outer swtich statement runs
+    // from SMIN to SMAX for modal order and the inner switch
+    // statemets run from the outer value of the case to 2*SMAX for
+    // the quadrature order. If you want to see it unwrapped compile
+    // in verbose mode and add --preprocess to the c++ command.
+    // Default case
+#undef BWDTRANS_DEF
+#define BWDTRANS_DEF                                                           \
+    BwdTransPrismKernel(                                                       \
+        nmodes0, nmodes1, nmodes2, nquad0, nquad1, nquad2, isModified,         \
+        (const vec_t *)base0.data(), (const vec_t *)base1.data(),              \
+        (const vec_t *)base2.data(), wsp0.data(), wsp1.data(),                 \
+        (const vec_t *)inarray.data(), (vec_t *)outarray.data())
+
+    // Inner loop case over quarature points
+#undef BWDTRANS_Q
+#define BWDTRANS_Q(r, i)                                                       \
+    case NQ(i):                                                                \
+        BwdTransPrismKernel(                                                   \
+            NM(i), NM(i), NM(i), NQ(i), NQ(i), NQ_M1(i), isModified,           \
+            (const vec_t *)base0.data(), (const vec_t *)base1.data(),          \
+            (const vec_t *)base2.data(), wsp0.data(), wsp1.data(),             \
+            (const vec_t *)inarray.data(), (vec_t *)outarray.data());          \
+        break;
+
+    // outer loop case over modes
+#undef BWDTRANS_M
+#define BWDTRANS_M(r, i)                                                       \
+    case NM(i):                                                                \
+    {                                                                          \
+        switch (nquad0)                                                        \
+        {                                                                      \
+            BOOST_PP_FOR_##r((NM(i), NM_P1(i), BOOST_PP_MUL(2, NM(i))),        \
+                             STDLEV2TEST1, STDLEV2UPDATE1, BWDTRANS_Q) default \
+                : BWDTRANS_DEF;                                                \
+            break;                                                             \
+        }                                                                      \
+    }                                                                          \
+    break;
+
+    // templated cases on equi-ordered modes and standard quad
+    // usage where quad order goes from mode order to 2(*mode
+    // order)
+    if ((nmodes0 == nmodes1) && (nmodes1 == nmodes2) && (nquad0 == nquad1) &&
+        (nquad1 == nquad2 + 1))
     {
-        Vmath::Vcopy(m_base[0]->GetNumPoints() * m_base[1]->GetNumPoints() *
-                         m_base[2]->GetNumPoints(),
-                     inarray, 1, outarray, 1);
+        switch (nmodes0)
+        {
+            BOOST_PP_FOR((SMIN, 0, SMAX), STDLEV2TEST, STDLEV2UPDATE,
+                         BWDTRANS_M)
+            default:
+                BWDTRANS_DEF;
+                break;
+        }
     }
     else
     {
-        StdPrismExp::v_BwdTrans_SumFac(inarray, outarray);
+        BWDTRANS_DEF;
     }
-}
-
-void StdPrismExp::v_BwdTrans_SumFac(const Array<OneD, const NekDouble> &inarray,
-                                    Array<OneD, NekDouble> &outarray)
-{
-    int nquad1 = m_base[1]->GetNumPoints();
-    int nquad2 = m_base[2]->GetNumPoints();
-    int order0 = m_base[0]->GetNumModes();
-    int order1 = m_base[1]->GetNumModes();
-
-    Array<OneD, NekDouble> wsp(nquad2 * order1 * order0 +
-                               nquad1 * nquad2 * order0);
-
-    BwdTrans_SumFacKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
-                          m_base[2]->GetBdata(), inarray, outarray, wsp, true,
-                          true, true);
-}
-
-void StdPrismExp::v_BwdTrans_SumFacKernel(
-    const Array<OneD, const NekDouble> &base0,
-    const Array<OneD, const NekDouble> &base1,
-    const Array<OneD, const NekDouble> &base2,
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-    [[maybe_unused]] bool doCheckCollDir0,
-    [[maybe_unused]] bool doCheckCollDir1,
-    [[maybe_unused]] bool doCheckCollDir2)
-{
-    int i, mode;
-    int nquad0                  = m_base[0]->GetNumPoints();
-    int nquad1                  = m_base[1]->GetNumPoints();
-    int nquad2                  = m_base[2]->GetNumPoints();
-    int nummodes0               = m_base[0]->GetNumModes();
-    int nummodes1               = m_base[1]->GetNumModes();
-    int nummodes2               = m_base[2]->GetNumModes();
-    Array<OneD, NekDouble> tmp0 = wsp;
-    Array<OneD, NekDouble> tmp1 = tmp0 + nquad2 * nummodes1 * nummodes0;
-
-    for (i = mode = 0; i < nummodes0; ++i)
-    {
-        Blas::Dgemm('N', 'N', nquad2, nummodes1, nummodes2 - i, 1.0,
-                    base2.data() + mode * nquad2, nquad2,
-                    inarray.data() + mode * nummodes1, nummodes2 - i, 0.0,
-                    tmp0.data() + i * nquad2 * nummodes1, nquad2);
-        mode += nummodes2 - i;
-    }
-
-    if (m_base[0]->GetBasisType() == LibUtilities::eModified_A)
-    {
-        for (i = 0; i < nummodes1; i++)
-        {
-            Blas::Daxpy(nquad2, inarray[1 + i * nummodes2],
-                        base2.data() + nquad2, 1,
-                        tmp0.data() + nquad2 * (nummodes1 + i), 1);
-        }
-    }
-
-    for (i = 0; i < nummodes0; i++)
-    {
-        Blas::Dgemm('N', 'T', nquad1, nquad2, nummodes1, 1.0, base1.data(),
-                    nquad1, tmp0.data() + i * nquad2 * nummodes1, nquad2, 0.0,
-                    tmp1.data() + i * nquad2 * nquad1, nquad1);
-    }
-
-    Blas::Dgemm('N', 'T', nquad0, nquad2 * nquad1, nummodes0, 1.0, base0.data(),
-                nquad0, tmp1.data(), nquad2 * nquad1, 0.0, outarray.data(),
-                nquad0);
 }
 
 /**
@@ -357,6 +441,8 @@ void StdPrismExp::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
  * (\xi_{3k}) = {\bf B_2 F} \f$ \n \f$ (\phi_{pqr}, u)_{\delta} =
  * \sum_{k=0}^{nq_0} \psi_{p}^a (\xi_{3k}) g_{q} (\xi_{3k}) = {\bf B_1
  * G} \f$
+ *
+ * This is a wrapper function around \a IProductWRTBaseKernel()
  */
 void StdPrismExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
                                     Array<OneD, NekDouble> &outarray)
@@ -369,101 +455,187 @@ void StdPrismExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
                  (m_base[2]->GetBasisType() != LibUtilities::eModified_C),
              "Basis[2] is not a general tensor type");
 
-    if (m_base[0]->Collocation() && m_base[1]->Collocation())
-    {
-        MultiplyByQuadratureMetric(inarray, outarray);
-    }
-    else
-    {
-        StdPrismExp::v_IProductWRTBase_SumFac(inarray, outarray);
-    }
+    const Array<OneD, const NekDouble> one(1, 1.0);
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
+                            m_base[2]->GetBdata(), inarray, outarray, one,
+                            false);
 }
 
-void StdPrismExp::v_IProductWRTBase_SumFac(
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, bool multiplybyweights)
-{
-    int nquad1 = m_base[1]->GetNumPoints();
-    int nquad2 = m_base[2]->GetNumPoints();
-    int order0 = m_base[0]->GetNumModes();
-    int order1 = m_base[1]->GetNumModes();
-
-    Array<OneD, NekDouble> wsp(order0 * nquad2 * (nquad1 + order1));
-
-    if (multiplybyweights)
-    {
-        Array<OneD, NekDouble> tmp(inarray.size());
-
-        MultiplyByQuadratureMetric(inarray, tmp);
-        IProductWRTBase_SumFacKernel(
-            m_base[0]->GetBdata(), m_base[1]->GetBdata(), m_base[2]->GetBdata(),
-            tmp, outarray, wsp, true, true, true);
-    }
-    else
-    {
-        IProductWRTBase_SumFacKernel(
-            m_base[0]->GetBdata(), m_base[1]->GetBdata(), m_base[2]->GetBdata(),
-            inarray, outarray, wsp, true, true, true);
-    }
-}
-
-void StdPrismExp::v_IProductWRTBase_SumFacKernel(
+/** \brief Inner product of \a inarray over region with respect to the
+ *  expansion basis (this)->m_base[0] and return in \a outarray
+ *
+ *  @param base0 - An array containing the values of the basis in the
+ *  0-direction at the quarature poitns
+ *  @param base1 - An array containing the values of the basis in the
+ *  1-direction at the quarature poitns
+ *  @param base2 - An array containing the values of the basis in the
+ *  2-direction at the quarature poitns
+ *  @param inarray - Array of values evaluated at the physical
+ *  quadrature points
+ *  @param outarray the values of the inner product with respect to
+ *  each basis over region will be stored in the array \a outarray as
+ *  output of the function
+ *  @param jac - An array of size 1 if not deformed or the number of
+ *  quadrature points if deformed holding the values of the jacobian
+ *  @param Deformed - a bool identifying if the inner product is to be
+ *  treated as a deformed or regular integration which just relates to
+ *  how the \param jac array is treated
+ */
+void StdPrismExp::v_IProductWRTBaseKernel(
     const Array<OneD, const NekDouble> &base0,
     const Array<OneD, const NekDouble> &base1,
     const Array<OneD, const NekDouble> &base2,
     const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-    [[maybe_unused]] bool doCheckCollDir0,
-    [[maybe_unused]] bool doCheckCollDir1,
-    [[maybe_unused]] bool doCheckCollDir2)
+    Array<OneD, NekDouble> &outarray, const Array<OneD, NekDouble> &jac,
+    const bool Deformed, [[maybe_unused]] bool CollDir0,
+    [[maybe_unused]] bool CollDir1, [[maybe_unused]] bool CollDir2)
 {
-    // Interior prism implementation based on Spen's book page
-    // 119. and 608.
-    const int nquad0 = m_base[0]->GetNumPoints();
-    const int nquad1 = m_base[1]->GetNumPoints();
-    const int nquad2 = m_base[2]->GetNumPoints();
-    const int order0 = m_base[0]->GetNumModes();
-    const int order1 = m_base[1]->GetNumModes();
-    const int order2 = m_base[2]->GetNumModes();
+    int nquad0 = m_base[0]->GetNumPoints();
+    int nquad1 = m_base[1]->GetNumPoints();
+    int nquad2 = m_base[2]->GetNumPoints();
 
-    int i, mode;
+    int order0 = m_base[0]->GetNumModes();
+    int order1 = m_base[1]->GetNumModes();
+    int order2 = m_base[2]->GetNumModes();
 
-    ASSERTL1(wsp.size() >= nquad1 * nquad2 * order0 + nquad2 * order0 * order1,
-             "Insufficient workspace size");
+    const bool isModified =
+        (m_base[0]->GetBasisType() == LibUtilities::eModified_A);
 
-    Array<OneD, NekDouble> tmp0 = wsp;
-    Array<OneD, NekDouble> tmp1 = wsp + nquad1 * nquad2 * order0;
+    std::vector<vec_t, tinysimd::allocator<vec_t>> wsp0(nquad1 * nquad2),
+        wsp1(nquad2), wsp2(order1);
 
-    // Inner product with respect to the '0' direction
-    Blas::Dgemm('T', 'N', nquad1 * nquad2, order0, nquad0, 1.0, inarray.data(),
-                nquad0, base0.data(), nquad0, 0.0, tmp0.data(),
-                nquad1 * nquad2);
-
-    // Inner product with respect to the '1' direction
-    Blas::Dgemm('T', 'N', nquad2 * order0, order1, nquad1, 1.0, tmp0.data(),
-                nquad1, base1.data(), nquad1, 0.0, tmp1.data(),
-                nquad2 * order0);
-
-    // Inner product with respect to the '2' direction
-    for (mode = i = 0; i < order0; ++i)
+    // Swith statment using boost_pp and macros. This unfolls intwo a
+    // nested swtich statement where the outer swtich statement runs
+    // from SMIN to SMAX for modal order and the inner switch
+    // statemets run from the outer value of the case to 2*SMAX for
+    // the quadrature order. If you want to see it unwrapped compile
+    // in verbose mode and add --preprocess to the c++ command.
+    if (Deformed)
     {
-        Blas::Dgemm('T', 'N', order2 - i, order1, nquad2, 1.0,
-                    base2.data() + mode * nquad2, nquad2,
-                    tmp1.data() + i * nquad2, nquad2 * order0, 0.0,
-                    outarray.data() + mode * order1, order2 - i);
-        mode += order2 - i;
-    }
+        // Default case
+#undef IPRODUCTWRTBASE_DEF
+#define IPRODUCTWRTBASE_DEF                                                    \
+    IProductPrismKernel<false, false, true>(                                   \
+        order0, order1, order2, nquad0, nquad1, nquad2, isModified,            \
+        (const vec_t *)inarray.data(), (const vec_t *)base0.data(),            \
+        (const vec_t *)base1.data(), (const vec_t *)base2.data(),              \
+        (const vec_t *)m_weights[0].data(),                                    \
+        (const vec_t *)m_weights[1].data(),                                    \
+        (const vec_t *)m_weights[2].data(), (const vec_t *)jac.data(),         \
+        (vec_t *)wsp0.data(), (vec_t *)wsp1.data(), (vec_t *)wsp2.data(),      \
+        (vec_t *)outarray.data())
 
-    // Fix top singular vertices; performs phi_{0,q,1} +=
-    // phi_1(xi_1)*phi_q(xi_2)*phi_{01}*phi_r(xi_2).
-    if (m_base[0]->GetBasisType() == LibUtilities::eModified_A)
-    {
-        for (i = 0; i < order1; ++i)
+        // Inner loop case over quarature points
+#undef IPRODUCTWRTBASE_Q
+#define IPRODUCTWRTBASE_Q(r, i)                                                \
+    case NQ(i):                                                                \
+        IProductPrismKernel<false, false, true>(                               \
+            NM(i), NM(i), NM(i), NQ(i), NQ(i), NQ_M1(i), isModified,           \
+            (const vec_t *)inarray.data(), (const vec_t *)base0.data(),        \
+            (const vec_t *)base1.data(), (const vec_t *)base2.data(),          \
+            (const vec_t *)m_weights[0].data(),                                \
+            (const vec_t *)m_weights[1].data(),                                \
+            (const vec_t *)m_weights[2].data(), (const vec_t *)jac.data(),     \
+            (vec_t *)wsp0.data(), (vec_t *)wsp1.data(), (vec_t *)wsp2.data(),  \
+            (vec_t *)outarray.data());                                         \
+        break;
+
+        // outer loop case over modes
+#undef IPRODUCTWRTBASE_M
+#define IPRODUCTWRTBASE_M(r, i)                                                \
+    case NM(i):                                                                \
+    {                                                                          \
+        switch (nquad0)                                                        \
+        {                                                                      \
+            BOOST_PP_FOR_##r((NM(i), NM_P1(i), BOOST_PP_MUL(2, NM(i))),        \
+                             STDLEV2TEST1, STDLEV2UPDATE1,                     \
+                             IPRODUCTWRTBASE_Q) default : IPRODUCTWRTBASE_DEF; \
+            break;                                                             \
+        }                                                                      \
+    }                                                                          \
+    break;
+
+        // templated cases on equi-ordered modes and standard quad usage
+        // where quad order goes from mode order to 2(*mode order)
+        if ((order0 == order1) && (order1 == order2) && (nquad0 == nquad1) &&
+            (nquad1 == nquad2 + 1))
         {
-            mode = GetMode(0, i, 1);
-            outarray[mode] +=
-                Blas::Ddot(nquad2, base2.data() + nquad2, 1,
-                           tmp1.data() + i * order0 * nquad2 + nquad2, 1);
+            switch (order0)
+            {
+                BOOST_PP_FOR((SMIN, 0, SMAX), STDLEV2TEST, STDLEV2UPDATE,
+                             IPRODUCTWRTBASE_M)
+                default:
+                    IPRODUCTWRTBASE_DEF;
+                    break;
+            }
+        }
+        else
+        {
+            IPRODUCTWRTBASE_DEF;
+        }
+    }
+    else // non-deformed case
+    {
+        // Default case
+#undef IPRODUCTWRTBASE_DEF
+#define IPRODUCTWRTBASE_DEF                                                    \
+    IProductPrismKernel<false, false, false>(                                  \
+        order0, order1, order2, nquad0, nquad1, nquad2, isModified,            \
+        (const vec_t *)inarray.data(), (const vec_t *)base0.data(),            \
+        (const vec_t *)base1.data(), (const vec_t *)base2.data(),              \
+        (const vec_t *)m_weights[0].data(),                                    \
+        (const vec_t *)m_weights[1].data(),                                    \
+        (const vec_t *)m_weights[2].data(), (const vec_t *)jac.data(),         \
+        (vec_t *)wsp0.data(), (vec_t *)wsp1.data(), (vec_t *)wsp2.data(),      \
+        (vec_t *)outarray.data())
+
+        // Inner loop case over quarature points
+#undef IPRODUCTWRTBASE_Q
+#define IPRODUCTWRTBASE_Q(r, i)                                                \
+    case NQ(i):                                                                \
+        IProductPrismKernel<false, false, false>(                              \
+            NM(i), NM(i), NM(i), NQ(i), NQ(i), NQ_M1(i), isModified,           \
+            (const vec_t *)inarray.data(), (const vec_t *)base0.data(),        \
+            (const vec_t *)base1.data(), (const vec_t *)base2.data(),          \
+            (const vec_t *)m_weights[0].data(),                                \
+            (const vec_t *)m_weights[1].data(),                                \
+            (const vec_t *)m_weights[2].data(), (const vec_t *)jac.data(),     \
+            (vec_t *)wsp0.data(), (vec_t *)wsp1.data(), (vec_t *)wsp2.data(),  \
+            (vec_t *)outarray.data());                                         \
+        break;
+
+        // outer loop case over modes
+#undef IPRODUCTWRTBASE_M
+#define IPRODUCTWRTBASE_M(r, i)                                                \
+    case NM(i):                                                                \
+    {                                                                          \
+        switch (nquad0)                                                        \
+        {                                                                      \
+            BOOST_PP_FOR_##r((NM(i), NM_P1(i), BOOST_PP_MUL(2, NM(i))),        \
+                             STDLEV2TEST1, STDLEV2UPDATE1,                     \
+                             IPRODUCTWRTBASE_Q) default : IPRODUCTWRTBASE_DEF; \
+            break;                                                             \
+        }                                                                      \
+    }                                                                          \
+    break;
+
+        // templated cases on equi-ordered modes and standard quad usage
+        // where quad order goes from mode order to 2(*mode order)
+        if ((order0 == order1) && (order1 == order2) && (nquad0 == nquad1) &&
+            (nquad1 == nquad2 + 1))
+        {
+            switch (order0)
+            {
+                BOOST_PP_FOR((SMIN, 0, SMAX), STDLEV2TEST, STDLEV2UPDATE,
+                             IPRODUCTWRTBASE_M)
+                default:
+                    IPRODUCTWRTBASE_DEF;
+                    break;
+            }
+        }
+        else
+        {
+            IPRODUCTWRTBASE_DEF;
         }
     }
 }
@@ -476,40 +648,19 @@ void StdPrismExp::v_IProductWRTDerivBase(
     const int dir, const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray)
 {
-    v_IProductWRTDerivBase_SumFac(dir, inarray, outarray);
-}
-
-void StdPrismExp::v_IProductWRTDerivBase_SumFac(
-    const int dir, const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
-{
     ASSERTL0(dir >= 0 && dir <= 2, "input dir is out of range");
 
     int i;
-    int order0 = m_base[0]->GetNumModes();
-    int order1 = m_base[1]->GetNumModes();
     int nquad0 = m_base[0]->GetNumPoints();
     int nquad1 = m_base[1]->GetNumPoints();
     int nquad2 = m_base[2]->GetNumPoints();
 
-    const Array<OneD, const NekDouble> &z0 = m_base[0]->GetZ();
-    const Array<OneD, const NekDouble> &z2 = m_base[2]->GetZ();
-    Array<OneD, NekDouble> gfac0(nquad0);
-    Array<OneD, NekDouble> gfac2(nquad2);
     Array<OneD, NekDouble> tmp0(nquad0 * nquad1 * nquad2);
-    Array<OneD, NekDouble> wsp(order0 * nquad2 * (nquad1 + order1));
 
-    // set up geometric factor: (1+z0)/2
-    for (i = 0; i < nquad0; ++i)
-    {
-        gfac0[i] = 0.5 * (1 + z0[i]);
-    }
+    StdFacKey fackey2(eTwoOverOneMinusZ2, m_base[2]->GetBasisKey());
+    Array<OneD, const NekDouble> gfac2 = GetStdFac(fackey2);
 
-    // Set up geometric factor: 2/(1-z2)
-    for (i = 0; i < nquad2; ++i)
-    {
-        gfac2[i] = 2.0 / (1 - z2[i]);
-    }
+    const Array<OneD, const NekDouble> one(1, 1.0);
 
     // Scale first derivative term by gfac2.
     if (dir != 1)
@@ -520,30 +671,30 @@ void StdPrismExp::v_IProductWRTDerivBase_SumFac(
                         &inarray[0] + i * nquad0 * nquad1, 1,
                         &tmp0[0] + i * nquad0 * nquad1, 1);
         }
-        MultiplyByQuadratureMetric(tmp0, tmp0);
     }
 
     switch (dir)
     {
         case 0:
         {
-            IProductWRTBase_SumFacKernel(
+            v_IProductWRTBaseKernel(
                 m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
-                m_base[2]->GetBdata(), tmp0, outarray, wsp, true, true, true);
-            break;
+                m_base[2]->GetBdata(), tmp0, outarray, one, false);
         }
+        break;
         case 1:
         {
-            MultiplyByQuadratureMetric(inarray, tmp0);
-            IProductWRTBase_SumFacKernel(
+            v_IProductWRTBaseKernel(
                 m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
-                m_base[2]->GetBdata(), tmp0, outarray, wsp, true, true, true);
-            break;
+                m_base[2]->GetBdata(), inarray, outarray, one, false);
         }
-
+        break;
         case 2:
         {
             Array<OneD, NekDouble> tmp1(m_ncoeffs);
+
+            StdFacKey fackey0(eHalfMultOnePlusZ0, m_base[0]->GetBasisKey());
+            Array<OneD, const NekDouble> gfac0 = GetStdFac(fackey0);
 
             // Scale eta_1 derivative with gfac0.
             for (i = 0; i < nquad1 * nquad2; ++i)
@@ -552,14 +703,13 @@ void StdPrismExp::v_IProductWRTDerivBase_SumFac(
                             &tmp0[0] + i * nquad0, 1);
             }
 
-            IProductWRTBase_SumFacKernel(
+            v_IProductWRTBaseKernel(
                 m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
-                m_base[2]->GetBdata(), tmp0, tmp1, wsp, true, true, true);
+                m_base[2]->GetBdata(), tmp0, tmp1, one, false);
 
-            MultiplyByQuadratureMetric(inarray, tmp0);
-            IProductWRTBase_SumFacKernel(
+            v_IProductWRTBaseKernel(
                 m_base[0]->GetBdata(), m_base[1]->GetBdata(),
-                m_base[2]->GetDbdata(), tmp0, outarray, wsp, true, true, true);
+                m_base[2]->GetDbdata(), inarray, outarray, one, false);
 
             Vmath::Vadd(m_ncoeffs, &tmp1[0], 1, &outarray[0], 1, &outarray[0],
                         1);
@@ -1325,25 +1475,7 @@ void StdPrismExp::v_GetElmtTraceToTraceMap(const unsigned int fid,
                 maparray[idx++] = maparray[0];
             }
         }
-#if 0 // no required? 
-                for (j = minPA; j < nummodesA; ++j)
-                {
-                    // set maparray
-                    for (k = 0; k < minQB-j; ++k, ++cnt)
-                    {
-                        maparray[idx++] = cnt;
-                    }
 
-                    cnt += nummodesB-minQB;
-                    
-                    //idx += nummodesB-j;
-                    for (k = nummodesB-j; k < Q-j; ++k)
-                    {
-                        signarray[idx]  = 0.0;
-                        maparray[idx++] = maparray[0];
-                    }
-                }
-#endif
         for (j = nummodesA; j < P; ++j)
         {
             for (k = 0; k < Q - j; ++k)
@@ -1937,55 +2069,22 @@ void StdPrismExp::v_MultiplyByStdQuadratureMetric(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray)
 {
-    int i, j;
     int nquad0 = m_base[0]->GetNumPoints();
     int nquad1 = m_base[1]->GetNumPoints();
     int nquad2 = m_base[2]->GetNumPoints();
 
-    const Array<OneD, const NekDouble> &w0 = m_base[0]->GetW();
-    const Array<OneD, const NekDouble> &w1 = m_base[1]->GetW();
-    const Array<OneD, const NekDouble> &w2 = m_base[2]->GetW();
-
-    const Array<OneD, const NekDouble> &z2 = m_base[2]->GetZ();
-
-    // Multiply by integration constants in x-direction
-    for (i = 0; i < nquad1 * nquad2; ++i)
+    int cnt = 0;
+    for (int i = 0; i < nquad2; ++i)
     {
-        Vmath::Vmul(nquad0, inarray.data() + i * nquad0, 1, w0.data(), 1,
-                    outarray.data() + i * nquad0, 1);
-    }
-
-    // Multiply by integration constants in y-direction
-    for (j = 0; j < nquad2; ++j)
-    {
-        for (i = 0; i < nquad1; ++i)
+        NekDouble w2 = m_weights[2][i];
+        for (int j = 0; j < nquad1; ++j)
         {
-            Blas::Dscal(nquad0, w1[i],
-                        &outarray[0] + i * nquad0 + j * nquad0 * nquad1, 1);
+            NekDouble w1w2 = m_weights[1][j] * w2;
+            for (int k = 0; k < nquad0; ++k, ++cnt)
+            {
+                outarray[cnt] = inarray[cnt] * m_weights[0][k] * w1w2;
+            }
         }
-    }
-
-    // Multiply by integration constants in z-direction; need to
-    // incorporate factor (1-eta_3)/2 into weights, but only if using
-    // GLL quadrature points.
-    switch (m_base[2]->GetPointsType())
-    {
-        // (1,0) Jacobi inner product.
-        case LibUtilities::eGaussRadauMAlpha1Beta0:
-            for (i = 0; i < nquad2; ++i)
-            {
-                Blas::Dscal(nquad0 * nquad1, 0.5 * w2[i],
-                            &outarray[0] + i * nquad0 * nquad1, 1);
-            }
-            break;
-
-        default:
-            for (i = 0; i < nquad2; ++i)
-            {
-                Blas::Dscal(nquad0 * nquad1, 0.5 * (1 - z2[i]) * w2[i],
-                            &outarray[0] + i * nquad0 * nquad1, 1);
-            }
-            break;
     }
 }
 

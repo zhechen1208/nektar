@@ -1711,6 +1711,10 @@ AssemblyMapCG::AssemblyMapCG(
             edgeOrient = exp->GetGeom()->GetEorient(j);
             meshEdgeId = exp->GetGeom()->GetEid(j);
 
+            // obtain the vertex id attached with one of the vertices of the
+            // edge for variable P purposes
+            auto meshEdgeVertId = exp->GetGeom()->GetEdge(j)->GetVid(0);
+
             auto pIt = periodicEdges.find(meshEdgeId);
 
             // See if this edge is periodic. If it is, then we map all
@@ -1744,7 +1748,10 @@ AssemblyMapCG::AssemblyMapCG(
             }
             for (k = dofs[1][meshEdgeId]; k < nEdgeInteriorCoeffs; ++k)
             {
-                m_localToGlobalMap[cnt + edgeInteriorMap[k]] = 0;
+                // set value to edge vertex on edge - just to id local - will be
+                // zerod by sign
+                m_localToGlobalMap[cnt + edgeInteriorMap[k]] =
+                    graphVertOffset[graph[0][meshEdgeVertId]];
             }
 
             // Fill the sign vector if required
@@ -1766,6 +1773,10 @@ AssemblyMapCG::AssemblyMapCG(
         {
             faceOrient = exp->GetGeom()->GetForient(j);
             meshFaceId = exp->GetGeom()->GetFid(j);
+
+            // obtain the vertex id attached with one of the vertices of the
+            // face for variable P purposes
+            auto meshFaceVertId = exp->GetGeom()->GetFace(j)->GetVid(0);
 
             auto pIt = periodicFaces.find(meshFaceId);
 
@@ -1807,8 +1818,12 @@ AssemblyMapCG::AssemblyMapCG(
                             }
                             else
                             {
+                                // set value to edge vertex on face - just to id
+                                // local - will be zerod by sign
                                 m_localToGlobalMap[cnt +
-                                                   faceInteriorMap[kLoc]] = 0;
+                                                   faceInteriorMap[kLoc]] =
+                                    graphVertOffset[graph[0][meshFaceVertId]];
+
                                 if (m_signChange)
                                 {
                                     m_localToGlobalSign[cnt +
@@ -1845,8 +1860,11 @@ AssemblyMapCG::AssemblyMapCG(
                             }
                             else
                             {
+                                // set value to edge vertex on face - just to id
+                                // local - will be zerod by sign
                                 m_localToGlobalMap[cnt +
-                                                   faceInteriorMap[kLoc]] = 0;
+                                                   faceInteriorMap[kLoc]] =
+                                    graphVertOffset[graph[0][meshFaceVertId]];
                                 if (m_signChange)
                                 {
                                     m_localToGlobalSign[cnt +

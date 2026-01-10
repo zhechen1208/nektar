@@ -53,6 +53,13 @@ StdNodalTriExp::StdNodalTriExp(const LibUtilities::BasisKey &Ba,
     ASSERTL0(m_base[0]->GetNumModes() == m_base[1]->GetNumModes(),
              "Nodal basis initiated with different orders in the a "
              "and b directions");
+
+    // cache integration weights for future use
+    m_weights.push_back(m_base[0]->GetW());
+
+    StdFacKey w1key(eWeights1, Bb);
+    // get weights[1] from manager where points are rescaled
+    m_weights.push_back(GetStdFac(w1key));
 }
 
 bool StdNodalTriExp::v_IsNodalNonTensorialExp()
@@ -149,16 +156,9 @@ DNekMatSharedPtr StdNodalTriExp::GenNBasisTransMatrix()
 void StdNodalTriExp::v_BwdTrans(const Array<OneD, const NekDouble> &inarray,
                                 Array<OneD, NekDouble> &outarray)
 {
-    v_BwdTrans_SumFac(inarray, outarray);
-}
-
-void StdNodalTriExp::v_BwdTrans_SumFac(
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
-{
     Array<OneD, NekDouble> tmp(m_ncoeffs);
     v_NodalToModal(inarray, tmp);
-    StdTriExp::v_BwdTrans_SumFac(tmp, outarray);
+    StdTriExp::v_BwdTrans(tmp, outarray);
 }
 
 void StdNodalTriExp::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
@@ -186,14 +186,7 @@ void StdNodalTriExp::v_IProductWRTBase(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray)
 {
-    v_IProductWRTBase_SumFac(inarray, outarray);
-}
-
-void StdNodalTriExp::v_IProductWRTBase_SumFac(
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, bool multiplybyweights)
-{
-    StdTriExp::v_IProductWRTBase_SumFac(inarray, outarray, multiplybyweights);
+    StdTriExp::v_IProductWRTBase(inarray, outarray);
     NodalToModalTranspose(outarray, outarray);
 }
 
@@ -201,14 +194,7 @@ void StdNodalTriExp::v_IProductWRTDerivBase(
     const int dir, const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray)
 {
-    v_IProductWRTDerivBase_SumFac(dir, inarray, outarray);
-}
-
-void StdNodalTriExp::v_IProductWRTDerivBase_SumFac(
-    const int dir, const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
-{
-    StdTriExp::v_IProductWRTDerivBase_SumFac(dir, inarray, outarray);
+    StdTriExp::v_IProductWRTDerivBase(dir, inarray, outarray);
     NodalToModalTranspose(outarray, outarray);
 }
 
@@ -231,9 +217,93 @@ void StdNodalTriExp::v_FillMode(const int mode,
 // Helper functions
 //---------------------------
 
+LibUtilities::ShapeType StdNodalTriExp::v_DetShapeType() const
+{
+    return LibUtilities::eNodalTri;
+}
+
 int StdNodalTriExp::v_NumBndryCoeffs() const
 {
     return 3 + (GetBasisNumModes(0) - 2) + 2 * (GetBasisNumModes(1) - 2);
+}
+
+const LibUtilities::BasisKey StdNodalTriExp::v_GetTraceBasisKey(
+    const int i, [[maybe_unused]] const int j,
+    [[maybe_unused]] bool UseGLL) const
+{
+    ASSERTL2(i >= 0 && i <= 2, "edge id is out of range");
+
+    // Get basiskey (0 or 1) according to edge id i
+    int dir = (i != 0);
+
+    switch (m_base[dir]->GetBasisType())
+    {
+        case LibUtilities::eOrtho_A:
+        case LibUtilities::eModified_A:
+        {
+            switch (m_base[dir]->GetPointsType())
+            {
+                case LibUtilities::eGaussLobattoLegendre:
+                {
+                    LibUtilities::PointsKey pkey(
+                        m_base[dir]
+                            ->GetBasisKey()
+                            .GetPointsKey()
+                            .GetNumPoints(),
+                        LibUtilities::eGaussLobattoLegendre);
+                    return LibUtilities::BasisKey(LibUtilities::eGLL_Lagrange,
+                                                  m_base[dir]->GetNumModes(),
+                                                  pkey);
+                }
+                break;
+                default:
+                {
+                    NEKERROR(ErrorUtil::efatal,
+                             "Unexpected points distribution " +
+                                 LibUtilities::kPointsTypeStr
+                                     [m_base[dir]->GetPointsType()] +
+                                 " in StdNodalTriExp::v_GetTraceBasisKey");
+                }
+            }
+        }
+        break;
+        case LibUtilities::eModified_B:
+        case LibUtilities::eOrtho_B:
+        {
+            switch (m_base[dir]->GetPointsType())
+            {
+                case LibUtilities::eGaussRadauMAlpha1Beta0:
+                {
+                    LibUtilities::PointsKey pkey(
+                        m_base[dir]
+                                ->GetBasisKey()
+                                .GetPointsKey()
+                                .GetNumPoints() +
+                            1,
+                        LibUtilities::eGaussLobattoLegendre);
+                    return LibUtilities::BasisKey(LibUtilities::eGLL_Lagrange,
+                                                  m_base[dir]->GetNumModes(),
+                                                  pkey);
+                }
+                break;
+                default:
+                {
+                    NEKERROR(ErrorUtil::efatal,
+                             "Unexpected points distribution " +
+                                 LibUtilities::kPointsTypeStr
+                                     [m_base[dir]->GetPointsType()] +
+                                 " in StdNodalTriExp::v_GetTraceBasisKey");
+                }
+            }
+        }
+        break;
+        default:
+        {
+            NEKERROR(ErrorUtil::efatal,
+                     "Information not available to set edge key");
+        }
+    }
+    return LibUtilities::NullBasisKey;
 }
 
 //--------------------------

@@ -55,6 +55,50 @@ class Expansion;
 namespace Nektar::StdRegions
 {
 
+enum StdFacType
+{
+    eWeights1,
+    eWeights2,
+    eHalfMultOnePlusZ0,
+    eHalfMultOnePlusZ1,
+    eTwoOverOneMinusZ1,
+    eTwoOverOneMinusZ2
+
+};
+
+struct StdFacKey
+{
+    // constructor
+    StdFacKey(StdFacType type, LibUtilities::BasisKey bKey)
+        : m_stdFacType(type), m_basisKey(bKey){};
+
+    friend bool operator<(const StdFacKey &lhs, const StdFacKey &rhs)
+    {
+        if (lhs.m_stdFacType < rhs.m_stdFacType)
+        {
+            return true;
+        }
+
+        if (lhs.m_stdFacType > rhs.m_stdFacType)
+        {
+            return false;
+        }
+
+        return (lhs.m_basisKey < rhs.m_basisKey);
+    }
+
+    friend std::ostream &operator<<(std::ostream &os, const StdFacKey &rhs)
+    {
+        os << "Failed to fine a Create StdFac method for factor "
+           << rhs.m_stdFacType << std::endl;
+
+        return os;
+    }
+
+    StdFacType m_stdFacType;
+    LibUtilities::BasisKey m_basisKey;
+};
+
 /** \brief The base class for all shapes
  *
  *  This is the lowest level basic class for all shapes and so
@@ -540,13 +584,6 @@ public:
         v_IProductWRTBase(inarray, outarray);
     }
 
-    void IProductWRTBase(const Array<OneD, const NekDouble> &base,
-                         const Array<OneD, const NekDouble> &inarray,
-                         Array<OneD, NekDouble> &outarray, int coll_check)
-    {
-        v_IProductWRTBase(base, inarray, outarray, coll_check);
-    }
-
     void IProductWRTDerivBase(const int dir,
                               const Array<OneD, const NekDouble> &inarray,
                               Array<OneD, NekDouble> &outarray)
@@ -592,6 +629,26 @@ public:
         v_GetCoords(coords_1, coords_2, coords_3);
     }
 
+    /*
+     * This function is a wrapper around the original GetCoords function however
+     * enables a return value of type array.
+     *
+     * Returns a three-dimensional array with coordinates of each DoF of the
+     * expansion.
+     */
+    Array<OneD, Array<OneD, NekDouble>> GetCoords()
+    {
+        Array<OneD, Array<OneD, NekDouble>> coords(3);
+        for (int i = 0; i < GetCoordim(); i++)
+        {
+            coords[i] = Array<OneD, NekDouble>(GetTotPoints());
+        }
+
+        v_GetCoords(coords[0], coords[1], coords[2]);
+
+        return coords;
+    }
+
     /** \brief given the coordinates of a point of the element in the
      *  local collapsed coordinate system, this function calculates the
      *  physical coordinates of the point
@@ -617,6 +674,11 @@ public:
     inline DNekBlkMatSharedPtr GetStdStaticCondMatrix(const StdMatrixKey &mkey)
     {
         return m_stdStaticCondMatrixManager[mkey];
+    }
+
+    inline Array<OneD, const NekDouble> GetStdFac(const StdFacKey &mkey)
+    {
+        return *(m_stdFacManager[mkey]);
     }
 
     void NormVectorIProductWRTBase(const Array<OneD, const NekDouble> &Fx,
@@ -1168,11 +1230,11 @@ public:
         return std::dynamic_pointer_cast<T>(shared_from_this());
     }
 
-    void IProductWRTBase_SumFac(const Array<OneD, const NekDouble> &inarray,
-                                Array<OneD, NekDouble> &outarray,
-                                bool multiplybyweights = true)
+    void IProductWRTBase_SumFac_Kernel(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray)
     {
-        v_IProductWRTBase_SumFac(inarray, outarray, multiplybyweights);
+        v_IProductWRTBase_SumFac_Kernel(inarray, outarray);
     }
 
     STD_REGIONS_EXPORT void GenStdMatBwdDeriv(const int dir,
@@ -1187,15 +1249,26 @@ protected:
     int m_elmt_id;
     int m_ncoeffs; /**< Total number of coefficients used in the expansion */
 
+    /* ---------------------------------------------------------------------*/
+    /* The following information is related caching regularly used          */
+    /* data in when applying the Operator (vec_t=scalar) code in StdRegions */
+    std::vector<Array<OneD, const NekDouble>> m_weights;
+    /* ---------------------------------------------------------------------*/
+
     LibUtilities::NekManager<StdMatrixKey, DNekMat, StdMatrixKey::opLess>
         m_stdMatrixManager;
     LibUtilities::NekManager<StdMatrixKey, DNekBlkMat, StdMatrixKey::opLess>
         m_stdStaticCondMatrixManager;
+    LibUtilities::NekManager<StdFacKey, Array<OneD, const NekDouble>>
+        m_stdFacManager;
 
     DNekMatSharedPtr CreateStdMatrix(const StdMatrixKey &mkey)
     {
         return v_CreateStdMatrix(mkey);
     }
+
+    std::shared_ptr<Array<OneD, const NekDouble>> CreateStdFac(
+        const StdFacKey &mkey);
 
     /** \brief Create the static condensation of a matrix when
         using a boundary interior decomposition
@@ -1217,13 +1290,6 @@ protected:
                          Array<OneD, NekDouble> &outarray)
     {
         v_BwdTrans_SumFac(inarray, outarray);
-    }
-
-    void IProductWRTDerivBase_SumFac(
-        const int dir, const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray)
-    {
-        v_IProductWRTDerivBase_SumFac(dir, inarray, outarray);
     }
 
     void IProductWRTDirectionalDerivBase_SumFac(
@@ -1553,16 +1619,6 @@ private:
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) = 0;
 
-    STD_REGIONS_EXPORT virtual void v_IProductWRTBase(
-        [[maybe_unused]] const Array<OneD, const NekDouble> &base,
-        [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
-        [[maybe_unused]] Array<OneD, NekDouble> &outarray,
-        [[maybe_unused]] int coll_check)
-    {
-        NEKERROR(ErrorUtil::efatal, "StdExpansion::v_IProductWRTBase has no "
-                                    "(and should have no) implementation");
-    }
-
     STD_REGIONS_EXPORT virtual void v_IProductWRTDerivBase(
         const int dir, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray);
@@ -1700,12 +1756,8 @@ private:
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray);
 
-    STD_REGIONS_EXPORT virtual void v_IProductWRTBase_SumFac(
+    STD_REGIONS_EXPORT virtual void v_IProductWRTBase_SumFac_Kernel(
         const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, bool multiplybyweights = true);
-
-    STD_REGIONS_EXPORT virtual void v_IProductWRTDerivBase_SumFac(
-        const int dir, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray);
 
     STD_REGIONS_EXPORT virtual void v_IProductWRTDirectionalDerivBase_SumFac(

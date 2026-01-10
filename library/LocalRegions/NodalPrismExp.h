@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 //
-// File: NodalTriExp.h
+// File: NodalPrismExp.h
 //
 // For more information, please see: http://www.nektar.info
 //
@@ -28,37 +28,39 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 //
-// Description: Header for NodalTriExp routines
+// Description: Header for NodalPrismExp routines
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifndef NODALTRIEXP_H
-#define NODALTRIEXP_H
+#ifndef NODALPRISMEXP_H
+#define NODALPRISMEXP_H
 
-#include <SpatialDomains/TriGeom.h>
-#include <StdRegions/StdNodalTriExp.h>
+#include <SpatialDomains/PrismGeom.h>
+#include <StdRegions/StdNodalPrismExp.h>
 
 #include <LocalRegions/LocalRegionsDeclspec.h>
-#include <LocalRegions/MatrixKey.h>
-#include <LocalRegions/TriExp.h>
+#include <LocalRegions/PrismExp.h>
 
 namespace Nektar::LocalRegions
 {
 
-class NodalTriExp final : virtual public StdRegions::StdNodalTriExp,
-                          virtual public TriExp
+class NodalPrismExp final : virtual public StdRegions::StdNodalPrismExp,
+                            virtual public PrismExp
 {
 public:
     /** \brief Constructor using BasisKey class for quadrature
-        points and order definition */
-    LOCAL_REGIONS_EXPORT NodalTriExp(const LibUtilities::BasisKey &Ba,
-                                     const LibUtilities::BasisKey &Bb,
-                                     const LibUtilities::PointsType Ntype,
-                                     SpatialDomains::Geometry2D *geom);
+    points and order definition */
+    LOCAL_REGIONS_EXPORT NodalPrismExp(const LibUtilities::BasisKey &Ba,
+                                       const LibUtilities::BasisKey &Bb,
+                                       const LibUtilities::BasisKey &Bc,
+                                       const LibUtilities::PointsType Ntype,
+                                       SpatialDomains::Geometry3D *geom);
 
-    LOCAL_REGIONS_EXPORT NodalTriExp(const NodalTriExp &T);
+    /// Copy Constructor
+    LOCAL_REGIONS_EXPORT NodalPrismExp(const NodalPrismExp &T);
 
-    LOCAL_REGIONS_EXPORT ~NodalTriExp() override = default;
+    /// Destructor
+    LOCAL_REGIONS_EXPORT ~NodalPrismExp() override = default;
 
 protected:
     //---------------------------------------
@@ -88,14 +90,14 @@ protected:
         const Array<OneD, const NekDouble> &Lcoords,
         Array<OneD, NekDouble> &coords) override
     {
-        TriExp::v_GetCoord(Lcoords, coords);
+        PrismExp::v_GetCoord(Lcoords, coords);
     }
 
     LOCAL_REGIONS_EXPORT void v_GetCoords(
         Array<OneD, NekDouble> &coords_1, Array<OneD, NekDouble> &coords_2,
         Array<OneD, NekDouble> &coords_3) override
     {
-        TriExp::v_GetCoords(coords_1, coords_2, coords_3);
+        PrismExp::v_GetCoords(coords_1, coords_2, coords_3);
     }
 
     LOCAL_REGIONS_EXPORT StdRegions::StdExpansionSharedPtr v_GetStdExp(
@@ -114,7 +116,7 @@ protected:
     LOCAL_REGIONS_EXPORT DNekMatSharedPtr
     v_GenMatrix(const StdRegions::StdMatrixKey &mkey) override
     {
-        return TriExp::v_GenMatrix(mkey);
+        return PrismExp::v_GenMatrix(mkey);
     }
     LOCAL_REGIONS_EXPORT DNekMatSharedPtr
     v_CreateStdMatrix(const StdRegions::StdMatrixKey &mkey) override;
@@ -155,9 +157,9 @@ private:
         m_staticCondMatrixManager;
 };
 
-typedef std::shared_ptr<NodalTriExp> NodalTriExpSharedPtr;
-typedef std::vector<NodalTriExpSharedPtr> NodalTriExpVector;
+typedef std::shared_ptr<NodalPrismExp> NodalPrismExpSharedPtr;
+typedef std::vector<NodalPrismExpSharedPtr> NodalPrismExpVector;
 
 } // namespace Nektar::LocalRegions
 
-#endif // NODALTRIEXP_H
+#endif // NODAL_PRISMEXP_H
