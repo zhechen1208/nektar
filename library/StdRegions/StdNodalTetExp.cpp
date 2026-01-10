@@ -158,16 +158,9 @@ DNekMatSharedPtr StdNodalTetExp::GenNBasisTransMatrix()
 void StdNodalTetExp::v_BwdTrans(const Array<OneD, const NekDouble> &inarray,
                                 Array<OneD, NekDouble> &outarray)
 {
-    v_BwdTrans_SumFac(inarray, outarray);
-}
-
-void StdNodalTetExp::v_BwdTrans_SumFac(
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
-{
     Array<OneD, NekDouble> tmp(m_ncoeffs);
     NodalToModal(inarray, tmp);
-    StdTetExp::v_BwdTrans_SumFac(tmp, outarray);
+    StdTetExp::v_BwdTrans(tmp, outarray);
 }
 
 void StdNodalTetExp::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
@@ -195,14 +188,7 @@ void StdNodalTetExp::v_IProductWRTBase(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray)
 {
-    v_IProductWRTBase_SumFac(inarray, outarray);
-}
-
-void StdNodalTetExp::v_IProductWRTBase_SumFac(
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, bool multiplybyweights)
-{
-    StdTetExp::v_IProductWRTBase_SumFac(inarray, outarray, multiplybyweights);
+    StdTetExp::v_IProductWRTBase(inarray, outarray);
     NodalToModalTranspose(outarray, outarray);
 }
 
@@ -210,14 +196,7 @@ void StdNodalTetExp::v_IProductWRTDerivBase(
     const int dir, const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray)
 {
-    v_IProductWRTDerivBase_SumFac(dir, inarray, outarray);
-}
-
-void StdNodalTetExp::v_IProductWRTDerivBase_SumFac(
-    const int dir, const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
-{
-    StdTetExp::v_IProductWRTDerivBase_SumFac(dir, inarray, outarray);
+    StdTetExp::v_IProductWRTDerivBase(dir, inarray, outarray);
     NodalToModalTranspose(outarray, outarray);
 }
 
@@ -234,6 +213,15 @@ void StdNodalTetExp::v_FillMode(const int mode,
     Vmath::Zero(m_ncoeffs, outarray, 1);
     outarray[mode] = 1.0;
     v_BwdTrans(outarray, outarray);
+}
+
+//---------------------------
+// Helper functions
+//---------------------------
+
+LibUtilities::ShapeType StdNodalTetExp::v_DetShapeType() const
+{
+    return LibUtilities::eNodalTet;
 }
 
 //---------------------------------------

@@ -53,43 +53,6 @@ public:
 
     // Generic operations in different element
 
-    /** \brief Calculate the 2D derivative in the local
-     *  tensor/collapsed coordinate at the physical points
-     *
-     *  This function is independent of the expansion basis and can
-     *  therefore be defined for all tensor product distribution of
-     *  quadrature points in a generic manner.  The key operations are:
-     *
-     *  - \f$ \frac{d}{d\eta_1} \rightarrow {\bf D^T_0 u } \f$ \n
-     *  - \f$ \frac{d}{d\eta_2} \rightarrow {\bf D_1 u } \f$
-     *
-     *  \param inarray array of physical points to be differentiated
-     *  \param  outarray_d0 the resulting array of derivative in the
-     *  \f$\eta_1\f$ direction will be stored in outarray_d0 as output
-     *  of the function
-     *  \param outarray_d1 the resulting array of derivative in the
-     *  \f$\eta_2\f$ direction will be stored in outarray_d1 as output
-     *  of the function
-     *
-     *  Recall that:
-     *  \f$
-     *  \hspace{1cm} \begin{array}{llll}
-     *  \mbox{Shape}    & \mbox{Cartesian coordinate range} &
-     *  \mbox{Collapsed coord.}      &
-     *  \mbox{Collapsed coordinate definition}\\
-     *  \mbox{Quadrilateral}  & -1 \leq \xi_1,\xi_2 \leq  1
-     *  & -1 \leq \eta_1,\eta_2 \leq 1
-     *  & \eta_1 = \xi_1, \eta_2 = \xi_2\\
-     *  \mbox{Triangle}  & -1 \leq \xi_1,\xi_2; \xi_1+\xi_2 \leq  0
-     *  & -1 \leq \eta_1,\eta_2 \leq 1
-     *  & \eta_1 = \frac{2(1+\xi_1)}{(1-\xi_2)}-1, \eta_2 = \xi_2 \\
-     *  \end{array} \f$
-     */
-    STD_REGIONS_EXPORT void PhysTensorDeriv(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray_d0,
-        Array<OneD, NekDouble> &outarray_d1);
-
     STD_REGIONS_EXPORT NekDouble
     Integral(const Array<OneD, const NekDouble> &inarray,
              const Array<OneD, const NekDouble> &w0,
@@ -120,19 +83,13 @@ public:
                                                    firstOrderDerivs[1]);
     }
 
-    STD_REGIONS_EXPORT void BwdTrans_SumFacKernel(
+    STD_REGIONS_EXPORT void IProductWRTBaseKernel(
         const Array<OneD, const NekDouble> &base0,
         const Array<OneD, const NekDouble> &base1,
         const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-        bool doCheckCollDir0 = true, bool doCheckCollDir1 = true);
-
-    STD_REGIONS_EXPORT void IProductWRTBase_SumFacKernel(
-        const Array<OneD, const NekDouble> &base0,
-        const Array<OneD, const NekDouble> &base1,
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-        bool doCheckCollDir0 = true, bool doCheckCollDir1 = true);
+        Array<OneD, NekDouble> &outarray, const Array<OneD, NekDouble> &jac,
+        const bool Deformed, [[maybe_unused]] bool CollDir0 = false,
+        [[maybe_unused]] bool CollDir1 = false);
 
 protected:
     /** \brief This function evaluates the expansion at a single
@@ -165,19 +122,13 @@ protected:
     v_PhysEvaluateInterp(const Array<OneD, DNekMatSharedPtr> &I,
                          const Array<OneD, const NekDouble> &physvals) override;
 
-    STD_REGIONS_EXPORT virtual void v_BwdTrans_SumFacKernel(
+    STD_REGIONS_EXPORT virtual void v_IProductWRTBaseKernel(
         const Array<OneD, const NekDouble> &base0,
         const Array<OneD, const NekDouble> &base1,
         const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-        bool doCheckCollDir0, bool doCheckCollDir1) = 0;
-
-    STD_REGIONS_EXPORT virtual void v_IProductWRTBase_SumFacKernel(
-        const Array<OneD, const NekDouble> &base0,
-        const Array<OneD, const NekDouble> &base1,
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-        bool doCheckCollDir0, bool doCheckCollDir1) = 0;
+        Array<OneD, NekDouble> &outarray, const Array<OneD, NekDouble> &jac,
+        const bool Deformed, [[maybe_unused]] bool CollDir0 = false,
+        [[maybe_unused]] bool CollDir1 = false) = 0;
 
     STD_REGIONS_EXPORT void v_LaplacianMatrixOp_MatFree(
         const Array<OneD, const NekDouble> &inarray,

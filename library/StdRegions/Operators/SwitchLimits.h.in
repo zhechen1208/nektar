@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 //
-// File: StdExpansion0D.h
+// File: SwitchLimits.h
 //
 // For more information, please see: http://www.nektar.info
 //
@@ -28,46 +28,15 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 //
-// Description: Daughter of StdExpansion. This class contains routine
-// which are common to 0d expansion. Typically this inolves physical
-// space operations.
+// Description: Set the wwitch limits
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifndef STDEXP0D_H
-#define STDEXP0D_H
+// clang-format off
 
-#include <StdRegions/StdExpansion.h>
+#undef SMIN
+#define SMIN @NEKTAR_SWITCH_MIN@
+#undef SMAX
+#define SMAX @NEKTAR_SWITCH_MAX@
 
-namespace Nektar::StdRegions
-{
-class StdExpansion0D : virtual public StdExpansion
-{
-public:
-    STD_REGIONS_EXPORT StdExpansion0D(int numcoeffs,
-                                      const LibUtilities::BasisKey &Ba);
-    STD_REGIONS_EXPORT StdExpansion0D()                        = default;
-    STD_REGIONS_EXPORT StdExpansion0D(const StdExpansion0D &T) = default;
-    STD_REGIONS_EXPORT ~StdExpansion0D() override              = default;
-
-protected:
-    STD_REGIONS_EXPORT NekDouble
-    v_PhysEvaluate(const Array<OneD, const NekDouble> &coords,
-                   const Array<OneD, const NekDouble> &physvals) override;
-
-    int v_GetShapeDimension() const final
-    {
-        return 0;
-    }
-
-    int v_GetNtraces() const final
-    {
-        return 0;
-    }
-};
-
-typedef std::shared_ptr<StdExpansion0D> StdExpansion0DSharedPtr;
-
-} // namespace Nektar::StdRegions
-
-#endif // STDEXP0D_H
+// clang-format on
