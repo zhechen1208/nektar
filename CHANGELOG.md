@@ -16,6 +16,7 @@ v5.10.0
 - Add size-templated Operator kernels to StdRegion (!2263)
 - Remove v_IProductWRTBase_SumFac and v_IProductWRTDerivBase_SumFac member functions from LocalRegion and StdRegion (!2263)
 - Tidy redundant use of orientation in FwdTransBndConstrained (!2361)
+- Added UnitTest for the LinearADR operator in Collections (!1831)
 
 
 v5.9.0
