@@ -2270,7 +2270,8 @@ void Expansion2D::v_SetUpPhysNormals(const int edge)
 
 void Expansion2D::v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                                          Array<OneD, int> &idmap, const int nq0,
-                                         [[maybe_unused]] const int nq1)
+                                         [[maybe_unused]] const int nq1,
+                                         [[maybe_unused]] bool Forwards)
 {
     if (idmap.size() != nq0)
     {

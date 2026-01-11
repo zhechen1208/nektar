@@ -501,7 +501,7 @@ void Expansion1D::v_NormalTraceDerivFactors(
 void Expansion1D::v_ReOrientTracePhysMap(
     [[maybe_unused]] const StdRegions::Orientation orient,
     Array<OneD, int> &idmap, [[maybe_unused]] const int nq0,
-    [[maybe_unused]] const int nq1)
+    [[maybe_unused]] const int nq1, [[maybe_unused]] bool Forwards)
 {
     if (idmap.size() != 1)
     {
