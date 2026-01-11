@@ -94,7 +94,7 @@ protected:
 
     void v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                                 Array<OneD, int> &idmap, const int nq0,
-                                const int nq1) override;
+                                const int nq1, bool Forwards) override;
 
     void v_TraceNormLen(const int traceid, NekDouble &h, NekDouble &p) override;
 

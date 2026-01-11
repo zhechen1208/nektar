@@ -391,20 +391,9 @@ LocTraceToTraceMap::LocTraceToTraceMap(
 
             StdRegions::Orientation orient = elmt->GetTraceOrient(e);
 
-            // toPoints have already been swapped. But here we need original
-            // elmttrace points (w.r.t local axes). So swap back if orient >= 9
-            if (orient >= 9)
-            {
-                elmt->ReOrientTracePhysMap(orient, locTraceToTraceMap,
-                                           toPointsKey1.GetNumPoints(),
-                                           toPointsKey0.GetNumPoints());
-            }
-            else
-            {
-                elmt->ReOrientTracePhysMap(orient, locTraceToTraceMap,
-                                           toPointsKey0.GetNumPoints(),
-                                           toPointsKey1.GetNumPoints());
-            }
+            elmt->ReOrientTracePhysMap(orient, locTraceToTraceMap,
+                                       toPointsKey0.GetNumPoints(),
+                                       toPointsKey1.GetNumPoints(), false);
 
             int offset = trace->GetPhys_Offset(elmtToTrace[n][e]->GetElmtId());
 
@@ -859,7 +848,7 @@ LocTraceToTraceMap::LocTraceToTraceMap(
                     auto tnp1 =
                         std::get<3>(m_interpPoints[dir][typid]).GetNumPoints();
                     exp->ReOrientTracePhysMap(locExp->GetTraceOrient(e),
-                                              thisMapArray, tnp0, tnp1);
+                                              thisMapArray, tnp0, tnp1, false);
                     orientationMaps.push_back(thisMapArray);
                     m_traceFieldMap[cid].m_orientationIds[e][n] =
                         orientationMaps.size() - 1;
