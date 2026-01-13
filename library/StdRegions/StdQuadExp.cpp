@@ -856,7 +856,7 @@ void StdQuadExp::v_GetCoords(Array<OneD, NekDouble> &coords_0,
 
     for (i = 0; i < nq1; ++i)
     {
-        Blas::Dcopy(nq0, z0.data(), 1, &coords_0[0] + i * nq0, 1);
+        Vmath::Vcopy(nq0, z0.data(), 1, &coords_0[0] + i * nq0, 1);
         Vmath::Fill(nq0, z1[i], &coords_1[0] + i * nq0, 1);
     }
 }

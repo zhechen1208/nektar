@@ -642,7 +642,7 @@ void QuadExp::GetEdgeInterpVals(const int edge,
         {
             for (i = 0; i < nq0; i++)
             {
-                outarray[i] = Blas::Ddot(
+                outarray[i] = Vmath::Dot(
                     nq1, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
                     &inarray[i], nq0);
             }
@@ -652,7 +652,7 @@ void QuadExp::GetEdgeInterpVals(const int edge,
         {
             for (i = 0; i < nq1; i++)
             {
-                outarray[i] = Blas::Ddot(
+                outarray[i] = Vmath::Dot(
                     nq0, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
                     &inarray[i * nq0], 1);
             }
@@ -662,7 +662,7 @@ void QuadExp::GetEdgeInterpVals(const int edge,
         {
             for (i = 0; i < nq0; i++)
             {
-                outarray[i] = Blas::Ddot(
+                outarray[i] = Vmath::Dot(
                     nq1, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
                     &inarray[i], nq0);
             }
@@ -672,7 +672,7 @@ void QuadExp::GetEdgeInterpVals(const int edge,
         {
             for (i = 0; i < nq1; i++)
             {
-                outarray[i] = Blas::Ddot(
+                outarray[i] = Vmath::Dot(
                     nq0, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
                     &inarray[i * nq0], 1);
             }

@@ -92,11 +92,11 @@ NekDouble StdExpansion2D::v_PhysEvaluateInterp(
     for (i = 0; i < nq1; ++i)
     {
         wsp1[i] =
-            Blas::Ddot(nq0, &(I[0]->GetPtr())[0], 1, &physvals[i * nq0], 1);
+            Vmath::Dot(nq0, &(I[0]->GetPtr())[0], 1, &physvals[i * nq0], 1);
     }
 
     // interpolate in second coordinate direction
-    val = Blas::Ddot(nq1, I[1]->GetPtr(), 1, wsp1, 1);
+    val = Vmath::Dot(nq1, I[1]->GetPtr(), 1, wsp1, 1);
 
     return val;
 }

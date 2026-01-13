@@ -680,7 +680,7 @@ void SegExp::v_GetVertexPhysVals(const int vertex,
         DNekScalMatSharedPtr mat_gauss = m_matrixManager[key];
 
         outarray =
-            Blas::Ddot(nquad, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
+            Vmath::Dot(nquad, mat_gauss->GetOwnedMatrix()->GetPtr().data(), 1,
                        &inarray[0], 1);
     }
 }
