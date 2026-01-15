@@ -163,30 +163,6 @@ void StdQuadExp::v_PhysDeriv(const Array<OneD, const NekDouble> &inarray,
     PhysTensorDeriv(inarray, out_d0, out_d1);
 }
 
-void StdQuadExp::v_PhysDeriv(const int dir,
-                             const Array<OneD, const NekDouble> &inarray,
-                             Array<OneD, NekDouble> &outarray)
-{
-    switch (dir)
-    {
-        case 0:
-        {
-            PhysTensorDeriv(inarray, outarray, NullNekDouble1DArray);
-        }
-        break;
-        case 1:
-        {
-            PhysTensorDeriv(inarray, NullNekDouble1DArray, outarray);
-        }
-        break;
-        default:
-        {
-            ASSERTL1(false, "input dir is out of range");
-        }
-        break;
-    }
-}
-
 void StdQuadExp::v_StdPhysDeriv(const Array<OneD, const NekDouble> &inarray,
                                 Array<OneD, NekDouble> &out_d0,
                                 Array<OneD, NekDouble> &out_d1,

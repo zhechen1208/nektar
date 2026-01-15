@@ -111,6 +111,11 @@ public:
 protected:
     std::vector<bool> m_requireNeg;
 
+    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
+        const int dir, const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
+    using StdExpansion2D::v_PhysDeriv;
+
     // Hybridized DG routines
     void v_DGDeriv(const int dir, const Array<OneD, const NekDouble> &incoeffs,
                    Array<OneD, ExpansionSharedPtr> &EdgeExp,

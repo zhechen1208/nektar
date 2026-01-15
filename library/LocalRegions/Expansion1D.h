@@ -75,6 +75,11 @@ public:
 protected:
     DNekMatSharedPtr v_GenMatrix(const StdRegions::StdMatrixKey &mkey) override;
 
+    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
+        const int dir, const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
+    using StdExpansion1D::v_PhysDeriv;
+
     void v_AddRobinMassMatrix(const int vert,
                               const Array<OneD, const NekDouble> &primCoeffs,
                               DNekMatSharedPtr &inoutmat) override;

@@ -179,14 +179,6 @@ void StdSegExp::v_PhysDeriv(const Array<OneD, const NekDouble> &inarray,
     PhysTensorDeriv(inarray, out_d0);
 }
 
-void StdSegExp::v_PhysDeriv([[maybe_unused]] const int dir,
-                            const Array<OneD, const NekDouble> &inarray,
-                            Array<OneD, NekDouble> &outarray)
-{
-    ASSERTL1(dir == 0, "input dir is out of range");
-    PhysTensorDeriv(inarray, outarray);
-}
-
 void StdSegExp::v_StdPhysDeriv(const Array<OneD, const NekDouble> &inarray,
                                Array<OneD, NekDouble> &out_d0,
                                [[maybe_unused]] Array<OneD, NekDouble> &out_d1,
