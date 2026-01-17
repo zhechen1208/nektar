@@ -1492,7 +1492,7 @@ void LocTraceToTraceMap::InterpLocEdgesToTrace(
                         Vmath::Vcopy(fnp, &locedges[cnt + k * fnp], 1,
                                      &tmp[cnt1 + k * tnp], 1);
 
-                        tmp[cnt1 + k * tnp + tnp - 1] = Blas::Ddot(
+                        tmp[cnt1 + k * tnp + tnp - 1] = Vmath::Dot(
                             fnp, locedges.data() + cnt + k * fnp, 1, &I0[0], 1);
                     }
                 }
@@ -1651,7 +1651,7 @@ void LocTraceToTraceMap::InterpLocFacesToTrace(
                         for (int k = 0; k < tnp0; ++k)
                         {
                             tmp[cnt1 + k + (j + 1) * tnp0 * tnp1 - tnp0] =
-                                Blas::Ddot(fnp1,
+                                Vmath::Dot(fnp1,
                                            locfaces.data() + cnt +
                                                j * fnp0 * fnp1 + k,
                                            fnp0, &I1[0], 1);

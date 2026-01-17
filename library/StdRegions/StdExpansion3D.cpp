@@ -225,7 +225,7 @@ NekDouble StdExpansion3D::v_PhysEvaluateInterp(
 
     // Interpolate in third coordinate direction
     interpolatingNodes = &I[2]->GetPtr()[0];
-    value = Blas::Ddot(Qz, interpolatingNodes, 1, &sumFactorization_r[0], 1);
+    value = Vmath::Dot(Qz, interpolatingNodes, 1, &sumFactorization_r[0], 1);
 
     return value;
 }
