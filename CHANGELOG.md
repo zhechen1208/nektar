@@ -21,6 +21,7 @@ v5.10.0
 - fix for ReOrientTraceMap to accurately reflect eDir1FwdDir2_Dir2BwdDir1 & eDir1BwdDir2_Dir2FwdDir1 (!2362)
 
 - Tidy PhysDeriv in StdRegion and LocalRegion (!2367)
+- Add Flexible option for Conjugate Gradient and GMRES (!2376)
 
 v5.9.0
 ------
