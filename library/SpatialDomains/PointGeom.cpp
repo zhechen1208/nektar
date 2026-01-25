@@ -36,6 +36,7 @@
 
 #include <SpatialDomains/PointGeom.h>
 #include <SpatialDomains/SegGeom.h>
+#include <StdRegions/StdPointExp.h>
 #include <StdRegions/StdRegions.hpp>
 
 namespace Nektar::SpatialDomains
@@ -58,9 +59,7 @@ PointGeom::PointGeom(const int coordim, const int vid, NekDouble x, NekDouble y,
 }
 
 // copy constructor
-PointGeom::PointGeom(const PointGeom &T)
-    : Geometry0D(T), NekPoint<NekDouble>(T),
-      std::enable_shared_from_this<PointGeom>(T)
+PointGeom::PointGeom(const PointGeom &T) : Geometry0D(T), NekPoint<NekDouble>(T)
 {
     m_shapeType = T.m_shapeType;
     m_globalID  = T.m_globalID;
@@ -216,16 +215,16 @@ bool operator!=(const PointGeom *x, const PointGeom &y)
     return (x->m_globalID != y.m_globalID);
 }
 
-PointGeomSharedPtr PointGeom::v_GetVertex(int i) const
+GeomFactorsUniquePtr PointGeom::v_GenGeomFactors(
+    [[maybe_unused]] LibUtilities::PointsKeyVector &keyTgt)
 {
-    ASSERTL0(i == 0, "Index other than 0 is meaningless.");
-    // shared_this_ptr() returns const PointGeom, which cannot be
-    // returned.
-    return PointGeomSharedPtr(new PointGeom(*this));
-}
-
-void PointGeom::v_GenGeomFactors()
-{
+    if (!m_setupState)
+    {
+        m_xmap = MemoryManager<StdRegions::StdPointExp>::AllocateSharedPtr();
+        SetUpCoeffs(m_xmap->GetNcoeffs());
+        m_setupState = true;
+    }
+    return GeomFactorsUniquePtr();
 }
 
 } // namespace Nektar::SpatialDomains

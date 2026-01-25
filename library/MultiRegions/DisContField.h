@@ -89,7 +89,7 @@ public:
 
     MULTI_REGIONS_EXPORT DisContField(
         const DisContField &In, const SpatialDomains::MeshGraphSharedPtr &graph,
-        const std::string &variable, const bool SetUpJustDG = false,
+        const std::string &variable, const bool SetUpJustDG = true,
         const bool DeclareCoeffPhysArrays = true);
 
     /// Constructs a 1D discontinuous field based on an
@@ -133,11 +133,12 @@ public:
             &bndCond,
         const Array<OneD, const ExpListSharedPtr> &BndCondExp);
 
-protected:
-    /// The number of boundary segments on which Dirichlet boundary
-    /// conditions are imposed.
-    size_t m_numDirBndCondExpansions;
+    MULTI_REGIONS_EXPORT ExpListSharedPtr &GetLocElmtTrace()
+    {
+        return m_locElmtTrace;
+    }
 
+protected:
     /// An array which contains the information about the boundary
     /// condition structure definition on the different boundary regions.
     Array<OneD, SpatialDomains::BoundaryConditionShPtr> m_bndConditions;
@@ -165,6 +166,9 @@ protected:
 
     /// Trace space storage for points between elements.
     ExpListSharedPtr m_trace;
+
+    /// Local Elemental trace expansions
+    MultiRegions::ExpListSharedPtr m_locElmtTrace;
 
     /// Local to global DG mapping for trace space.
     AssemblyMapDGSharedPtr m_traceMap;
@@ -213,7 +217,17 @@ protected:
     void GenerateBoundaryConditionExpansion(
         const SpatialDomains::MeshGraphSharedPtr &graph1D,
         const SpatialDomains::BoundaryConditions &bcs,
-        const std::string variable, const bool DeclareCoeffPhysArrays = true);
+        const std::string variable, const bool DeclareCoeffPhysArrays = true,
+        const Collections::ImplementationType ImpType =
+            Collections::eNoImpType);
+
+    /// Make copy of boundary conditions.
+    void GenerateBoundaryConditionExpansion(
+        const Array<OneD, const MultiRegions::ExpListSharedPtr> &In,
+        const SpatialDomains::BoundaryConditions &bcs,
+        const std::string variable, const bool DeclareCoeffPhysArrays = true,
+        const Collections::ImplementationType ImpType =
+            Collections::eNoImpType);
 
     /// Generate a associative map of periodic vertices in a mesh.
     void FindPeriodicTraces(const SpatialDomains::BoundaryConditions &bcs,
@@ -247,7 +261,8 @@ protected:
                                    Array<OneD, NekDouble> &field) override;
 
     void v_ExtractTracePhys(const Array<OneD, const NekDouble> &inarray,
-                            Array<OneD, NekDouble> &outarray) override;
+                            Array<OneD, NekDouble> &outarray,
+                            bool gridVelocity = false) override;
 
     void v_ExtractTracePhys(Array<OneD, NekDouble> &outarray) override;
 
@@ -297,6 +312,12 @@ protected:
 
     void v_PeriodicBwdCopy(const Array<OneD, const NekDouble> &Fwd,
                            Array<OneD, NekDouble> &Bwd) override;
+    void v_PeriodicBwdRot(Array<OneD, Array<OneD, NekDouble>> &Bwd) override;
+
+    void v_PeriodicDeriveBwdRot(TensorOfArray3D<NekDouble> &Bwd) override;
+
+    void v_RotLocalBwdTrace(Array<OneD, Array<OneD, NekDouble>> &Bwd) override;
+    void v_RotLocalBwdDeriveTrace(TensorOfArray3D<NekDouble> &Bwd) override;
 
     void v_FillBwdWithBwdWeight(Array<OneD, NekDouble> &weightave,
                                 Array<OneD, NekDouble> &weightjmp) override;
@@ -333,6 +354,12 @@ protected:
         const Array<OneD, const NekDouble> &FwdFlux,
         const Array<OneD, const NekDouble> &BwdFlux,
         Array<OneD, NekDouble> &outarray) override;
+
+    void Rotate(Array<OneD, Array<OneD, NekDouble>> &Bwd, const int dir,
+                const NekDouble angle, const int offset, const int npts);
+
+    void DeriveRotate(TensorOfArray3D<NekDouble> &Bwd, const int dir,
+                      const NekDouble angle, const int offset, const int npts);
 
 private:
     std::vector<bool> m_negatedFluxNormal;

@@ -40,17 +40,24 @@
 
 #include <SpatialDomains/GeomFactors.h>
 #include <SpatialDomains/SegGeom.h>
+#include <SpatialDomains/XmapFactory.hpp>
 
 namespace Nektar::SpatialDomains
 {
+
+XmapFactory<StdRegions::StdTriExp, 2> &GetStdTriFactory()
+{
+    static XmapFactory<StdRegions::StdTriExp, 2> factory;
+    return factory;
+}
 
 TriGeom::TriGeom()
 {
     m_shapeType = LibUtilities::eTriangle;
 }
 
-TriGeom::TriGeom(const int id, const SegGeomSharedPtr edges[],
-                 const CurveSharedPtr curve)
+TriGeom::TriGeom(const int id, std::array<SegGeom *, kNedges> edges,
+                 Curve *curve)
     : Geometry2D(edges[0]->GetVertex(0)->GetCoordim(), curve)
 {
     int j;
@@ -58,16 +65,15 @@ TriGeom::TriGeom(const int id, const SegGeomSharedPtr edges[],
     m_shapeType = LibUtilities::eTriangle;
     m_globalID  = id;
 
-    // Copy the edge shared pointers.
-    m_edges.insert(m_edges.begin(), edges, edges + TriGeom::kNedges);
-    m_eorient.resize(kNedges);
+    /// Copy the edge pointers
+    m_edges = edges;
 
     for (j = 0; j < kNedges; ++j)
     {
         m_eorient[j] =
             SegGeom::GetEdgeOrientation(*edges[j], *edges[(j + 1) % kNedges]);
-        m_verts.push_back(
-            edges[j]->GetVertex(m_eorient[j] == StdRegions::eForwards ? 0 : 1));
+        m_verts[j] =
+            edges[j]->GetVertex(m_eorient[j] == StdRegions::eForwards ? 0 : 1);
     }
 
     m_eorient[2] = m_eorient[2] == StdRegions::eBackwards
@@ -95,6 +101,92 @@ TriGeom::TriGeom(const TriGeom &in) : Geometry2D(in)
     }
 }
 
+int TriGeom::v_AllLeftCheck(const Array<OneD, const NekDouble> &gloCoord)
+{
+    int nc = 1, d0 = m_manifold[0], d1 = m_manifold[1];
+    if (0 == m_edgeNormal.size())
+    {
+        m_edgeNormal = Array<OneD, Array<OneD, NekDouble>>(m_verts.size());
+        Array<OneD, Array<OneD, NekDouble>> x(2);
+        x[0] = Array<OneD, NekDouble>(3);
+        x[1] = Array<OneD, NekDouble>(3);
+        m_verts[0]->GetCoords(x[0]);
+        int i0 = 1, i1 = 0, direction = 1;
+        for (size_t i = 0; i < m_verts.size(); ++i)
+        {
+            i0 ^= 1;
+            i1 ^= 1;
+            m_verts[(i + 1) % m_verts.size()]->GetCoords(x[i1]);
+            if (m_edges[i]->GetXmap()->GetBasis(0)->GetNumModes() > 2)
+            {
+                continue;
+            }
+            m_edgeNormal[i]    = Array<OneD, NekDouble>(2);
+            m_edgeNormal[i][0] = x[i0][d1] - x[i1][d1];
+            m_edgeNormal[i][1] = x[i1][d0] - x[i0][d0];
+        }
+        if (m_coordim == 3)
+        {
+            for (size_t i = 0; i < m_verts.size(); ++i)
+            {
+                if (m_edgeNormal[i].size() == 2)
+                {
+                    m_verts[i]->GetCoords(x[0]);
+                    m_verts[(i + 2) % m_verts.size()]->GetCoords(x[1]);
+                    if (m_edgeNormal[i][0] * (x[1][d0] - x[0][d0]) <
+                        m_edgeNormal[i][1] * (x[0][d1] - x[1][d1]))
+                    {
+                        direction = -1;
+                    }
+                    break;
+                }
+            }
+        }
+        if (direction == -1)
+        {
+            for (size_t i = 0; i < m_verts.size(); ++i)
+            {
+                if (m_edgeNormal[i].size() == 2)
+                {
+                    m_edgeNormal[i][0] = -m_edgeNormal[i][0];
+                    m_edgeNormal[i][1] = -m_edgeNormal[i][1];
+                }
+            }
+        }
+    }
+
+    Array<OneD, NekDouble> vertex(3);
+    for (size_t i = 0; i < m_verts.size(); ++i)
+    {
+        int i1 = (i + 1) % m_verts.size();
+        if (m_verts[i]->GetGlobalID() < m_verts[i1]->GetGlobalID())
+        {
+            m_verts[i]->GetCoords(vertex);
+        }
+        else
+        {
+            m_verts[i1]->GetCoords(vertex);
+        }
+        if (m_edgeNormal[i].size() == 0)
+        {
+            nc = 0; // not sure
+            continue;
+        }
+        if (m_edgeNormal[i][0] * (gloCoord[d0] - vertex[d0]) <
+            m_edgeNormal[i][1] * (vertex[d1] - gloCoord[d1]))
+        {
+            return -1; // outside
+        }
+    }
+    // 3D manifold needs to check the distance
+    if (m_coordim == 3)
+    {
+        nc = 0;
+    }
+    // nc: 1 (side element), 0 (maybe inside), -1 (outside)
+    return nc;
+}
+
 NekDouble TriGeom::v_GetCoord(const int i,
                               const Array<OneD, const NekDouble> &Lcoord)
 {
@@ -117,8 +209,8 @@ StdRegions::Orientation TriGeom::GetFaceOrientation(const TriGeom &face1,
 }
 
 StdRegions::Orientation TriGeom::GetFaceOrientation(
-    const PointGeomVector &face1, const PointGeomVector &face2, bool doRot,
-    int dir, NekDouble angle, NekDouble tol)
+    std::array<PointGeom *, 3> face1, std::array<PointGeom *, 3> face2,
+    bool doRot, int dir, NekDouble angle, NekDouble tol)
 {
     int i, j, vmap[3] = {-1, -1, -1};
 
@@ -216,82 +308,85 @@ StdRegions::Orientation TriGeom::GetFaceOrientation(
     return StdRegions::eNoOrientation;
 }
 
-void TriGeom::v_GenGeomFactors()
+GeomType TriGeom::v_CalcGeomType()
 {
     if (!m_setupState)
     {
         TriGeom::v_Setup();
     }
+    TriGeom::v_FillGeom();
 
-    if (m_geomFactorsState != ePtsFilled)
+    GeomType Gtype = eRegular;
+
+    // check to see if expansions are linear
+    if (m_xmap->GetBasisNumModes(0) != 2 || m_xmap->GetBasisNumModes(1) != 2)
     {
-        GeomType Gtype = eRegular;
-
-        TriGeom::v_FillGeom();
-
-        // check to see if expansions are linear
-        m_straightEdge = 1;
-        if (m_xmap->GetBasisNumModes(0) != 2 ||
-            m_xmap->GetBasisNumModes(1) != 2)
-        {
-            Gtype          = eDeformed;
-            m_straightEdge = 0;
-        }
-
-        m_manifold    = Array<OneD, int>(m_coordim);
-        m_manifold[0] = 0;
-        m_manifold[1] = 1;
-        if (m_coordim == 3)
-        {
-            PointGeom e01, e21, norm;
-            e01.Sub(*m_verts[0], *m_verts[1]);
-            e21.Sub(*m_verts[2], *m_verts[1]);
-            norm.Mult(e01, e21);
-            int tmpi   = 0;
-            double tmp = std::fabs(norm[0]);
-            if (tmp < fabs(norm[1]))
-            {
-                tmp  = fabs(norm[1]);
-                tmpi = 1;
-            }
-            if (tmp < fabs(norm[2]))
-            {
-                tmpi = 2;
-            }
-            m_manifold[0] = (tmpi + 1) % 3;
-            m_manifold[1] = (tmpi + 2) % 3;
-            m_manifold[2] = (tmpi + 3) % 3;
-        }
-        if (Gtype == eRegular)
-        {
-            Array<OneD, Array<OneD, NekDouble>> verts(m_verts.size());
-            for (int i = 0; i < m_verts.size(); ++i)
-            {
-                verts[i] = Array<OneD, NekDouble>(3);
-                m_verts[i]->GetCoords(verts[i]);
-            }
-            // a00 + a01 xi1 + a02 xi2
-            // a10 + a11 xi1 + a12 xi2
-            m_isoParameter = Array<OneD, Array<OneD, NekDouble>>(2);
-            for (int i = 0; i < 2; ++i)
-            {
-                unsigned int d       = m_manifold[i];
-                m_isoParameter[i]    = Array<OneD, NekDouble>(3, 0.);
-                NekDouble A          = verts[0][d];
-                NekDouble B          = verts[1][d];
-                NekDouble C          = verts[2][d];
-                m_isoParameter[i][0] = 0.5 * (B + C);  // 1
-                m_isoParameter[i][1] = 0.5 * (-A + B); // xi1
-                m_isoParameter[i][2] = 0.5 * (-A + C); // xi2
-            }
-            v_CalculateInverseIsoParam();
-        }
-
-        m_geomFactors = MemoryManager<GeomFactors>::AllocateSharedPtr(
-            Gtype, m_coordim, m_xmap, m_coeffs);
-
-        m_geomFactorsState = ePtsFilled;
+        Gtype = eDeformed;
     }
+
+    m_manifold    = Array<OneD, int>(m_coordim);
+    m_manifold[0] = 0;
+    m_manifold[1] = 1;
+    if (m_coordim == 3)
+    {
+        PointGeom e01, e21, norm;
+        e01.Sub(*m_verts[0], *m_verts[1]);
+        e21.Sub(*m_verts[2], *m_verts[1]);
+        norm.Mult(e01, e21);
+        int tmpi   = 0;
+        double tmp = std::fabs(norm[0]);
+        if (tmp < fabs(norm[1]))
+        {
+            tmp  = fabs(norm[1]);
+            tmpi = 1;
+        }
+        if (tmp < fabs(norm[2]))
+        {
+            tmpi = 2;
+        }
+        m_manifold[0] = (tmpi + 1) % 3;
+        m_manifold[1] = (tmpi + 2) % 3;
+        m_manifold[2] = (tmpi + 3) % 3;
+    }
+    if (Gtype == eRegular)
+    {
+        Array<OneD, Array<OneD, NekDouble>> verts(m_verts.size());
+        for (int i = 0; i < m_verts.size(); ++i)
+        {
+            verts[i] = Array<OneD, NekDouble>(3);
+            m_verts[i]->GetCoords(verts[i]);
+        }
+        // a00 + a01 xi1 + a02 xi2
+        // a10 + a11 xi1 + a12 xi2
+        m_isoParameter = Array<OneD, Array<OneD, NekDouble>>(2);
+        for (int i = 0; i < 2; ++i)
+        {
+            unsigned int d       = m_manifold[i];
+            m_isoParameter[i]    = Array<OneD, NekDouble>(3, 0.);
+            NekDouble A          = verts[0][d];
+            NekDouble B          = verts[1][d];
+            NekDouble C          = verts[2][d];
+            m_isoParameter[i][0] = 0.5 * (B + C);  // 1
+            m_isoParameter[i][1] = 0.5 * (-A + B); // xi1
+            m_isoParameter[i][2] = 0.5 * (-A + C); // xi2
+        }
+    }
+
+    if (Gtype == eRegular)
+    {
+        v_CalculateInverseIsoParam();
+    }
+
+    return Gtype;
+}
+
+GeomFactorsUniquePtr TriGeom::v_GenGeomFactors(
+    LibUtilities::PointsKeyVector &keyTgt)
+{
+    GeomType Gtype = CalcGeomType();
+
+    return ObjPoolManager<GeomFactors>::AllocateUniquePtr(
+        Gtype, m_coordim, m_xmap, m_coeffs, keyTgt);
 }
 
 /**
@@ -350,7 +445,7 @@ void TriGeom::v_FillGeom()
             // consistent with curved edges?
             for (i = 0; i < kNedges; ++i)
             {
-                CurveSharedPtr edgeCurve = m_edges[i]->GetCurve();
+                Curve *edgeCurve = m_edges[i]->GetCurve();
 
                 ASSERTL0(edgeCurve->m_points.size() == nEdgePts,
                          "Number of edge points does not correspond "
@@ -521,7 +616,7 @@ void TriGeom::v_Reset(CurveMap &curvedEdges, CurveMap &curvedFaces)
 
     if (it != curvedFaces.end())
     {
-        m_curve = it->second;
+        m_curve = it->second.get();
     }
 
     for (int i = 0; i < 3; ++i)
@@ -543,6 +638,15 @@ void TriGeom::v_Setup()
         }
         SetUpXmap();
         SetUpCoeffs(m_xmap->GetNcoeffs());
+
+        // check to see if expansions are linear
+        m_straightEdge = 1;
+        if (m_xmap->GetBasisNumModes(0) != 2 ||
+            m_xmap->GetBasisNumModes(1) != 2)
+        {
+            m_straightEdge = 0;
+        }
+
         m_setupState = true;
     }
 }
@@ -554,15 +658,17 @@ void TriGeom::SetUpXmap()
         order0, std::max(m_edges[1]->GetXmap()->GetBasis(0)->GetNumModes(),
                          m_edges[2]->GetXmap()->GetBasis(0)->GetNumModes()));
 
-    const LibUtilities::BasisKey B0(
-        LibUtilities::eModified_A, order0,
-        LibUtilities::PointsKey(order0 + 1,
-                                LibUtilities::eGaussLobattoLegendre));
-    const LibUtilities::BasisKey B1(
-        LibUtilities::eModified_B, order1,
-        LibUtilities::PointsKey(order1, LibUtilities::eGaussRadauMAlpha1Beta0));
+    std::array<LibUtilities::BasisKey, 2> basis = {
+        LibUtilities::BasisKey(
+            LibUtilities::eModified_A, order0,
+            LibUtilities::PointsKey(order0 + 1,
+                                    LibUtilities::eGaussLobattoLegendre)),
+        LibUtilities::BasisKey(
+            LibUtilities::eModified_B, order1,
+            LibUtilities::PointsKey(order1,
+                                    LibUtilities::eGaussRadauMAlpha1Beta0))};
 
-    m_xmap = MemoryManager<StdRegions::StdTriExp>::AllocateSharedPtr(B0, B1);
+    m_xmap = GetStdTriFactory().CreateInstance(basis);
 }
 
 } // namespace Nektar::SpatialDomains

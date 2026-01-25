@@ -134,8 +134,7 @@ public:
     //---------------------------------------------------------
     /// Specialised constructors for 0D Expansions
     /// Wrapper around LocalRegion::PointExp - used in PrePacing.cpp
-    MULTI_REGIONS_EXPORT ExpList(
-        const SpatialDomains::PointGeomSharedPtr &geom);
+    MULTI_REGIONS_EXPORT ExpList(SpatialDomains::PointGeom *geom);
 
     /// Generate expansions for the trace space expansions used in
     /// DisContField.
@@ -330,11 +329,15 @@ public:
         const bool PhysSpaceForcing                    = true);
 
     /// Solve Advection Diffusion Reaction
-    inline void LinearAdvectionReactionSolve(
-        const Array<OneD, Array<OneD, NekDouble>> &velocity,
+    inline GlobalLinSysKey LinearAdvectionReactionSolve(
         const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, const NekDouble lambda,
-        const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray);
+        Array<OneD, NekDouble> &outarray,
+        const StdRegions::ConstFactorMap &factors,
+        const StdRegions::VarCoeffMap &varcoeff = StdRegions::NullVarCoeffMap,
+        const MultiRegions::VarFactorsMap &varfactors =
+            MultiRegions::NullVarFactorsMap,
+        const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray,
+        const bool PhysSpaceForcing                    = true);
     ///
     MULTI_REGIONS_EXPORT void FwdTransBndConstrained(
         const Array<OneD, const NekDouble> &inarray,
@@ -445,6 +448,10 @@ public:
     inline const Array<OneD, const NekDouble> &GetCoeffs() const;
     /// Impose Dirichlet Boundary Conditions onto Array
     inline void ImposeDirichletConditions(Array<OneD, NekDouble> &outarray);
+    /// Add Neumann Boundary Condition forcing to Array
+    inline void ImposeNeumannConditions(Array<OneD, NekDouble> &outarray);
+    /// Add Robin Boundary Condition forcing to Array
+    inline void ImposeRobinConditions(Array<OneD, NekDouble> &outarray);
     /// Fill Bnd Condition expansion from the values stored in expansion
     inline void FillBndCondFromField(const Array<OneD, NekDouble> coeffs);
     /// Fill Bnd Condition expansion in nreg from the values
@@ -828,10 +835,23 @@ public:
     /// Copy and fill the Periodic boundaries
     inline void PeriodicBwdCopy(const Array<OneD, const NekDouble> &Fwd,
                                 Array<OneD, NekDouble> &Bwd);
+    /// Rotate Bwd trace for rotational periodicity boundaries
+    /// when the flow is perpendicular to the rotation axis
+    inline void PeriodicBwdRot(Array<OneD, Array<OneD, NekDouble>> &Bwd);
+    /// Rotate Bwd trace derivative for rotational periodicity boundaries
+    /// when the flow is perpendicular to the rotation axis
+    inline void PeriodicDeriveBwdRot(TensorOfArray3D<NekDouble> &Bwd);
+    /// Rotate local Bwd trace across a rotational interface
+    /// when the flow is perpendicular to the rotation axis
+    inline void RotLocalBwdTrace(Array<OneD, Array<OneD, NekDouble>> &Bwd);
+    /// Rotate local Bwd trace derivatives across a rotational interface
+    /// when the flow is perpendicular to the rotation axis
+    inline void RotLocalBwdDeriveTrace(TensorOfArray3D<NekDouble> &Bwd);
     inline const std::vector<bool> &GetLeftAdjacentFaces(void) const;
     inline void ExtractTracePhys(Array<OneD, NekDouble> &outarray);
     inline void ExtractTracePhys(const Array<OneD, const NekDouble> &inarray,
-                                 Array<OneD, NekDouble> &outarray);
+                                 Array<OneD, NekDouble> &outarray,
+                                 bool gridVelocity = false);
     inline const Array<OneD, const SpatialDomains::BoundaryConditionShPtr> &
     GetBndConditions();
     inline Array<OneD, SpatialDomains::BoundaryConditionShPtr> &
@@ -1046,7 +1066,33 @@ public:
         return it->second;
     }
 
+    /// This function returns collections
+    MULTI_REGIONS_EXPORT inline const Collections::CollectionVector &
+    GetCollections() const
+    {
+        return m_collections;
+    }
+
+    MULTI_REGIONS_EXPORT inline int Get_coll_coeff_offset(int n) const
+    {
+        return m_coll_coeff_offset[n];
+    }
+
+    MULTI_REGIONS_EXPORT inline int Get_coll_phys_offset(int n) const
+    {
+        return m_coll_phys_offset[n];
+    }
+
+    MULTI_REGIONS_EXPORT inline const Array<OneD,
+                                            const Array<OneD, NekDouble>> &
+    GetGridVelocity()
+    {
+        return m_gridVelocity;
+    }
+
 protected:
+    /// Pointer holder for PulseWaveSolver
+    SpatialDomains::EntityHolder1D m_holder;
     /// Expansion type
     ExpansionType m_expType;
     std::shared_ptr<DNekMat> GenGlobalMatrixFull(
@@ -1120,6 +1166,10 @@ protected:
     /// Vector of bools to act as an initialise on first call flag
     std::vector<bool> m_collectionsDoInit;
     /// Offset of elemental data into the array #m_coeffs
+    std::vector<int> m_coll_coeff_offset;
+    /// Offset of elemental data into the array #m_phys
+    std::vector<int> m_coll_phys_offset;
+    /// Offset of elemental data into the array #m_coeffs
     Array<OneD, int> m_coeff_offset;
     /// Offset of elemental data into the array #m_phys
     Array<OneD, int> m_phys_offset;
@@ -1133,6 +1183,8 @@ protected:
     bool m_WaveSpace;
     /// Mapping from geometry ID of element to index inside #m_exp
     std::unordered_map<int, int> m_elmtToExpId;
+    /// Grid velocity at quadrature points
+    Array<OneD, Array<OneD, NekDouble>> m_gridVelocity;
     /// This function assembles the block diagonal matrix of local
     /// matrices of the type \a mtype.
     const DNekScalBlkMatSharedPtr GenBlockMatrix(const GlobalMatrixKey &gkey);
@@ -1217,10 +1269,18 @@ protected:
                                         Array<OneD, NekDouble> &weightjmp);
     virtual void v_PeriodicBwdCopy(const Array<OneD, const NekDouble> &Fwd,
                                    Array<OneD, NekDouble> &Bwd);
+    virtual void v_PeriodicBwdRot(Array<OneD, Array<OneD, NekDouble>> &Bwd);
+
+    virtual void v_PeriodicDeriveBwdRot(TensorOfArray3D<NekDouble> &Bwd);
+    virtual void v_RotLocalBwdTrace(Array<OneD, Array<OneD, NekDouble>> &Bwd);
+
+    virtual void v_RotLocalBwdDeriveTrace(TensorOfArray3D<NekDouble> &Bwd);
+
     virtual const std::vector<bool> &v_GetLeftAdjacentFaces(void) const;
     virtual void v_ExtractTracePhys(Array<OneD, NekDouble> &outarray);
     virtual void v_ExtractTracePhys(const Array<OneD, const NekDouble> &inarray,
-                                    Array<OneD, NekDouble> &outarray);
+                                    Array<OneD, NekDouble> &outarray,
+                                    bool gridVelocity = false);
     virtual void v_MultiplyByInvMassMatrix(
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray);
@@ -1243,13 +1303,19 @@ protected:
         const Array<OneD, const NekDouble> &dirForcing,
         const bool PhysSpaceForcing);
 
-    virtual void v_LinearAdvectionReactionSolve(
-        const Array<OneD, Array<OneD, NekDouble>> &velocity,
+    virtual GlobalLinSysKey v_LinearAdvectionReactionSolve(
         const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, const NekDouble lambda,
-        const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray);
+        Array<OneD, NekDouble> &outarray,
+        const StdRegions::ConstFactorMap &factors,
+        const StdRegions::VarCoeffMap &varcoeff,
+        const MultiRegions::VarFactorsMap &varfactors,
+        const Array<OneD, const NekDouble> &dirForcing,
+        const bool PhysSpaceForcing);
+
     // wrapper functions about virtual functions
     virtual void v_ImposeDirichletConditions(Array<OneD, NekDouble> &outarray);
+    virtual void v_ImposeNeumannConditions(Array<OneD, NekDouble> &outarray);
+    virtual void v_ImposeRobinConditions(Array<OneD, NekDouble> &outarray);
     virtual void v_FillBndCondFromField(const Array<OneD, NekDouble> coeffs);
     virtual void v_FillBndCondFromField(const int nreg,
                                         const Array<OneD, NekDouble> coeffs);
@@ -1572,10 +1638,14 @@ inline int ExpList::Get1DScaledTotPoints(const NekDouble scale) const
 
     for (size_t i = 0; i < (*m_exp).size(); ++i)
     {
-        cnt = 1;
+        int npt0 = (*m_exp)[i]->GetNumPoints(0);
+        cnt      = 1;
+
         for (size_t j = 0; j < nbase; ++j)
         {
-            cnt *= scale * ((*m_exp)[i]->GetNumPoints(j));
+            int npt = (*m_exp)[i]->GetNumPoints(j);
+            cnt *= (npt0 - npt == 1) ? (size_t)(scale * npt0 - 1)
+                                     : (size_t)(scale * npt);
         }
         returnval += cnt;
     }
@@ -1755,14 +1825,17 @@ inline GlobalLinSysKey ExpList::LinearAdvectionDiffusionReactionSolve(
         inarray, outarray, factors, varcoeff, varfactors, dirForcing,
         PhysSpaceForcing);
 }
-inline void ExpList::LinearAdvectionReactionSolve(
-    const Array<OneD, Array<OneD, NekDouble>> &velocity,
+
+inline GlobalLinSysKey ExpList::LinearAdvectionReactionSolve(
     const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, const NekDouble lambda,
-    const Array<OneD, const NekDouble> &dirForcing)
+    Array<OneD, NekDouble> &outarray, const StdRegions::ConstFactorMap &factors,
+    const StdRegions::VarCoeffMap &varcoeff,
+    const MultiRegions::VarFactorsMap &varfactors,
+    const Array<OneD, const NekDouble> &dirForcing, const bool PhysSpaceForcing)
 {
-    v_LinearAdvectionReactionSolve(velocity, inarray, outarray, lambda,
-                                   dirForcing);
+    return v_LinearAdvectionReactionSolve(inarray, outarray, factors, varcoeff,
+                                          varfactors, dirForcing,
+                                          PhysSpaceForcing);
 }
 /**
  *
@@ -1948,6 +2021,14 @@ inline const Array<OneD, const NekDouble> &ExpList::GetCoeffs() const
 inline void ExpList::ImposeDirichletConditions(Array<OneD, NekDouble> &outarray)
 {
     v_ImposeDirichletConditions(outarray);
+}
+inline void ExpList::ImposeNeumannConditions(Array<OneD, NekDouble> &outarray)
+{
+    v_ImposeNeumannConditions(outarray);
+}
+inline void ExpList::ImposeRobinConditions(Array<OneD, NekDouble> &outarray)
+{
+    v_ImposeRobinConditions(outarray);
 }
 inline void ExpList::FillBndCondFromField(const Array<OneD, NekDouble> coeffs)
 {
@@ -2223,6 +2304,26 @@ inline void ExpList::PeriodicBwdCopy(const Array<OneD, const NekDouble> &Fwd,
 {
     v_PeriodicBwdCopy(Fwd, Bwd);
 }
+inline void ExpList::PeriodicBwdRot(Array<OneD, Array<OneD, NekDouble>> &Bwd)
+{
+    v_PeriodicBwdRot(Bwd);
+}
+
+inline void ExpList::PeriodicDeriveBwdRot(TensorOfArray3D<NekDouble> &Bwd)
+{
+    v_PeriodicDeriveBwdRot(Bwd);
+}
+
+inline void ExpList::RotLocalBwdTrace(Array<OneD, Array<OneD, NekDouble>> &Bwd)
+{
+    v_RotLocalBwdTrace(Bwd);
+}
+
+inline void ExpList::RotLocalBwdDeriveTrace(TensorOfArray3D<NekDouble> &Bwd)
+{
+    v_RotLocalBwdDeriveTrace(Bwd);
+}
+
 inline const std::vector<bool> &ExpList::GetLeftAdjacentFaces(void) const
 {
     return v_GetLeftAdjacentFaces();
@@ -2233,9 +2334,9 @@ inline void ExpList::ExtractTracePhys(Array<OneD, NekDouble> &outarray)
 }
 inline void ExpList::ExtractTracePhys(
     const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
+    Array<OneD, NekDouble> &outarray, bool gridVelocity)
 {
-    v_ExtractTracePhys(inarray, outarray);
+    v_ExtractTracePhys(inarray, outarray, gridVelocity);
 }
 inline const Array<OneD, const SpatialDomains::BoundaryConditionShPtr> &ExpList::
     GetBndConditions()

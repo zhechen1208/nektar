@@ -37,35 +37,35 @@
 
 namespace Nektar::SpatialDomains
 {
+
 /**
  * @class GeomFactors
  *
- * This class stores the various geometric factors associated with a
- * specific element, necessary for fundamental integration and
- * differentiation operations as well as edge and surface normals.
+ * This class stores the various geometric factors associated with a specific
+ * element, necessary for fundamental integration and differentiation operations
+ * as well as edge and surface normals.
  *
- * Initially, these algorithms are provided with a mapping from the
- * reference region element to the physical element. Practically, this
- * is represented using a corresponding reference region element for
- * each coordinate component. Note that for straight-sided elements,
- * these elements will be of linear order. Curved elements are
- * represented using higher-order coordinate mappings. This geometric
- * order is in contrast to the order of the spectral/hp expansion order
- * on the element.
+ * Initially, these algorithms are provided with a mapping from the reference
+ * region element to the physical element. Practically, this is represented
+ * using a corresponding reference region element for each coordinate
+ * component. Note that for straight-sided elements, these elements will be of
+ * linear order. Curved elements are represented using higher-order coordinate
+ * mappings. This geometric order is in contrast to the order of the spectral/hp
+ * expansion order on the element.
  *
- * For application of the chain rule during differentiation we require
- * the partial derivatives \f[\frac{\partial \xi_i}{\partial \chi_j}\f]
- * evaluated at the physical points of the expansion basis. We also
- * construct the inverse metric tensor \f$g^{ij}\f$ which, in the case
- * of a domain embedded in a higher-dimensional space, supports the
- * conversion of covariant quantities to contravariant quantities.
- * When the expansion dimension is equal to the coordinate dimension the
- * Jacobian of the mapping \f$\chi_j\f$ is a square matrix and
- * consequently the required terms are the entries of the inverse of the
- * Jacobian. However, in general this is not the case, so we therefore
- * implement the construction of these terms following the derivation
- * in Cantwell, et. al. \cite CaYaKiPeSh13. Given the coordinate maps
- * \f$\chi_i\f$, this comprises of five steps
+ * For application of the chain rule during differentiation we require the
+ * partial derivatives \f[\frac{\partial \xi_i}{\partial \chi_j}\f] evaluated at
+ * the physical points of the expansion basis. We also construct the inverse
+ * metric tensor \f$g^{ij}\f$ which, in the case of a domain embedded in a
+ * higher-dimensional space, supports the conversion of covariant quantities to
+ * contravariant quantities.  When the expansion dimension is equal to the
+ * coordinate dimension the Jacobian of the mapping \f$\chi_j\f$ is a square
+ * matrix and consequently the required terms are the entries of the inverse of
+ * the Jacobian. However, in general this is not the case, so we therefore
+ * implement the construction of these terms following the derivation in
+ * Cantwell, et. al. \cite CaYaKiPeSh13. Given the coordinate maps \f$\chi_i\f$,
+ * this comprises of five steps
+ *
  * -# Compute the terms of the Jacobian
  *    \f$\frac{\partial \chi_i}{\partial \xi_j}\f$.
  * -# Compute the metric tensor
@@ -82,12 +82,15 @@ namespace Nektar::SpatialDomains
  * @param   coordim     Specifies the dimension of the coordinate
  *                      system.
  * @param   Coords      Coordinate maps of the element.
+ * @param   keyTgt      Points at which to compute stored Jacobian
+ *                      and derivative factors
  */
 GeomFactors::GeomFactors(const GeomType gtype, const int coordim,
                          const StdRegions::StdExpansionSharedPtr &xmap,
-                         const Array<OneD, Array<OneD, NekDouble>> &coords)
+                         const std::vector<Array<OneD, NekDouble>> &coords,
+                         const LibUtilities::PointsKeyVector &keyTgt)
     : m_type(gtype), m_expDim(xmap->GetShapeDimension()), m_coordDim(coordim),
-      m_valid(true), m_xmap(xmap), m_coords(coords)
+      m_valid(true), m_keyTgt(keyTgt), m_xmap(xmap), m_coords(coords)
 {
     CheckIfValid();
 }
@@ -98,7 +101,8 @@ GeomFactors::GeomFactors(const GeomType gtype, const int coordim,
  */
 GeomFactors::GeomFactors(const GeomFactors &S)
     : m_type(S.m_type), m_expDim(S.m_expDim), m_coordDim(S.m_coordDim),
-      m_valid(S.m_valid), m_xmap(S.m_xmap), m_coords(S.m_coords)
+      m_valid(S.m_valid), m_xmap(S.m_xmap), m_coords(S.m_coords),
+      m_jac(S.m_jac), m_derivFactor(S.m_derivFactor)
 {
 }
 
@@ -180,7 +184,20 @@ DerivStorage GeomFactors::ComputeDeriv(
         {
             d_map[j][i] = Array<OneD, NekDouble>(nqtot_map);
             deriv[j][i] = Array<OneD, NekDouble>(nqtot_tbasis);
-            m_xmap->StdPhysDeriv(j, tmp, d_map[j][i]);
+        }
+
+        switch (m_expDim)
+        {
+            case 1:
+                m_xmap->StdPhysDeriv(tmp, d_map[0][i]);
+                break;
+            case 2:
+                m_xmap->StdPhysDeriv(tmp, d_map[0][i], d_map[1][i]);
+                break;
+            case 3:
+                m_xmap->StdPhysDeriv(tmp, d_map[0][i], d_map[1][i],
+                                     d_map[2][i]);
+                break;
         }
     }
 
@@ -231,6 +248,12 @@ Array<OneD, NekDouble> GeomFactors::ComputeJac(
     ASSERTL1(keyTgt.size() == m_expDim,
              "Dimension of target point distribution does not match "
              "expansion dimension.");
+
+    // A point always has a unit jacobian
+    if (m_expDim == 0)
+    {
+        return Array<OneD, NekDouble>(1, 1.0);
+    }
 
     int i = 0, j = 0, k = 0, l = 0;
     int ptsTgt = 1;

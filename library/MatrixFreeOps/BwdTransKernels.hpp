@@ -241,17 +241,18 @@ NEK_FORCE_INLINE static void BwdTransTetKernel(
 {
     for (int k = 0, cnt_kji = 0; k < nq2; ++k)
     {
-        int cnt_pq = 0, mode = 0;
+        int cnt_pq = 0, cnt_pqr = 0, mode = 0;
         for (int p = 0; p < nm0; ++p)
         {
             for (int q = 0; q < nm1 - p; ++q, ++cnt_pq)
             {
-                vec_t prod = in[mode] * basis2[k + nq2 * mode]; // Load 2x
+                vec_t prod = in[cnt_pqr] * basis2[k + nq2 * mode]; // Load 2x
                 ++mode;
+                ++cnt_pqr;
 
-                for (int r = 1; r < nm2 - p - q; ++r, ++mode)
+                for (int r = 1; r < nm2 - p - q; ++r, ++mode, ++cnt_pqr)
                 {
-                    vec_t inxmm = in[mode];                  // Load 1x
+                    vec_t inxmm = in[cnt_pqr];               // Load 1x
                     prod.fma(inxmm, basis2[k + nq2 * mode]); // Load 1x
                 }
 
@@ -416,15 +417,15 @@ NEK_FORCE_INLINE static void BwdTransPyrKernel(
 {
     for (int k = 0, cnt_kji = 0; k < nq2; ++k)
     {
-        int mode_pqr = 0, mode_pq = 0;
+        int cnt_pqr = 0, mode_pqr = 0, mode_pq = 0;
         for (int p = 0; p < nm0; ++p)
         {
             for (int q = 0; q < p; ++q, ++mode_pq)
             {
                 vec_t prod = 0.0;
-                for (int r = 0; r < nm2 - p; ++r, ++mode_pqr)
+                for (int r = 0; r < nm2 - p; ++r, ++mode_pqr, ++cnt_pqr)
                 {
-                    vec_t coef = in[mode_pqr];                  // Load 1x
+                    vec_t coef = in[cnt_pqr];                   // Load 1x
                     prod.fma(coef, basis2[mode_pqr * nq2 + k]); // Load 1x
                 }
                 fpq[mode_pq] = prod; // Store 1x
@@ -433,9 +434,9 @@ NEK_FORCE_INLINE static void BwdTransPyrKernel(
             for (int q = p; q < nm1; ++q, ++mode_pq)
             {
                 vec_t prod = 0.0;
-                for (int r = 0; r < nm2 - q; ++r, ++mode_pqr)
+                for (int r = 0; r < nm2 - q; ++r, ++mode_pqr, ++cnt_pqr)
                 {
-                    vec_t coef = in[mode_pqr];                  // Load 1x
+                    vec_t coef = in[cnt_pqr];                   // Load 1x
                     prod.fma(coef, basis2[mode_pqr * nq2 + k]); // Load 1x
                 }
 
@@ -443,7 +444,7 @@ NEK_FORCE_INLINE static void BwdTransPyrKernel(
             }
 
             // increment mode in case nm2>nm1
-            for (int q = nm1; q < nm2 - p; ++q)
+            for (int q = nm1; q < nm2; ++q)
             {
                 mode_pqr += nm2 - q;
             }

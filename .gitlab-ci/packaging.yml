@@ -11,7 +11,7 @@
 
 .package-env-build: &package-env-build
   <<: *package-conditions
-  image: docker:stable
+  image: docker:28.5.0-dind
   stage: package-env
   needs: []
   script:
@@ -231,7 +231,7 @@
 # This cleans up the temporary environment image
 .package-env-cleanup: &package-env-cleanup
   <<: *package-conditions
-  image: docker:stable
+  image: docker:28.5.0-dind
   stage: cleanup
 #  except:
 #    refs:
@@ -406,6 +406,48 @@ package-source-doc-deploy:
 #  needs: ["package-debian-unstable-build", "package-debian-unstable-deploy-dev"]
 #  dependencies:
 #    - package-debian-unstable-build
+
+##
+## Debian trixie
+##
+package-debian-trixie-env:
+  <<: *package-env-build
+
+package-debian-trixie-build:
+  <<: *package-deb-build
+  needs: ["package-debian-trixie-env"]
+  variables:
+    image_name: pkg-env:debian-trixie
+
+package-debian-trixie-test:
+  <<: *package-deb-test
+  needs: ["package-debian-trixie-build"]
+  dependencies:
+    - package-debian-trixie-build
+  variables:
+    image_name: debian:trixie
+
+package-debian-trixie-deploy-dev:
+  <<: *package-deb-deploy-dev
+  needs: ["package-debian-trixie-build", "package-debian-trixie-test"]
+  dependencies:
+    - package-debian-trixie-build
+
+package-debian-trixie-deploy:
+  <<: *package-deb-deploy
+  needs: ["package-debian-trixie-build", "package-debian-trixie-deploy-dev"]
+  dependencies:
+    - package-debian-trixie-build
+
+package-debian-trixie-cleanup:
+  <<: *package-env-cleanup
+  needs: 
+    - job: package-debian-trixie-deploy-dev
+    - job: package-debian-trixie-deploy
+      optional: true
+  variables:
+    image_name: pkg-env:debian-trixie
+
 
 ##
 ## Debian bookworm

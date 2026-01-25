@@ -72,7 +72,7 @@ class Expansion : virtual public StdRegions::StdExpansion
 {
 public:
     LOCAL_REGIONS_EXPORT Expansion(
-        SpatialDomains::GeometrySharedPtr pGeom); // default constructor.
+        SpatialDomains::Geometry *pGeom); // default constructor.
     LOCAL_REGIONS_EXPORT Expansion(const Expansion &pSrc); // copy constructor.
     LOCAL_REGIONS_EXPORT ~Expansion() override;
 
@@ -92,7 +92,7 @@ public:
             StdRegions::NullConstFactorMap,
         const StdRegions::VarCoeffMap &varcoeffs = StdRegions::NullVarCoeffMap);
 
-    LOCAL_REGIONS_EXPORT SpatialDomains::GeometrySharedPtr GetGeom() const;
+    LOCAL_REGIONS_EXPORT SpatialDomains::Geometry *GetGeom() const;
 
     LOCAL_REGIONS_EXPORT void Reset();
 
@@ -102,7 +102,7 @@ public:
     LOCAL_REGIONS_EXPORT DNekScalBlkMatSharedPtr
     CreateStaticCondMatrix(const MatrixKey &mkey);
 
-    LOCAL_REGIONS_EXPORT const SpatialDomains::GeomFactorsSharedPtr &GetMetricInfo()
+    LOCAL_REGIONS_EXPORT inline SpatialDomains::GeomFactors *GetGeomFactors()
         const;
 
     LOCAL_REGIONS_EXPORT DNekMatSharedPtr
@@ -213,9 +213,9 @@ public:
 
     inline void ReOrientTracePhysMap(const StdRegions::Orientation orient,
                                      Array<OneD, int> &idmap, const int nq0,
-                                     const int nq1)
+                                     const int nq1, bool Forwards = true)
     {
-        v_ReOrientTracePhysMap(orient, idmap, nq0, nq1);
+        v_ReOrientTracePhysMap(orient, idmap, nq0, nq1, Forwards);
     }
 
     LOCAL_REGIONS_EXPORT const NormalVector &GetTraceNormal(const int id);
@@ -265,13 +265,21 @@ public:
     LOCAL_REGIONS_EXPORT void StdDerivBaseOnTraceMat(
         Array<OneD, DNekMatSharedPtr> &DerivMat);
 
+    LOCAL_REGIONS_EXPORT void PhysDerivBaseOnTraceMat(
+        const int traceid, Array<OneD, DNekMatSharedPtr> &DerivMat);
+
+    LOCAL_REGIONS_EXPORT void PhysBaseOnTraceMat(const int traceid,
+                                                 DNekMatSharedPtr &BdataMat);
+    /// Handles generation of geometry factors.
+    void GenGeomFactors();
+
 protected:
     LibUtilities::NekManager<IndexMapKey, IndexMapValues, IndexMapKey::opLess>
         m_indexMapManager;
 
     std::map<int, ExpansionWeakPtr> m_traceExp;
-    SpatialDomains::GeometrySharedPtr m_geom;
-    SpatialDomains::GeomFactorsSharedPtr m_metricinfo;
+    SpatialDomains::Geometry *m_geom;
+    SpatialDomains::GeomFactorsUniquePtr m_geomFactors;
     MetricMap m_metrics;
     std::map<int, NormalVector> m_traceNormals;
     ExpansionWeakPtr m_elementLeft;
@@ -281,7 +289,7 @@ protected:
 
     /// the element length in each element boundary(Vertex, edge
     /// or face) normal direction calculated based on the local
-    /// m_metricinfo times the standard element length (which is
+    /// m_geomFactors times the standard element length (which is
     /// 2.0)
     std::map<int, Array<OneD, NekDouble>> m_elmtBndNormDirElmtLen;
 
@@ -299,6 +307,14 @@ protected:
 
     Array<OneD, NekDouble> GetMFMag(const int dir,
                                     const StdRegions::VarCoeffMap &varcoeffs);
+
+    LOCAL_REGIONS_EXPORT void v_FwdTrans(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
+
+    LOCAL_REGIONS_EXPORT NekDouble
+    v_PhysEvaluate(const Array<OneD, const NekDouble> &coord,
+                   const Array<OneD, const NekDouble> &physvals) override;
 
     void v_MultiplyByQuadratureMetric(
         const Array<OneD, const NekDouble> &inarray,
@@ -386,7 +402,7 @@ protected:
 
     virtual void v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                                         Array<OneD, int> &idmap, const int nq0,
-                                        const int nq1 = -1);
+                                        const int nq1, bool Forwards);
 
     virtual void v_ComputeTraceNormal(const int id);
 
@@ -410,6 +426,27 @@ protected:
 
 private:
 };
+
+/**
+ * @brief Get the geometric factors for this object, generating them if
+ * required.
+ */
+inline SpatialDomains::GeomFactors *Expansion::GetGeomFactors() const
+{
+    return m_geomFactors.get();
+}
+
+/**
+ * @brief Generate the geometric factors (i.e. derivatives of \f$\chi\f$) and
+ * related metrics.
+ *
+ * @see SpatialDomains::GeomFactors
+ */
+inline void Expansion::GenGeomFactors()
+{
+    LibUtilities::PointsKeyVector keyTgt = GetPointsKeys();
+    m_geomFactors                        = m_geom->GenGeomFactors(keyTgt);
+}
 
 inline ExpansionSharedPtr Expansion::GetTraceExp(const int traceid)
 {
@@ -475,6 +512,10 @@ inline void Expansion::SetAdjacentElementExp(int traceid,
         m_elementTraceLeft = traceid;
     }
 }
+
+void GetTraceQuadRange(const LibUtilities::ShapeType shapeType,
+                       const LibUtilities::BasisKeyVector &bkeys, int traceid,
+                       std::vector<int> &q_begin, std::vector<int> &q_end);
 
 } // namespace Nektar::LocalRegions
 

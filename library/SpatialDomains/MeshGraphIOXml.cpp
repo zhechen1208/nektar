@@ -93,6 +93,14 @@ void MeshGraphIOXml::v_PartitionMesh(
     comm->Bcast(isPartitioned, 0);
     comm->Bcast(meshDimension, 0);
 
+    if (m_meshGraph->GetDomainRange() &&
+        m_meshGraph->GetDomainRange()->m_compElmts)
+    {
+        m_meshGraph->GetDomainRange()->m_compElmts = meshDimension;
+    }
+
+    SetupCompositeRange(m_meshGraph->GetDomainRange());
+
     // If the mesh is already partitioned, we are done. Remaining
     // processes must load their partitions.
     if (isPartitioned)
@@ -136,7 +144,7 @@ void MeshGraphIOXml::v_PartitionMesh(
                      "The 'part-only' option should be used in serial.");
 
             // Read 'lite' geometry information
-            ReadGeometry(LibUtilities::NullDomainRangeShPtr, false);
+            ReadGeometry(false);
 
             // Number of partitions is specified by the parameter.
             int nParts;
@@ -198,7 +206,7 @@ void MeshGraphIOXml::v_PartitionMesh(
                 if (isRoot)
                 {
                     // Read 'lite' geometry information
-                    ReadGeometry(LibUtilities::NullDomainRangeShPtr, false);
+                    ReadGeometry(false);
 
                     // Store composite ordering and boundary information.
                     m_compOrder = CreateCompositeOrdering();
@@ -335,7 +343,7 @@ void MeshGraphIOXml::v_PartitionMesh(
             else
             {
                 m_session->InitSession();
-                ReadGeometry(LibUtilities::NullDomainRangeShPtr, false);
+                ReadGeometry(false);
 
                 m_compOrder = CreateCompositeOrdering();
                 m_meshGraph->SetCompositeOrdering(m_compOrder);
@@ -394,13 +402,151 @@ void MeshGraphIOXml::v_PartitionMesh(
     }
 }
 
-void MeshGraphIOXml::v_ReadGeometry(LibUtilities::DomainRangeShPtr rng,
-                                    bool fillGraph)
+void MeshGraphIOXml::SetupCompositeRange(LibUtilities::DomainRangeShPtr &rng)
+{
+    // Get row of comm, or the whole comm if not split
+    LibUtilities::CommSharedPtr comm     = m_session->GetComm();
+    LibUtilities::CommSharedPtr commMesh = comm->GetRowComm();
+    const bool isRoot                    = comm->TreatAsRankZero();
+
+    if (!rng || rng->m_compElmts == 0)
+    {
+        return; // composite rangge not being used.
+    }
+
+    TiXmlElement *field = nullptr;
+
+    if (isRoot)
+    {
+        /// Look for elements in ELEMENT block.
+        if (m_session->DefinesElement("NEKTAR/GEOMETRY/COMPOSITE"))
+        {
+
+            field = m_session->GetElement("NEKTAR/GEOMETRY/COMPOSITE");
+        }
+        else
+        {
+            return; // composite not defined
+        }
+
+        ASSERTL0(field, "Unable to find COMPOSITE tag in file.");
+
+        TiXmlElement *node = field->FirstChildElement("C");
+
+        while (node)
+        {
+            /// All elements are of the form: "<? ID="#"> ... </?>", with
+            /// ? being the element type.
+            int indx;
+            int err = node->QueryIntAttribute("ID", &indx);
+            ASSERTL0(err == TIXML_SUCCESS, "Unable to read attribute ID.");
+            // check to see if we need to add this composite
+            if (rng->m_comps.count(indx))
+            {
+
+                TiXmlNode *compositeChild = node->FirstChild();
+                // This is primarily to skip comments that may be present.
+                // Comments appear as nodes just like elements.
+                // We are specifically looking for text in the body
+                // of the definition.
+                while (compositeChild &&
+                       compositeChild->Type() != TiXmlNode::TINYXML_TEXT)
+                {
+                    compositeChild = compositeChild->NextSibling();
+                }
+
+                ASSERTL0(compositeChild,
+                         "Unable to read composite definition body.");
+                std::string compositeStr = compositeChild->ToText()->ValueStr();
+
+                /// Parse out the element components corresponding to type of
+                /// element.
+                std::istringstream compositeDataStrm(compositeStr.c_str());
+
+                try
+                {
+                    while (!compositeDataStrm.fail())
+                    {
+                        std::string compStr;
+                        compositeDataStrm >> compStr;
+
+                        if (compStr.length() > 0)
+                        {
+                            // extract setquence of values
+                            std::string::size_type indxBeg =
+                                compStr.find_first_of('[') + 1;
+                            std::string::size_type indxEnd =
+                                compStr.find_last_of(']') - 1;
+
+                            ASSERTL0(indxBeg <= indxEnd,
+                                     (std::string(
+                                          "Error reading index definition:") +
+                                      compStr)
+                                         .c_str());
+
+                            std::string indxStr =
+                                compStr.substr(indxBeg, indxEnd - indxBeg + 1);
+                            std::vector<unsigned int> seqVector;
+                            bool err = ParseUtils::GenerateSeqVector(
+                                indxStr.c_str(), seqVector);
+                            ASSERTL0(err, "Error reading composite elements: " +
+                                              indxStr);
+
+                            for (auto it : seqVector) // add ids to Traceid
+                            {
+                                rng->m_traceIDs.insert(it);
+                            }
+                        }
+                    }
+                }
+                catch (...)
+                {
+                    NEKERROR(ErrorUtil::efatal,
+                             (std::string("Unable to read COMPOSITE data in "
+                                          "composite range setup: ") +
+                              compositeStr)
+                                 .c_str());
+                }
+            }
+            /// Keep looking for additional composite definitions.
+            node = node->NextSiblingElement("C");
+        }
+
+        std::vector<unsigned> traceIDs;
+        unsigned nTraceIDs = rng->m_traceIDs.size();
+
+        comm->Bcast(nTraceIDs, 0);
+
+        for (auto &It : rng->m_traceIDs)
+        {
+            traceIDs.push_back(It);
+        }
+
+        // Send across data.
+        if (!traceIDs.empty())
+        {
+            comm->Bcast(traceIDs, 0);
+        }
+    }
+    else // share TraceIDs from root
+    {
+        unsigned nTraceIDs;
+        comm->Bcast(nTraceIDs, 0);
+
+        std::vector<unsigned> traceIDs;
+        traceIDs.resize(nTraceIDs);
+        comm->Bcast(traceIDs, 0);
+        for (auto &It : traceIDs)
+        {
+            rng->m_traceIDs.insert(It);
+        }
+    }
+}
+
+void MeshGraphIOXml::v_ReadGeometry(bool fillGraph)
 {
     // Reset member variables.
     m_meshGraph->Clear();
-
-    m_meshGraph->SetDomainRange(rng);
     m_xmlGeom = m_session->GetElement("NEKTAR/GEOMETRY");
 
     int err; /// Error value returned by TinyXML.
@@ -475,7 +621,6 @@ void MeshGraphIOXml::v_ReadGeometry(LibUtilities::DomainRangeShPtr rng,
 
 void MeshGraphIOXml::v_ReadVertices()
 {
-    auto &vertSet      = m_meshGraph->GetAllPointGeoms();
     int spaceDimension = m_meshGraph->GetSpaceDimension();
 
     // Now read the vertices
@@ -564,6 +709,20 @@ void MeshGraphIOXml::v_ReadVertices()
         zmove               = expEvaluator.Evaluate(expr_id);
     }
 
+    NekDouble zrotate;
+
+    const char *zrot = element->Attribute("ZROT");
+    if (!zrot)
+    {
+        zrotate = 0.0;
+    }
+    else
+    {
+        std::string zrotstr = zrot;
+        int expr_id         = expEvaluator.DefineFunction("", zrotstr);
+        zrotate             = expEvaluator.Evaluate(expr_id);
+    }
+
     TiXmlElement *vertex = element->FirstChildElement("V");
 
     int indx;
@@ -613,15 +772,22 @@ void MeshGraphIOXml::v_ReadVertices()
                 yval = yval * yscale + ymove;
                 zval = zval * zscale + zmove;
 
+                if (zrotate != 0.0)
+                {
+                    NekDouble xval_tmp =
+                        xval * cos(zrotate) - yval * sin(zrotate);
+                    yval = xval * sin(zrotate) + yval * cos(zrotate);
+                    xval = xval_tmp;
+                }
+
                 // Need to check it here because we may not be
                 // good after the read indicating that there
                 // was nothing to read.
                 if (!vertexDataStrm.fail())
                 {
-                    PointGeomSharedPtr vert(
-                        MemoryManager<PointGeom>::AllocateSharedPtr(
-                            spaceDimension, indx, xval, yval, zval));
-                    vertSet[indx] = vert;
+                    m_meshGraph->AddGeom(
+                        indx, ObjPoolManager<PointGeom>::AllocateUniquePtr(
+                                  spaceDimension, indx, xval, yval, zval));
                 }
             }
         }
@@ -638,6 +804,7 @@ void MeshGraphIOXml::v_ReadCurves()
 {
     auto &curvedEdges = m_meshGraph->GetCurvedEdges();
     auto &curvedFaces = m_meshGraph->GetCurvedFaces();
+    auto &curveNodes  = m_meshGraph->GetAllCurveNodes();
     int meshDimension = m_meshGraph->GetMeshDimension();
 
     // check to see if any scaling parameters are in
@@ -725,6 +892,20 @@ void MeshGraphIOXml::v_ReadCurves()
         zmove               = expEvaluator.Evaluate(expr_id);
     }
 
+    NekDouble zrotate;
+
+    const char *zrot = element->Attribute("ZROT");
+    if (!zrot)
+    {
+        zrotate = 0.0;
+    }
+    else
+    {
+        std::string zrotstr = zrot;
+        int expr_id         = expEvaluator.DefineFunction("", zrotstr);
+        zrotate             = expEvaluator.Evaluate(expr_id);
+    }
+
     int err;
 
     /// Look for elements in CURVE block.
@@ -798,8 +979,8 @@ void MeshGraphIOXml::v_ReadCurves()
             err = edgelement->QueryIntAttribute("NUMPOINTS", &numPts);
             ASSERTL0(err == TIXML_SUCCESS,
                      "Unable to read curve attribute NUMPOINTS.");
-            CurveSharedPtr curve(
-                MemoryManager<Curve>::AllocateSharedPtr(edgeid, type));
+
+            auto curve = ObjPoolManager<Curve>::AllocateUniquePtr(edgeid, type);
 
             // Read points (x, y, z)
             NekDouble xval, yval, zval;
@@ -814,16 +995,22 @@ void MeshGraphIOXml::v_ReadCurves()
                     yval = yval * yscale + ymove;
                     zval = zval * zscale + zmove;
 
+                    if (zrotate != 0.0)
+                    {
+                        NekDouble xval_tmp =
+                            xval * cos(zrotate) - yval * sin(zrotate);
+                        yval = xval * sin(zrotate) + yval * cos(zrotate);
+                        xval = xval_tmp;
+                    }
                     // Need to check it here because we may not be
                     // good after the read indicating that there
                     // was nothing to read.
                     if (!elementDataStrm.fail())
                     {
-                        PointGeomSharedPtr vert(
-                            MemoryManager<PointGeom>::AllocateSharedPtr(
+                        curveNodes.emplace_back(
+                            ObjPoolManager<PointGeom>::AllocateUniquePtr(
                                 meshDimension, edgeindx, xval, yval, zval));
-
-                        curve->m_points.push_back(vert);
+                        curve->m_points.emplace_back(curveNodes.back().get());
                     }
                 }
             }
@@ -841,7 +1028,7 @@ void MeshGraphIOXml::v_ReadCurves()
                      "in list (edgeid = " +
                          std::to_string(edgeid));
 
-            curvedEdges[edgeid] = curve;
+            curvedEdges[edgeid] = std::move(curve);
 
             edgelement = edgelement->NextSiblingElement("E");
 
@@ -908,8 +1095,8 @@ void MeshGraphIOXml::v_ReadCurves()
             s << numptsStr;
             s >> numPts;
 
-            CurveSharedPtr curve(
-                MemoryManager<Curve>::AllocateSharedPtr(faceid, type));
+            curvedFaces[faceid] =
+                ObjPoolManager<Curve>::AllocateUniquePtr(faceid, type);
 
             ASSERTL0(numPts >= 3, "NUMPOINTS for face must be greater than 2");
 
@@ -933,10 +1120,11 @@ void MeshGraphIOXml::v_ReadCurves()
                     // to read.
                     if (!elementDataStrm.fail())
                     {
-                        PointGeomSharedPtr vert(
-                            MemoryManager<PointGeom>::AllocateSharedPtr(
+                        curveNodes.emplace_back(
+                            ObjPoolManager<PointGeom>::AllocateUniquePtr(
                                 meshDimension, faceindx, xval, yval, zval));
-                        curve->m_points.push_back(vert);
+                        curvedFaces[faceid]->m_points.emplace_back(
+                            curveNodes.back().get());
                     }
                 }
             }
@@ -947,7 +1135,6 @@ void MeshGraphIOXml::v_ReadCurves()
                           elementStr)
                              .c_str());
             }
-            curvedFaces[faceid] = curve;
 
             facelement = facelement->NextSiblingElement("F");
         }
@@ -1052,7 +1239,6 @@ void MeshGraphIOXml::ReadDomain()
 
 void MeshGraphIOXml::v_ReadEdges()
 {
-    auto &segGeoms     = m_meshGraph->GetAllSegGeoms();
     auto &curvedEdges  = m_meshGraph->GetCurvedEdges();
     int spaceDimension = m_meshGraph->GetSpaceDimension();
 
@@ -1106,22 +1292,23 @@ void MeshGraphIOXml::v_ReadEdges()
                 // check here.
                 if (!edgeDataStrm.fail())
                 {
-                    PointGeomSharedPtr vertices[2] = {
-                        m_meshGraph->GetVertex(vertex1),
-                        m_meshGraph->GetVertex(vertex2)};
+                    std::array<PointGeom *, 2> vertices = {
+                        m_meshGraph->GetPointGeom(vertex1),
+                        m_meshGraph->GetPointGeom(vertex2)};
                     it = curvedEdges.find(indx);
 
                     if (it == curvedEdges.end())
                     {
-                        segGeoms[indx] =
-                            MemoryManager<SegGeom>::AllocateSharedPtr(
-                                indx, spaceDimension, vertices);
+                        m_meshGraph->AddGeom(
+                            indx, ObjPoolManager<SegGeom>::AllocateUniquePtr(
+                                      indx, spaceDimension, vertices));
                     }
                     else
                     {
-                        segGeoms[indx] =
-                            MemoryManager<SegGeom>::AllocateSharedPtr(
-                                indx, spaceDimension, vertices, it->second);
+                        m_meshGraph->AddGeom(
+                            indx, ObjPoolManager<SegGeom>::AllocateUniquePtr(
+                                      indx, spaceDimension, vertices,
+                                      it->second.get()));
                     }
                 }
             }
@@ -1140,8 +1327,6 @@ void MeshGraphIOXml::v_ReadEdges()
 void MeshGraphIOXml::v_ReadFaces()
 {
     auto &curvedFaces = m_meshGraph->GetCurvedFaces();
-    auto &triGeoms    = m_meshGraph->GetAllTriGeoms();
-    auto &quadGeoms   = m_meshGraph->GetAllQuadGeoms();
 
     /// Look for elements in FACE block.
     TiXmlElement *field = m_xmlGeom->FirstChildElement("FACE");
@@ -1205,22 +1390,23 @@ void MeshGraphIOXml::v_ReadFaces()
                         .c_str());
 
                 /// Create a TriGeom to hold the new definition.
-                SegGeomSharedPtr edges[TriGeom::kNedges] = {
+                std::array<SegGeom *, TriGeom::kNedges> edges = {
                     m_meshGraph->GetSegGeom(edge1),
                     m_meshGraph->GetSegGeom(edge2),
                     m_meshGraph->GetSegGeom(edge3)};
 
                 if (it == curvedFaces.end())
                 {
-                    triGeoms[indx] =
-                        MemoryManager<TriGeom>::AllocateSharedPtr(indx, edges);
+                    m_meshGraph->AddGeom(
+                        indx, ObjPoolManager<TriGeom>::AllocateUniquePtr(
+                                  indx, edges));
                 }
                 else
                 {
-                    triGeoms[indx] = MemoryManager<TriGeom>::AllocateSharedPtr(
-                        indx, edges, it->second);
+                    m_meshGraph->AddGeom(
+                        indx, ObjPoolManager<TriGeom>::AllocateUniquePtr(
+                                  indx, edges, it->second.get()));
                 }
-                triGeoms[indx]->SetGlobalID(indx);
             }
             catch (...)
             {
@@ -1250,26 +1436,24 @@ void MeshGraphIOXml::v_ReadFaces()
                              .c_str());
 
                 /// Create a QuadGeom to hold the new definition.
-                SegGeomSharedPtr edges[QuadGeom::kNedges] = {
+                std::array<SegGeom *, QuadGeom::kNedges> edges = {
                     m_meshGraph->GetSegGeom(edge1),
                     m_meshGraph->GetSegGeom(edge2),
                     m_meshGraph->GetSegGeom(edge3),
                     m_meshGraph->GetSegGeom(edge4)};
 
-                QuadGeomSharedPtr quadgeom;
-
                 if (it == curvedFaces.end())
                 {
-                    quadGeoms[indx] =
-                        MemoryManager<QuadGeom>::AllocateSharedPtr(indx, edges);
+                    m_meshGraph->AddGeom(
+                        indx, ObjPoolManager<QuadGeom>::AllocateUniquePtr(
+                                  indx, edges));
                 }
                 else
                 {
-                    quadGeoms[indx] =
-                        MemoryManager<QuadGeom>::AllocateSharedPtr(indx, edges,
-                                                                   it->second);
+                    m_meshGraph->AddGeom(
+                        indx, ObjPoolManager<QuadGeom>::AllocateUniquePtr(
+                                  indx, edges, it->second.get()));
                 }
-                quadGeoms[indx]->SetGlobalID(indx);
             }
             catch (...)
             {
@@ -1305,7 +1489,6 @@ void MeshGraphIOXml::ReadElements()
 void MeshGraphIOXml::v_ReadElements1D()
 {
     auto &curvedEdges  = m_meshGraph->GetCurvedEdges();
-    auto &segGeoms     = m_meshGraph->GetAllSegGeoms();
     int spaceDimension = m_meshGraph->GetSpaceDimension();
 
     TiXmlElement *field = nullptr;
@@ -1352,21 +1535,25 @@ void MeshGraphIOXml::v_ReadElements1D()
                       elementStr)
                          .c_str());
 
-            PointGeomSharedPtr vertices[2] = {m_meshGraph->GetVertex(vertex1),
-                                              m_meshGraph->GetVertex(vertex2)};
-            it                             = curvedEdges.find(indx);
+            std::array<PointGeom *, 2> vertices = {
+                m_meshGraph->GetPointGeom(vertex1),
+                m_meshGraph->GetPointGeom(vertex2)};
+
+            it = curvedEdges.find(indx);
 
             if (it == curvedEdges.end())
             {
-                segGeoms[indx] = MemoryManager<SegGeom>::AllocateSharedPtr(
-                    indx, spaceDimension, vertices);
+                m_meshGraph->AddGeom(indx,
+                                     ObjPoolManager<SegGeom>::AllocateUniquePtr(
+                                         indx, spaceDimension, vertices));
             }
             else
             {
-                segGeoms[indx] = MemoryManager<SegGeom>::AllocateSharedPtr(
-                    indx, spaceDimension, vertices, it->second);
+                m_meshGraph->AddGeom(
+                    indx,
+                    ObjPoolManager<SegGeom>::AllocateUniquePtr(
+                        indx, spaceDimension, vertices, it->second.get()));
             }
-            segGeoms[indx]->SetGlobalID(indx);
         }
         catch (...)
         {
@@ -1383,8 +1570,6 @@ void MeshGraphIOXml::v_ReadElements1D()
 void MeshGraphIOXml::v_ReadElements2D()
 {
     auto &curvedFaces = m_meshGraph->GetCurvedFaces();
-    auto &triGeoms    = m_meshGraph->GetAllTriGeoms();
-    auto &quadGeoms   = m_meshGraph->GetAllQuadGeoms();
 
     /// Look for elements in ELEMENT block.
     TiXmlElement *field = m_xmlGeom->FirstChildElement("ELEMENT");
@@ -1450,22 +1635,23 @@ void MeshGraphIOXml::v_ReadElements2D()
                         .c_str());
 
                 /// Create a TriGeom to hold the new definition.
-                SegGeomSharedPtr edges[TriGeom::kNedges] = {
+                std::array<SegGeom *, TriGeom::kNedges> edges = {
                     m_meshGraph->GetSegGeom(edge1),
                     m_meshGraph->GetSegGeom(edge2),
                     m_meshGraph->GetSegGeom(edge3)};
 
                 if (it == curvedFaces.end())
                 {
-                    triGeoms[indx] =
-                        MemoryManager<TriGeom>::AllocateSharedPtr(indx, edges);
+                    m_meshGraph->AddGeom(
+                        indx, ObjPoolManager<TriGeom>::AllocateUniquePtr(
+                                  indx, edges));
                 }
                 else
                 {
-                    triGeoms[indx] = MemoryManager<TriGeom>::AllocateSharedPtr(
-                        indx, edges, it->second);
+                    m_meshGraph->AddGeom(
+                        indx, ObjPoolManager<TriGeom>::AllocateUniquePtr(
+                                  indx, edges, it->second.get()));
                 }
-                triGeoms[indx]->SetGlobalID(indx);
             }
             catch (...)
             {
@@ -1496,25 +1682,24 @@ void MeshGraphIOXml::v_ReadElements2D()
                         .c_str());
 
                 /// Create a QuadGeom to hold the new definition.
-                SegGeomSharedPtr edges[QuadGeom::kNedges] = {
+                std::array<SegGeom *, QuadGeom::kNedges> edges = {
                     m_meshGraph->GetSegGeom(edge1),
                     m_meshGraph->GetSegGeom(edge2),
                     m_meshGraph->GetSegGeom(edge3),
                     m_meshGraph->GetSegGeom(edge4)};
 
-                QuadGeomSharedPtr quadgeom;
                 if (it == curvedFaces.end())
                 {
-                    quadGeoms[indx] =
-                        MemoryManager<QuadGeom>::AllocateSharedPtr(indx, edges);
+                    m_meshGraph->AddGeom(
+                        indx, ObjPoolManager<QuadGeom>::AllocateUniquePtr(
+                                  indx, edges));
                 }
                 else
                 {
-                    quadGeoms[indx] =
-                        MemoryManager<QuadGeom>::AllocateSharedPtr(indx, edges,
-                                                                   it->second);
+                    m_meshGraph->AddGeom(
+                        indx, ObjPoolManager<QuadGeom>::AllocateUniquePtr(
+                                  indx, edges, it->second.get()));
                 }
-                quadGeoms[indx]->SetGlobalID(indx);
             }
             catch (...)
             {
@@ -1532,11 +1717,6 @@ void MeshGraphIOXml::v_ReadElements2D()
 
 void MeshGraphIOXml::v_ReadElements3D()
 {
-    auto &tetGeoms   = m_meshGraph->GetAllTetGeoms();
-    auto &pyrGeoms   = m_meshGraph->GetAllPyrGeoms();
-    auto &prismGeoms = m_meshGraph->GetAllPrismGeoms();
-    auto &hexGeoms   = m_meshGraph->GetAllHexGeoms();
-
     /// Look for elements in ELEMENT block.
     TiXmlElement *field = m_xmlGeom->FirstChildElement("ELEMENT");
 
@@ -1588,10 +1768,10 @@ void MeshGraphIOXml::v_ReadElements3D()
             try
             {
                 /// Create arrays for the tri and quad faces.
-                const int kNfaces  = TetGeom::kNfaces;
-                const int kNtfaces = TetGeom::kNtfaces;
-                const int kNqfaces = TetGeom::kNqfaces;
-                TriGeomSharedPtr tfaces[kNtfaces];
+                constexpr int kNfaces  = TetGeom::kNfaces;
+                constexpr int kNtfaces = TetGeom::kNtfaces;
+                constexpr int kNqfaces = TetGeom::kNqfaces;
+                std::array<TriGeom *, kNtfaces> tfaces;
                 int Ntfaces = 0;
                 int Nqfaces = 0;
 
@@ -1605,9 +1785,8 @@ void MeshGraphIOXml::v_ReadElements3D()
                 {
                     int faceID;
                     elementDataStrm >> faceID;
-                    Geometry2DSharedPtr face =
-                        m_meshGraph->GetGeometry2D(faceID);
-                    if (face == Geometry2DSharedPtr() ||
+                    Geometry2D *face = m_meshGraph->GetGeometry2D(faceID);
+                    if (face == nullptr ||
                         (face->GetShapeType() != LibUtilities::eTriangle &&
                          face->GetShapeType() != LibUtilities::eQuadrilateral))
                     {
@@ -1619,8 +1798,7 @@ void MeshGraphIOXml::v_ReadElements3D()
                     else if (face->GetShapeType() == LibUtilities::eTriangle)
                     {
                         ASSERTL0(Ntfaces < kNtfaces, errorstring.str().c_str());
-                        tfaces[Ntfaces++] =
-                            std::static_pointer_cast<TriGeom>(face);
+                        tfaces[Ntfaces++] = static_cast<TriGeom *>(face);
                     }
                     else if (face->GetShapeType() ==
                              LibUtilities::eQuadrilateral)
@@ -1639,11 +1817,10 @@ void MeshGraphIOXml::v_ReadElements3D()
                 ASSERTL0(Ntfaces == kNtfaces, errorstring.str().c_str());
                 ASSERTL0(Nqfaces == kNqfaces, errorstring.str().c_str());
 
-                TetGeomSharedPtr tetgeom(
-                    MemoryManager<TetGeom>::AllocateSharedPtr(indx, tfaces));
-
-                tetGeoms[indx] = tetgeom;
-                m_meshGraph->PopulateFaceToElMap(tetgeom, kNfaces);
+                auto tetGeom =
+                    ObjPoolManager<TetGeom>::AllocateUniquePtr(indx, tfaces);
+                m_meshGraph->PopulateFaceToElMap(tetGeom.get(), kNfaces);
+                m_meshGraph->AddGeom(indx, std::move(tetGeom));
             }
             catch (...)
             {
@@ -1660,10 +1837,10 @@ void MeshGraphIOXml::v_ReadElements3D()
             try
             {
                 /// Create arrays for the tri and quad faces.
-                const int kNfaces  = PyrGeom::kNfaces;
-                const int kNtfaces = PyrGeom::kNtfaces;
-                const int kNqfaces = PyrGeom::kNqfaces;
-                Geometry2DSharedPtr faces[kNfaces];
+                constexpr int kNfaces  = PyrGeom::kNfaces;
+                constexpr int kNtfaces = PyrGeom::kNtfaces;
+                constexpr int kNqfaces = PyrGeom::kNqfaces;
+                std::array<Geometry2D *, kNfaces> faces;
                 int Nfaces  = 0;
                 int Ntfaces = 0;
                 int Nqfaces = 0;
@@ -1678,9 +1855,8 @@ void MeshGraphIOXml::v_ReadElements3D()
                 {
                     int faceID;
                     elementDataStrm >> faceID;
-                    Geometry2DSharedPtr face =
-                        m_meshGraph->GetGeometry2D(faceID);
-                    if (face == Geometry2DSharedPtr() ||
+                    Geometry2D *face = m_meshGraph->GetGeometry2D(faceID);
+                    if (face == nullptr ||
                         (face->GetShapeType() != LibUtilities::eTriangle &&
                          face->GetShapeType() != LibUtilities::eQuadrilateral))
                     {
@@ -1692,16 +1868,14 @@ void MeshGraphIOXml::v_ReadElements3D()
                     else if (face->GetShapeType() == LibUtilities::eTriangle)
                     {
                         ASSERTL0(Ntfaces < kNtfaces, errorstring.str().c_str());
-                        faces[Nfaces++] =
-                            std::static_pointer_cast<TriGeom>(face);
+                        faces[Nfaces++] = static_cast<TriGeom *>(face);
                         Ntfaces++;
                     }
                     else if (face->GetShapeType() ==
                              LibUtilities::eQuadrilateral)
                     {
                         ASSERTL0(Nqfaces < kNqfaces, errorstring.str().c_str());
-                        faces[Nfaces++] =
-                            std::static_pointer_cast<QuadGeom>(face);
+                        faces[Nfaces++] = static_cast<QuadGeom *>(face);
                         Nqfaces++;
                     }
                 }
@@ -1716,11 +1890,10 @@ void MeshGraphIOXml::v_ReadElements3D()
                 ASSERTL0(Ntfaces == kNtfaces, errorstring.str().c_str());
                 ASSERTL0(Nqfaces == kNqfaces, errorstring.str().c_str());
 
-                PyrGeomSharedPtr pyrgeom(
-                    MemoryManager<PyrGeom>::AllocateSharedPtr(indx, faces));
-
-                pyrGeoms[indx] = pyrgeom;
-                m_meshGraph->PopulateFaceToElMap(pyrgeom, kNfaces);
+                auto pyrGeom =
+                    ObjPoolManager<PyrGeom>::AllocateUniquePtr(indx, faces);
+                m_meshGraph->PopulateFaceToElMap(pyrGeom.get(), kNfaces);
+                m_meshGraph->AddGeom(indx, std::move(pyrGeom));
             }
             catch (...)
             {
@@ -1737,10 +1910,10 @@ void MeshGraphIOXml::v_ReadElements3D()
             try
             {
                 /// Create arrays for the tri and quad faces.
-                const int kNfaces  = PrismGeom::kNfaces;
-                const int kNtfaces = PrismGeom::kNtfaces;
-                const int kNqfaces = PrismGeom::kNqfaces;
-                Geometry2DSharedPtr faces[kNfaces];
+                constexpr int kNfaces  = PrismGeom::kNfaces;
+                constexpr int kNtfaces = PrismGeom::kNtfaces;
+                constexpr int kNqfaces = PrismGeom::kNqfaces;
+                std::array<Geometry2D *, kNfaces> faces;
                 int Ntfaces = 0;
                 int Nqfaces = 0;
                 int Nfaces  = 0;
@@ -1756,9 +1929,8 @@ void MeshGraphIOXml::v_ReadElements3D()
                 {
                     int faceID;
                     elementDataStrm >> faceID;
-                    Geometry2DSharedPtr face =
-                        m_meshGraph->GetGeometry2D(faceID);
-                    if (face == Geometry2DSharedPtr() ||
+                    Geometry2D *face = m_meshGraph->GetGeometry2D(faceID);
+                    if (face == nullptr ||
                         (face->GetShapeType() != LibUtilities::eTriangle &&
                          face->GetShapeType() != LibUtilities::eQuadrilateral))
                     {
@@ -1770,16 +1942,14 @@ void MeshGraphIOXml::v_ReadElements3D()
                     else if (face->GetShapeType() == LibUtilities::eTriangle)
                     {
                         ASSERTL0(Ntfaces < kNtfaces, errorstring.str().c_str());
-                        faces[Nfaces++] =
-                            std::static_pointer_cast<TriGeom>(face);
+                        faces[Nfaces++] = static_cast<TriGeom *>(face);
                         Ntfaces++;
                     }
                     else if (face->GetShapeType() ==
                              LibUtilities::eQuadrilateral)
                     {
                         ASSERTL0(Nqfaces < kNqfaces, errorstring.str().c_str());
-                        faces[Nfaces++] =
-                            std::static_pointer_cast<QuadGeom>(face);
+                        faces[Nfaces++] = static_cast<QuadGeom *>(face);
                         Nqfaces++;
                     }
                 }
@@ -1794,11 +1964,10 @@ void MeshGraphIOXml::v_ReadElements3D()
                 ASSERTL0(Ntfaces == kNtfaces, errorstring.str().c_str());
                 ASSERTL0(Nqfaces == kNqfaces, errorstring.str().c_str());
 
-                PrismGeomSharedPtr prismgeom(
-                    MemoryManager<PrismGeom>::AllocateSharedPtr(indx, faces));
-
-                prismGeoms[indx] = prismgeom;
-                m_meshGraph->PopulateFaceToElMap(prismgeom, kNfaces);
+                auto prismGeom =
+                    ObjPoolManager<PrismGeom>::AllocateUniquePtr(indx, faces);
+                m_meshGraph->PopulateFaceToElMap(prismGeom.get(), kNfaces);
+                m_meshGraph->AddGeom(indx, std::move(prismGeom));
             }
             catch (...)
             {
@@ -1815,11 +1984,11 @@ void MeshGraphIOXml::v_ReadElements3D()
             try
             {
                 /// Create arrays for the tri and quad faces.
-                const int kNfaces  = HexGeom::kNfaces;
-                const int kNtfaces = HexGeom::kNtfaces;
-                const int kNqfaces = HexGeom::kNqfaces;
-                // TriGeomSharedPtr tfaces[kNtfaces];
-                QuadGeomSharedPtr qfaces[kNqfaces];
+                constexpr int kNfaces  = HexGeom::kNfaces;
+                constexpr int kNtfaces = HexGeom::kNtfaces;
+                constexpr int kNqfaces = HexGeom::kNqfaces;
+                // TriGeomUniquePtr tfaces[kNtfaces];
+                std::array<QuadGeom *, kNqfaces> qfaces;
                 int Ntfaces = 0;
                 int Nqfaces = 0;
 
@@ -1833,9 +2002,8 @@ void MeshGraphIOXml::v_ReadElements3D()
                 {
                     int faceID;
                     elementDataStrm >> faceID;
-                    Geometry2DSharedPtr face =
-                        m_meshGraph->GetGeometry2D(faceID);
-                    if (face == Geometry2DSharedPtr() ||
+                    Geometry2D *face = m_meshGraph->GetGeometry2D(faceID);
+                    if (face == nullptr ||
                         (face->GetShapeType() != LibUtilities::eTriangle &&
                          face->GetShapeType() != LibUtilities::eQuadrilateral))
                     {
@@ -1852,8 +2020,7 @@ void MeshGraphIOXml::v_ReadElements3D()
                              LibUtilities::eQuadrilateral)
                     {
                         ASSERTL0(Nqfaces < kNqfaces, errorstring.str().c_str());
-                        qfaces[Nqfaces++] =
-                            std::static_pointer_cast<QuadGeom>(face);
+                        qfaces[Nqfaces++] = static_cast<QuadGeom *>(face);
                     }
                 }
 
@@ -1867,11 +2034,10 @@ void MeshGraphIOXml::v_ReadElements3D()
                 ASSERTL0(Ntfaces == kNtfaces, errorstring.str().c_str());
                 ASSERTL0(Nqfaces == kNqfaces, errorstring.str().c_str());
 
-                HexGeomSharedPtr hexgeom(
-                    MemoryManager<HexGeom>::AllocateSharedPtr(indx, qfaces));
-
-                hexGeoms[indx] = hexgeom;
-                m_meshGraph->PopulateFaceToElMap(hexgeom, kNfaces);
+                auto hexGeom =
+                    ObjPoolManager<HexGeom>::AllocateUniquePtr(indx, qfaces);
+                m_meshGraph->PopulateFaceToElMap(hexGeom.get(), kNfaces);
+                m_meshGraph->AddGeom(indx, std::move(hexGeom));
             }
             catch (...)
             {
@@ -2013,9 +2179,6 @@ void MeshGraphIOXml::ResolveGeomRef1D(const std::string &prevToken,
                                       const std::string &token,
                                       CompositeSharedPtr &composite)
 {
-    auto &vertSet  = m_meshGraph->GetAllPointGeoms();
-    auto &segGeoms = m_meshGraph->GetAllSegGeoms();
-
     try
     {
         std::istringstream tokenStream(token);
@@ -2063,16 +2226,8 @@ void MeshGraphIOXml::ResolveGeomRef1D(const std::string &prevToken,
                 for (SeqVectorType::iterator iter = seqVector.begin();
                      iter != seqVector.end(); ++iter)
                 {
-                    if (vertSet.find(*iter) == vertSet.end())
-                    {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown vertex index: " +
-                                     std::to_string(*iter));
-                    }
-                    else
-                    {
-                        composite->m_geomVec.push_back(vertSet[*iter]);
-                    }
+                    composite->m_geomVec.push_back(
+                        m_meshGraph->GetPointGeom(*iter));
                 }
                 break;
 
@@ -2080,16 +2235,8 @@ void MeshGraphIOXml::ResolveGeomRef1D(const std::string &prevToken,
                 for (SeqVectorType::iterator iter = seqVector.begin();
                      iter != seqVector.end(); ++iter)
                 {
-                    if (segGeoms.find(*iter) == segGeoms.end())
-                    {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown segment index: " +
-                                     std::to_string(*iter));
-                    }
-                    else
-                    {
-                        composite->m_geomVec.push_back(segGeoms[*iter]);
-                    }
+                    composite->m_geomVec.push_back(
+                        m_meshGraph->GetSegGeom(*iter));
                 }
                 break;
 
@@ -2111,11 +2258,6 @@ void MeshGraphIOXml::ResolveGeomRef2D(const std::string &prevToken,
                                       const std::string &token,
                                       CompositeSharedPtr &composite)
 {
-    PointGeomMap &vertSet  = m_meshGraph->GetAllPointGeoms();
-    SegGeomMap &segGeoms   = m_meshGraph->GetAllSegGeoms();
-    TriGeomMap &triGeoms   = m_meshGraph->GetAllTriGeoms();
-    QuadGeomMap &quadGeoms = m_meshGraph->GetAllQuadGeoms();
-
     try
     {
         std::istringstream tokenStream(token);
@@ -2160,83 +2302,54 @@ void MeshGraphIOXml::ResolveGeomRef2D(const std::string &prevToken,
         switch (type)
         {
             case 'E': // Edge
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (segGeoms.find(*seqIter) == segGeoms.end())
-                    {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown edge index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        composite->m_geomVec.push_back(segGeoms[*seqIter]);
-                    }
+                    composite->m_geomVec.push_back(
+                        m_meshGraph->GetSegGeom(*seqIter));
                 }
                 break;
+            }
 
             case 'T': // Triangle
             {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (triGeoms.count(*seqIter) == 0)
+                    auto tri = m_meshGraph->GetTriGeom(*seqIter);
+                    if (m_meshGraph->CheckRange(*tri))
                     {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown triangle index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        if (m_meshGraph->CheckRange(*triGeoms[*seqIter]))
-                        {
-                            composite->m_geomVec.push_back(triGeoms[*seqIter]);
-                        }
+                        composite->m_geomVec.push_back(tri);
                     }
                 }
+                break;
             }
-            break;
 
             case 'Q': // Quad
             {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (quadGeoms.count(*seqIter) == 0)
+                    auto quad = m_meshGraph->GetQuadGeom(*seqIter);
+                    if (m_meshGraph->CheckRange(*quad))
                     {
-                        NEKERROR(
-                            ErrorUtil::ewarning,
-                            "Unknown quad index: " + std::to_string(*seqIter) +
-                                " in Composite section");
-                    }
-                    else
-                    {
-                        if (m_meshGraph->CheckRange(*quadGeoms[*seqIter]))
-                        {
-                            composite->m_geomVec.push_back(quadGeoms[*seqIter]);
-                        }
-                    }
-                }
-            }
-            break;
-
-            case 'V': // Vertex
-                for (seqIter = seqVector.begin(); seqIter != seqVector.end();
-                     ++seqIter)
-                {
-                    if (*seqIter >= vertSet.size())
-                    {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown vertex index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        composite->m_geomVec.push_back(vertSet[*seqIter]);
+                        composite->m_geomVec.push_back(quad);
                     }
                 }
                 break;
+            }
+
+            case 'V': // Vertex
+            {
+                for (seqIter = seqVector.begin(); seqIter != seqVector.end();
+                     ++seqIter)
+                {
+                    composite->m_geomVec.push_back(
+                        m_meshGraph->GetPointGeom(*seqIter));
+                }
+                break;
+            }
 
             default:
                 NEKERROR(ErrorUtil::efatal,
@@ -2256,15 +2369,6 @@ void MeshGraphIOXml::ResolveGeomRef3D(const std::string &prevToken,
                                       const std::string &token,
                                       CompositeSharedPtr &composite)
 {
-    PointGeomMap &vertSet    = m_meshGraph->GetAllPointGeoms();
-    SegGeomMap &segGeoms     = m_meshGraph->GetAllSegGeoms();
-    TriGeomMap &triGeoms     = m_meshGraph->GetAllTriGeoms();
-    QuadGeomMap &quadGeoms   = m_meshGraph->GetAllQuadGeoms();
-    TetGeomMap &tetGeoms     = m_meshGraph->GetAllTetGeoms();
-    PyrGeomMap &pyrGeoms     = m_meshGraph->GetAllPyrGeoms();
-    PrismGeomMap &prismGeoms = m_meshGraph->GetAllPrismGeoms();
-    HexGeomMap &hexGeoms     = m_meshGraph->GetAllHexGeoms();
-
     try
     {
         std::istringstream tokenStream(token);
@@ -2315,46 +2419,34 @@ void MeshGraphIOXml::ResolveGeomRef3D(const std::string &prevToken,
         switch (type)
         {
             case 'V': // Vertex
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (vertSet.find(*seqIter) == vertSet.end())
-                    {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown vertex index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        composite->m_geomVec.push_back(vertSet[*seqIter]);
-                    }
+                    composite->m_geomVec.push_back(
+                        m_meshGraph->GetPointGeom(*seqIter));
                 }
                 break;
+            }
 
             case 'E': // Edge
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (segGeoms.find(*seqIter) == segGeoms.end())
-                    {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown edge index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        composite->m_geomVec.push_back(segGeoms[*seqIter]);
-                    }
+                    composite->m_geomVec.push_back(
+                        m_meshGraph->GetSegGeom(*seqIter));
                 }
                 break;
+            }
 
             case 'F': // Face
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    Geometry2DSharedPtr face =
-                        m_meshGraph->GetGeometry2D(*seqIter);
-                    if (face == Geometry2DSharedPtr())
+                    Geometry2D *face = m_meshGraph->GetGeometry2D(*seqIter);
+                    if (face == nullptr)
                     {
                         NEKERROR(ErrorUtil::ewarning,
                                  "Unknown face index: " +
@@ -2369,131 +2461,101 @@ void MeshGraphIOXml::ResolveGeomRef3D(const std::string &prevToken,
                     }
                 }
                 break;
+            }
 
             case 'T': // Triangle
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (triGeoms.find(*seqIter) == triGeoms.end())
+                    auto geom = m_meshGraph->GetTriGeom(*seqIter);
+
+                    if (m_meshGraph->CheckRange(*geom))
                     {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown triangle index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        if (m_meshGraph->CheckRange(*triGeoms[*seqIter]))
-                        {
-                            composite->m_geomVec.push_back(triGeoms[*seqIter]);
-                        }
+                        composite->m_geomVec.push_back(geom);
                     }
                 }
                 break;
+            }
 
             case 'Q': // Quad
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (quadGeoms.find(*seqIter) == quadGeoms.end())
+                    auto geom = m_meshGraph->GetQuadGeom(*seqIter);
+
+                    if (m_meshGraph->CheckRange(*geom))
                     {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown quad index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        if (m_meshGraph->CheckRange(*quadGeoms[*seqIter]))
-                        {
-                            composite->m_geomVec.push_back(quadGeoms[*seqIter]);
-                        }
+                        composite->m_geomVec.push_back(geom);
                     }
                 }
                 break;
+            }
 
             // Tetrahedron
             case 'A':
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (tetGeoms.find(*seqIter) == tetGeoms.end())
+                    auto geom = m_meshGraph->GetTetGeom(*seqIter);
+
+                    if (m_meshGraph->CheckRange(*geom))
                     {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown tet index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        if (m_meshGraph->CheckRange(*tetGeoms[*seqIter]))
-                        {
-                            composite->m_geomVec.push_back(tetGeoms[*seqIter]);
-                        }
+                        composite->m_geomVec.push_back(geom);
                     }
                 }
                 break;
+            }
 
             // Pyramid
             case 'P':
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (pyrGeoms.find(*seqIter) == pyrGeoms.end())
+                    auto geom = m_meshGraph->GetPyrGeom(*seqIter);
+
+                    if (m_meshGraph->CheckRange(*geom))
                     {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown pyramid index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        if (m_meshGraph->CheckRange(*pyrGeoms[*seqIter]))
-                        {
-                            composite->m_geomVec.push_back(pyrGeoms[*seqIter]);
-                        }
+                        composite->m_geomVec.push_back(geom);
                     }
                 }
                 break;
+            }
 
             // Prism
             case 'R':
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (prismGeoms.find(*seqIter) == prismGeoms.end())
+                    auto geom = m_meshGraph->GetPrismGeom(*seqIter);
+
+                    if (m_meshGraph->CheckRange(*geom))
                     {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown prism index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        if (m_meshGraph->CheckRange(*prismGeoms[*seqIter]))
-                        {
-                            composite->m_geomVec.push_back(
-                                prismGeoms[*seqIter]);
-                        }
+                        composite->m_geomVec.push_back(geom);
                     }
                 }
                 break;
+            }
 
             // Hex
             case 'H':
+            {
                 for (seqIter = seqVector.begin(); seqIter != seqVector.end();
                      ++seqIter)
                 {
-                    if (hexGeoms.find(*seqIter) == hexGeoms.end())
+                    auto geom = m_meshGraph->GetHexGeom(*seqIter);
+
+                    if (m_meshGraph->CheckRange(*geom))
                     {
-                        NEKERROR(ErrorUtil::ewarning,
-                                 "Unknown hex index: " +
-                                     std::to_string(*seqIter));
-                    }
-                    else
-                    {
-                        if (m_meshGraph->CheckRange(*hexGeoms[*seqIter]))
-                        {
-                            composite->m_geomVec.push_back(hexGeoms[*seqIter]);
-                        }
+                        composite->m_geomVec.push_back(geom);
                     }
                 }
                 break;
+            }
 
             default:
                 NEKERROR(ErrorUtil::efatal,
@@ -2509,25 +2571,53 @@ void MeshGraphIOXml::ResolveGeomRef3D(const std::string &prevToken,
     return;
 }
 
-void MeshGraphIOXml::v_WriteVertices(TiXmlElement *geomTag, PointGeomMap &verts)
+void WriteVert(PointGeom *vert, TiXmlElement *vertTag)
+{
+    std::stringstream s;
+    s << std::scientific << std::setprecision(8) << (*vert)(0) << " "
+      << (*vert)(1) << " " << (*vert)(2);
+    TiXmlElement *v = new TiXmlElement("V");
+    v->SetAttribute("ID", vert->GetGlobalID());
+    v->LinkEndChild(new TiXmlText(s.str()));
+    vertTag->LinkEndChild(v);
+}
+
+void MeshGraphIOXml::v_WriteVertices(TiXmlElement *geomTag,
+                                     std::vector<int> keysToWrite)
 {
     TiXmlElement *vertTag = new TiXmlElement("VERTEX");
 
-    for (auto &i : verts)
+    if (keysToWrite.empty())
     {
-        std::stringstream s;
-        s << std::scientific << std::setprecision(8) << (*i.second)(0) << " "
-          << (*i.second)(1) << " " << (*i.second)(2);
-        TiXmlElement *v = new TiXmlElement("V");
-        v->SetAttribute("ID", i.second->GetGlobalID());
-        v->LinkEndChild(new TiXmlText(s.str()));
-        vertTag->LinkEndChild(v);
+        for (auto [id, vert] : m_meshGraph->GetGeomMap<PointGeom>())
+        {
+            WriteVert(vert, vertTag);
+        }
+    }
+    else
+    {
+        for (int id : keysToWrite)
+        {
+            WriteVert(m_meshGraph->GetPointGeom(id), vertTag);
+        }
     }
 
     geomTag->LinkEndChild(vertTag);
 }
 
-void MeshGraphIOXml::v_WriteEdges(TiXmlElement *geomTag, SegGeomMap &edges)
+void WriteEdge(SegGeom *seg, TiXmlElement *edgeTag, std::string &tag,
+               int edgeID)
+{
+    std::stringstream s;
+    s << seg->GetVid(0) << " " << seg->GetVid(1);
+    TiXmlElement *e = new TiXmlElement(tag);
+    e->SetAttribute("ID", edgeID);
+    e->LinkEndChild(new TiXmlText(s.str()));
+    edgeTag->LinkEndChild(e);
+}
+
+void MeshGraphIOXml::v_WriteEdges(TiXmlElement *geomTag,
+                                  std::vector<int> keysToWrite)
 {
     int meshDimension = m_meshGraph->GetMeshDimension();
 
@@ -2535,172 +2625,290 @@ void MeshGraphIOXml::v_WriteEdges(TiXmlElement *geomTag, SegGeomMap &edges)
         new TiXmlElement(meshDimension == 1 ? "ELEMENT" : "EDGE");
     std::string tag = meshDimension == 1 ? "S" : "E";
 
-    for (auto &i : edges)
+    if (keysToWrite.empty())
     {
-        std::stringstream s;
-        SegGeomSharedPtr seg = i.second;
-        s << seg->GetVid(0) << " " << seg->GetVid(1);
-        TiXmlElement *e = new TiXmlElement(tag);
-        e->SetAttribute("ID", i.first);
-        e->LinkEndChild(new TiXmlText(s.str()));
-        edgeTag->LinkEndChild(e);
+        for (auto [id, seg] : m_meshGraph->GetGeomMap<SegGeom>())
+        {
+            WriteEdge(seg, edgeTag, tag, id);
+        }
+    }
+    else
+    {
+        for (int id : keysToWrite)
+        {
+            WriteEdge(m_meshGraph->GetSegGeom(id), edgeTag, tag, id);
+        }
     }
 
     geomTag->LinkEndChild(edgeTag);
 }
 
-void MeshGraphIOXml::v_WriteTris(TiXmlElement *faceTag, TriGeomMap &tris)
+void WriteTri(TriGeom *tri, TiXmlElement *faceTag, std::string &tag, int triID)
+{
+    std::stringstream s;
+    s << tri->GetEid(0) << " " << tri->GetEid(1) << " " << tri->GetEid(2);
+    TiXmlElement *t = new TiXmlElement(tag);
+    t->SetAttribute("ID", triID);
+    t->LinkEndChild(new TiXmlText(s.str()));
+    faceTag->LinkEndChild(t);
+}
+void MeshGraphIOXml::v_WriteTris(TiXmlElement *faceTag,
+                                 std::vector<int> keysToWrite)
 {
     std::string tag = "T";
 
-    for (auto &i : tris)
+    if (keysToWrite.empty())
     {
-        std::stringstream s;
-        TriGeomSharedPtr tri = i.second;
-        s << tri->GetEid(0) << " " << tri->GetEid(1) << " " << tri->GetEid(2);
-        TiXmlElement *t = new TiXmlElement(tag);
-        t->SetAttribute("ID", i.first);
-        t->LinkEndChild(new TiXmlText(s.str()));
-        faceTag->LinkEndChild(t);
+        for (auto [id, tri] : m_meshGraph->GetGeomMap<TriGeom>())
+        {
+            WriteTri(tri, faceTag, tag, id);
+        }
+    }
+    else
+    {
+        for (int id : keysToWrite)
+        {
+            WriteTri(m_meshGraph->GetTriGeom(id), faceTag, tag, id);
+        }
     }
 }
 
-void MeshGraphIOXml::v_WriteQuads(TiXmlElement *faceTag, QuadGeomMap &quads)
+void WriteQuad(QuadGeom *quad, TiXmlElement *faceTag, std::string &tag,
+               int quadID)
+{
+    std::stringstream s;
+    s << quad->GetEid(0) << " " << quad->GetEid(1) << " " << quad->GetEid(2)
+      << " " << quad->GetEid(3);
+    TiXmlElement *q = new TiXmlElement(tag);
+    q->SetAttribute("ID", quadID);
+    q->LinkEndChild(new TiXmlText(s.str()));
+    faceTag->LinkEndChild(q);
+}
+void MeshGraphIOXml::v_WriteQuads(TiXmlElement *faceTag,
+                                  std::vector<int> keysToWrite)
 {
     std::string tag = "Q";
 
-    for (auto &i : quads)
+    if (keysToWrite.empty())
     {
-        std::stringstream s;
-        QuadGeomSharedPtr quad = i.second;
-        s << quad->GetEid(0) << " " << quad->GetEid(1) << " " << quad->GetEid(2)
-          << " " << quad->GetEid(3);
-        TiXmlElement *q = new TiXmlElement(tag);
-        q->SetAttribute("ID", i.first);
-        q->LinkEndChild(new TiXmlText(s.str()));
-        faceTag->LinkEndChild(q);
+        for (auto [id, quad] : m_meshGraph->GetGeomMap<QuadGeom>())
+        {
+            WriteQuad(quad, faceTag, tag, id);
+        }
+    }
+    else
+    {
+        for (int id : keysToWrite)
+        {
+            WriteQuad(m_meshGraph->GetQuadGeom(id), faceTag, tag, id);
+        }
     }
 }
 
-void MeshGraphIOXml::v_WriteHexs(TiXmlElement *elmtTag, HexGeomMap &hexs)
+void WriteHex(HexGeom *hex, TiXmlElement *elmtTag, std::string &tag, int hexID)
+{
+    std::stringstream s;
+    s << hex->GetFid(0) << " " << hex->GetFid(1) << " " << hex->GetFid(2) << " "
+      << hex->GetFid(3) << " " << hex->GetFid(4) << " " << hex->GetFid(5)
+      << " ";
+    TiXmlElement *h = new TiXmlElement(tag);
+    h->SetAttribute("ID", hexID);
+    h->LinkEndChild(new TiXmlText(s.str()));
+    elmtTag->LinkEndChild(h);
+}
+void MeshGraphIOXml::v_WriteHexs(TiXmlElement *elmtTag,
+                                 std::vector<int> keysToWrite)
 {
     std::string tag = "H";
 
-    for (auto &i : hexs)
+    if (keysToWrite.empty())
     {
-        std::stringstream s;
-        HexGeomSharedPtr hex = i.second;
-        s << hex->GetFid(0) << " " << hex->GetFid(1) << " " << hex->GetFid(2)
-          << " " << hex->GetFid(3) << " " << hex->GetFid(4) << " "
-          << hex->GetFid(5) << " ";
-        TiXmlElement *h = new TiXmlElement(tag);
-        h->SetAttribute("ID", i.first);
-        h->LinkEndChild(new TiXmlText(s.str()));
-        elmtTag->LinkEndChild(h);
+        for (auto [id, hex] : m_meshGraph->GetGeomMap<HexGeom>())
+        {
+            WriteHex(hex, elmtTag, tag, id);
+        }
+    }
+    else
+    {
+        for (int id : keysToWrite)
+        {
+            WriteHex(m_meshGraph->GetHexGeom(id), elmtTag, tag, id);
+        }
     }
 }
 
-void MeshGraphIOXml::v_WritePrisms(TiXmlElement *elmtTag, PrismGeomMap &pris)
+void WritePrism(PrismGeom *pri, TiXmlElement *elmtTag, std::string &tag,
+                int priID)
+{
+    std::stringstream s;
+    s << pri->GetFid(0) << " " << pri->GetFid(1) << " " << pri->GetFid(2) << " "
+      << pri->GetFid(3) << " " << pri->GetFid(4) << " ";
+    TiXmlElement *p = new TiXmlElement(tag);
+    p->SetAttribute("ID", priID);
+    p->LinkEndChild(new TiXmlText(s.str()));
+    elmtTag->LinkEndChild(p);
+}
+void MeshGraphIOXml::v_WritePrisms(TiXmlElement *elmtTag,
+                                   std::vector<int> keysToWrite)
 {
     std::string tag = "R";
 
-    for (auto &i : pris)
+    if (keysToWrite.empty())
     {
-        std::stringstream s;
-        PrismGeomSharedPtr prism = i.second;
-        s << prism->GetFid(0) << " " << prism->GetFid(1) << " "
-          << prism->GetFid(2) << " " << prism->GetFid(3) << " "
-          << prism->GetFid(4) << " ";
-        TiXmlElement *p = new TiXmlElement(tag);
-        p->SetAttribute("ID", i.first);
-        p->LinkEndChild(new TiXmlText(s.str()));
-        elmtTag->LinkEndChild(p);
+        for (auto [id, prism] : m_meshGraph->GetGeomMap<PrismGeom>())
+        {
+            WritePrism(prism, elmtTag, tag, id);
+        }
+    }
+    else
+    {
+        for (int id : keysToWrite)
+        {
+            WritePrism(m_meshGraph->GetPrismGeom(id), elmtTag, tag, id);
+        }
     }
 }
 
-void MeshGraphIOXml::v_WritePyrs(TiXmlElement *elmtTag, PyrGeomMap &pyrs)
+void WritePyr(PyrGeom *pyr, TiXmlElement *elmtTag, std::string &tag, int pyrID)
+{
+    std::stringstream s;
+    s << pyr->GetFid(0) << " " << pyr->GetFid(1) << " " << pyr->GetFid(2) << " "
+      << pyr->GetFid(3) << " " << pyr->GetFid(4) << " ";
+    TiXmlElement *p = new TiXmlElement(tag);
+    p->SetAttribute("ID", pyrID);
+    p->LinkEndChild(new TiXmlText(s.str()));
+    elmtTag->LinkEndChild(p);
+}
+void MeshGraphIOXml::v_WritePyrs(TiXmlElement *elmtTag,
+                                 std::vector<int> keysToWrite)
 {
     std::string tag = "P";
 
-    for (auto &i : pyrs)
+    if (keysToWrite.empty())
     {
-        std::stringstream s;
-        PyrGeomSharedPtr pyr = i.second;
-        s << pyr->GetFid(0) << " " << pyr->GetFid(1) << " " << pyr->GetFid(2)
-          << " " << pyr->GetFid(3) << " " << pyr->GetFid(4) << " ";
-        TiXmlElement *p = new TiXmlElement(tag);
-        p->SetAttribute("ID", i.first);
-        p->LinkEndChild(new TiXmlText(s.str()));
-        elmtTag->LinkEndChild(p);
+        for (auto [id, pyr] : m_meshGraph->GetGeomMap<PyrGeom>())
+        {
+            WritePyr(pyr, elmtTag, tag, id);
+        }
+    }
+    else
+    {
+        for (int id : keysToWrite)
+        {
+            WritePyr(m_meshGraph->GetPyrGeom(id), elmtTag, tag, id);
+        }
     }
 }
 
-void MeshGraphIOXml::v_WriteTets(TiXmlElement *elmtTag, TetGeomMap &tets)
+void WriteTet(TetGeom *tet, TiXmlElement *elmtTag, std::string &tag, int tetID)
+{
+    std::stringstream s;
+    s << tet->GetFid(0) << " " << tet->GetFid(1) << " " << tet->GetFid(2) << " "
+      << tet->GetFid(3) << " ";
+    TiXmlElement *t = new TiXmlElement(tag);
+    t->SetAttribute("ID", tetID);
+    t->LinkEndChild(new TiXmlText(s.str()));
+    elmtTag->LinkEndChild(t);
+}
+void MeshGraphIOXml::v_WriteTets(TiXmlElement *elmtTag,
+                                 std::vector<int> keysToWrite)
 {
     std::string tag = "A";
 
-    for (auto &i : tets)
+    if (keysToWrite.empty())
     {
-        std::stringstream s;
-        TetGeomSharedPtr tet = i.second;
-        s << tet->GetFid(0) << " " << tet->GetFid(1) << " " << tet->GetFid(2)
-          << " " << tet->GetFid(3) << " ";
-        TiXmlElement *t = new TiXmlElement(tag);
-        t->SetAttribute("ID", i.first);
-        t->LinkEndChild(new TiXmlText(s.str()));
-        elmtTag->LinkEndChild(t);
+        for (auto [id, tet] : m_meshGraph->GetGeomMap<TetGeom>())
+        {
+            WriteTet(tet, elmtTag, tag, id);
+        }
+    }
+    else
+    {
+        for (int id : keysToWrite)
+        {
+            WriteTet(m_meshGraph->GetTetGeom(id), elmtTag, tag, id);
+        }
     }
 }
 
-void MeshGraphIOXml::v_WriteCurves(TiXmlElement *geomTag, CurveMap &edges,
-                                   CurveMap &faces)
+void WriteCurvedEdge(CurveUniquePtr &curve, TiXmlElement *curveTag,
+                     int &curveId)
 {
-    TiXmlElement *curveTag = new TiXmlElement("CURVED");
-    CurveMap::iterator curveIt;
-    int curveId = 0;
+    TiXmlElement *c = new TiXmlElement("E");
+    std::stringstream s;
+    s.precision(8);
 
-    for (curveIt = edges.begin(); curveIt != edges.end(); ++curveIt)
+    for (int j = 0; j < curve->m_points.size(); ++j)
     {
-        CurveSharedPtr curve = curveIt->second;
-        TiXmlElement *c      = new TiXmlElement("E");
-        std::stringstream s;
-        s.precision(8);
-
-        for (int j = 0; j < curve->m_points.size(); ++j)
-        {
-            SpatialDomains::PointGeomSharedPtr p = curve->m_points[j];
-            s << std::scientific << (*p)(0) << " " << (*p)(1) << " " << (*p)(2)
-              << "   ";
-        }
-
-        c->SetAttribute("ID", curveId++);
-        c->SetAttribute("EDGEID", curve->m_curveID);
-        c->SetAttribute("NUMPOINTS", curve->m_points.size());
-        c->SetAttribute("TYPE", LibUtilities::kPointsTypeStr[curve->m_ptype]);
-        c->LinkEndChild(new TiXmlText(s.str()));
-        curveTag->LinkEndChild(c);
+        PointGeom *p = curve->m_points[j];
+        s << std::scientific << (*p)(0) << " " << (*p)(1) << " " << (*p)(2)
+          << "   ";
     }
 
-    for (curveIt = faces.begin(); curveIt != faces.end(); ++curveIt)
+    c->SetAttribute("ID", curveId++);
+    c->SetAttribute("EDGEID", curve->m_curveID);
+    c->SetAttribute("NUMPOINTS", curve->m_points.size());
+    c->SetAttribute("TYPE", LibUtilities::kPointsTypeStr[curve->m_ptype]);
+    c->LinkEndChild(new TiXmlText(s.str()));
+    curveTag->LinkEndChild(c);
+}
+void WriteCurvedFace(CurveUniquePtr &curve, TiXmlElement *curveTag,
+                     int &curveId)
+{
+    TiXmlElement *c = new TiXmlElement("F");
+    std::stringstream s;
+    s.precision(8);
+
+    for (int j = 0; j < curve->m_points.size(); ++j)
     {
-        CurveSharedPtr curve = curveIt->second;
-        TiXmlElement *c      = new TiXmlElement("F");
-        std::stringstream s;
-        s.precision(8);
+        PointGeom *p = curve->m_points[j];
+        s << std::scientific << (*p)(0) << " " << (*p)(1) << " " << (*p)(2)
+          << "   ";
+    }
 
-        for (int j = 0; j < curve->m_points.size(); ++j)
+    c->SetAttribute("ID", curveId++);
+    c->SetAttribute("FACEID", curve->m_curveID);
+    c->SetAttribute("NUMPOINTS", curve->m_points.size());
+    c->SetAttribute("TYPE", LibUtilities::kPointsTypeStr[curve->m_ptype]);
+    c->LinkEndChild(new TiXmlText(s.str()));
+    curveTag->LinkEndChild(c);
+}
+void MeshGraphIOXml::v_WriteCurves(TiXmlElement *geomTag, CurveMap &edges,
+                                   CurveMap &faces,
+                                   std::vector<int> *keysToWriteEdges,
+                                   std::vector<int> *keysToWriteFaces)
+{
+    TiXmlElement *curveTag = new TiXmlElement("CURVED");
+    int curveId            = 0;
+
+    if (keysToWriteEdges == nullptr)
+    {
+        for (auto &i : edges)
         {
-            SpatialDomains::PointGeomSharedPtr p = curve->m_points[j];
-            s << std::scientific << (*p)(0) << " " << (*p)(1) << " " << (*p)(2)
-              << "   ";
+            WriteCurvedEdge(i.second, curveTag, curveId);
         }
+    }
+    else
+    {
+        for (int key : *keysToWriteEdges)
+        {
+            WriteCurvedEdge(edges[key], curveTag, curveId);
+        }
+    }
 
-        c->SetAttribute("ID", curveId++);
-        c->SetAttribute("FACEID", curve->m_curveID);
-        c->SetAttribute("NUMPOINTS", curve->m_points.size());
-        c->SetAttribute("TYPE", LibUtilities::kPointsTypeStr[curve->m_ptype]);
-        c->LinkEndChild(new TiXmlText(s.str()));
-        curveTag->LinkEndChild(c);
+    if (keysToWriteFaces == nullptr)
+    {
+        for (auto &i : faces)
+        {
+            WriteCurvedFace(i.second, curveTag, curveId);
+        }
+    }
+    else
+    {
+        for (int key : *keysToWriteFaces)
+        {
+            WriteCurvedFace(faces[key], curveTag, curveId);
+        }
     }
 
     geomTag->LinkEndChild(curveTag);
@@ -2824,25 +3032,25 @@ void MeshGraphIOXml::v_WriteGeometry(
     geomTag->Clear();
 
     // Write out informatio
-    v_WriteVertices(geomTag, m_meshGraph->GetAllPointGeoms());
-    v_WriteEdges(geomTag, m_meshGraph->GetAllSegGeoms());
+    v_WriteVertices(geomTag);
+    v_WriteEdges(geomTag);
     if (meshDimension > 1)
     {
         TiXmlElement *faceTag =
             new TiXmlElement(meshDimension == 2 ? "ELEMENT" : "FACE");
 
-        v_WriteTris(faceTag, m_meshGraph->GetAllTriGeoms());
-        v_WriteQuads(faceTag, m_meshGraph->GetAllQuadGeoms());
+        v_WriteTris(faceTag);
+        v_WriteQuads(faceTag);
         geomTag->LinkEndChild(faceTag);
     }
     if (meshDimension > 2)
     {
         TiXmlElement *elmtTag = new TiXmlElement("ELEMENT");
 
-        v_WriteHexs(elmtTag, m_meshGraph->GetAllHexGeoms());
-        v_WritePyrs(elmtTag, m_meshGraph->GetAllPyrGeoms());
-        v_WritePrisms(elmtTag, m_meshGraph->GetAllPrismGeoms());
-        v_WriteTets(elmtTag, m_meshGraph->GetAllTetGeoms());
+        v_WriteHexs(elmtTag);
+        v_WritePyrs(elmtTag);
+        v_WritePrisms(elmtTag);
+        v_WriteTets(elmtTag);
 
         geomTag->LinkEndChild(elmtTag);
     }
@@ -2930,29 +3138,29 @@ void MeshGraphIOXml::WriteXMLGeometry(
 
         // Add Mesh //
         // Get the elements
-        auto &vertSet        = m_meshGraph->GetAllPointGeoms();
-        auto &segGeoms       = m_meshGraph->GetAllSegGeoms();
-        auto &triGeoms       = m_meshGraph->GetAllTriGeoms();
-        auto &quadGeoms      = m_meshGraph->GetAllQuadGeoms();
-        auto &tetGeoms       = m_meshGraph->GetAllTetGeoms();
-        auto &pyrGeoms       = m_meshGraph->GetAllPyrGeoms();
-        auto &prismGeoms     = m_meshGraph->GetAllPrismGeoms();
-        auto &hexGeoms       = m_meshGraph->GetAllHexGeoms();
+        auto &vertSet        = m_meshGraph->GetGeomMap<PointGeom>();
+        auto &segGeoms       = m_meshGraph->GetGeomMap<SegGeom>();
+        auto &triGeoms       = m_meshGraph->GetGeomMap<TriGeom>();
+        auto &quadGeoms      = m_meshGraph->GetGeomMap<QuadGeom>();
+        auto &tetGeoms       = m_meshGraph->GetGeomMap<TetGeom>();
+        auto &pyrGeoms       = m_meshGraph->GetGeomMap<PyrGeom>();
+        auto &prismGeoms     = m_meshGraph->GetGeomMap<PrismGeom>();
+        auto &hexGeoms       = m_meshGraph->GetGeomMap<HexGeom>();
         auto &curvedEdges    = m_meshGraph->GetCurvedEdges();
         auto &curvedFaces    = m_meshGraph->GetCurvedFaces();
         auto &meshComposites = m_meshGraph->GetComposites();
         auto &globalDomain   = m_meshGraph->GetDomain();
 
-        HexGeomMap localHex;
-        PyrGeomMap localPyr;
-        PrismGeomMap localPrism;
-        TetGeomMap localTet;
-        TriGeomMap localTri;
-        QuadGeomMap localQuad;
-        SegGeomMap localEdge;
-        PointGeomMap localVert;
-        CurveMap localCurveEdge;
-        CurveMap localCurveFace;
+        std::vector<int> localHexKeys;
+        std::vector<int> localPyrKeys;
+        std::vector<int> localPrismKeys;
+        std::vector<int> localTetKeys;
+        std::vector<int> localTriKeys;
+        std::vector<int> localQuadKeys;
+        std::vector<int> localEdgeKeys;
+        std::vector<int> localVertKeys;
+        std::vector<int> localCurveEdgeKeys;
+        std::vector<int> localCurveFaceKeys;
 
         std::vector<std::set<unsigned int>> entityIds(4);
         entityIds[meshDimension] = elements[i];
@@ -2963,26 +3171,28 @@ void MeshGraphIOXml::WriteXMLGeometry(
             {
                 for (auto &j : entityIds[3])
                 {
-                    GeometrySharedPtr g;
-                    if (hexGeoms.count(j))
+                    Geometry *g = nullptr;
+
+                    if (auto it{hexGeoms.find(j)}; it != hexGeoms.end())
                     {
-                        g           = hexGeoms[j];
-                        localHex[j] = hexGeoms[j];
+                        g = (*it).second;
+                        localHexKeys.push_back(j);
                     }
-                    else if (pyrGeoms.count(j))
+                    else if (auto it{pyrGeoms.find(j)}; it != pyrGeoms.end())
                     {
-                        g           = pyrGeoms[j];
-                        localPyr[j] = pyrGeoms[j];
+                        g = (*it).second;
+                        localPyrKeys.push_back(j);
                     }
-                    else if (prismGeoms.count(j))
+                    else if (auto it{prismGeoms.find(j)};
+                             it != prismGeoms.end())
                     {
-                        g             = prismGeoms[j];
-                        localPrism[j] = prismGeoms[j];
+                        g = (*it).second;
+                        localPrismKeys.push_back(j);
                     }
-                    else if (tetGeoms.count(j))
+                    else if (auto it{tetGeoms.find(j)}; it != tetGeoms.end())
                     {
-                        g           = tetGeoms[j];
-                        localTet[j] = tetGeoms[j];
+                        g = (*it).second;
+                        localTetKeys.push_back(j);
                     }
                     else
                     {
@@ -3008,16 +3218,16 @@ void MeshGraphIOXml::WriteXMLGeometry(
             {
                 for (auto &j : entityIds[2])
                 {
-                    GeometrySharedPtr g;
-                    if (triGeoms.count(j))
+                    Geometry *g = nullptr;
+                    if (auto it{triGeoms.find(j)}; it != triGeoms.end())
                     {
-                        g           = triGeoms[j];
-                        localTri[j] = triGeoms[j];
+                        g = (*it).second;
+                        localTriKeys.push_back(j);
                     }
-                    else if (quadGeoms.count(j))
+                    else if (auto it{quadGeoms.find(j)}; it != quadGeoms.end())
                     {
-                        g            = quadGeoms[j];
-                        localQuad[j] = quadGeoms[j];
+                        g = (*it).second;
+                        localQuadKeys.push_back(j);
                     }
                     else
                     {
@@ -3039,11 +3249,11 @@ void MeshGraphIOXml::WriteXMLGeometry(
             {
                 for (auto &j : entityIds[1])
                 {
-                    GeometrySharedPtr g;
-                    if (segGeoms.count(j))
+                    Geometry *g = nullptr;
+                    if (auto it{segGeoms.find(j)}; it != segGeoms.end())
                     {
-                        g            = segGeoms[j];
-                        localEdge[j] = segGeoms[j];
+                        g = (*it).second;
+                        localEdgeKeys.push_back(j);
                     }
                     else
                     {
@@ -3062,13 +3272,13 @@ void MeshGraphIOXml::WriteXMLGeometry(
         {
             for (auto &j : entityIds[2])
             {
-                if (triGeoms.count(j))
+                if (triGeoms.find(j) != triGeoms.end())
                 {
-                    localTri[j] = triGeoms[j];
+                    localTriKeys.push_back(j);
                 }
-                else if (quadGeoms.count(j))
+                else if (quadGeoms.find(j) != quadGeoms.end())
                 {
-                    localQuad[j] = quadGeoms[j];
+                    localQuadKeys.push_back(j);
                 }
                 else
                 {
@@ -3081,9 +3291,9 @@ void MeshGraphIOXml::WriteXMLGeometry(
         {
             for (auto &j : entityIds[1])
             {
-                if (segGeoms.count(j))
+                if (segGeoms.find(j) != segGeoms.end())
                 {
-                    localEdge[j] = segGeoms[j];
+                    localEdgeKeys.push_back(j);
                 }
                 else
                 {
@@ -3094,9 +3304,9 @@ void MeshGraphIOXml::WriteXMLGeometry(
 
         for (auto &j : entityIds[0])
         {
-            if (vertSet.count(j))
+            if (vertSet.find(j) != vertSet.end())
             {
-                localVert[j] = vertSet[j];
+                localVertKeys.push_back(j);
             }
             else
             {
@@ -3104,52 +3314,81 @@ void MeshGraphIOXml::WriteXMLGeometry(
             }
         }
 
-        v_WriteVertices(geomTag, localVert);
-        v_WriteEdges(geomTag, localEdge);
+        if (!localVertKeys.empty())
+        {
+            v_WriteVertices(geomTag, localVertKeys);
+        }
+
+        if (!localEdgeKeys.empty())
+        {
+            v_WriteEdges(geomTag, localEdgeKeys);
+        }
+
         if (meshDimension > 1)
         {
             TiXmlElement *faceTag =
                 new TiXmlElement(meshDimension == 2 ? "ELEMENT" : "FACE");
 
-            v_WriteTris(faceTag, localTri);
-            v_WriteQuads(faceTag, localQuad);
+            if (!localTriKeys.empty())
+            {
+                v_WriteTris(faceTag, localTriKeys);
+            }
+
+            if (!localQuadKeys.empty())
+            {
+                v_WriteQuads(faceTag, localQuadKeys);
+            }
+
             geomTag->LinkEndChild(faceTag);
         }
         if (meshDimension > 2)
         {
             TiXmlElement *elmtTag = new TiXmlElement("ELEMENT");
 
-            v_WriteHexs(elmtTag, localHex);
-            v_WritePyrs(elmtTag, localPyr);
-            v_WritePrisms(elmtTag, localPrism);
-            v_WriteTets(elmtTag, localTet);
+            if (!localHexKeys.empty())
+            {
+                v_WriteHexs(elmtTag, localHexKeys);
+            }
+            if (!localPyrKeys.empty())
+            {
+                v_WritePyrs(elmtTag, localPyrKeys);
+            }
+            if (!localPrismKeys.empty())
+            {
+                v_WritePrisms(elmtTag, localPrismKeys);
+            }
+            if (!localTetKeys.empty())
+            {
+                v_WriteTets(elmtTag, localTetKeys);
+            }
 
             geomTag->LinkEndChild(elmtTag);
         }
 
-        for (auto &j : localTri)
+        for (auto &j : localTriKeys)
         {
-            if (curvedFaces.count(j.first))
+            if (curvedFaces.count(j))
             {
-                localCurveFace[j.first] = curvedFaces[j.first];
+                localCurveFaceKeys.push_back(j);
             }
         }
-        for (auto &j : localQuad)
+        for (auto &j : localQuadKeys)
         {
-            if (curvedFaces.count(j.first))
+            if (curvedFaces.count(j))
             {
-                localCurveFace[j.first] = curvedFaces[j.first];
+                localCurveFaceKeys.push_back(j);
             }
         }
-        for (auto &j : localEdge)
+        for (auto &j : localEdgeKeys)
         {
-            if (curvedEdges.count(j.first))
+            if (curvedEdges.count(j))
             {
-                localCurveEdge[j.first] = curvedEdges[j.first];
+                localCurveEdgeKeys.push_back(j);
             }
         }
 
-        v_WriteCurves(geomTag, localCurveEdge, localCurveFace);
+        v_WriteCurves(geomTag, curvedEdges, curvedFaces, &localCurveEdgeKeys,
+                      &localCurveFaceKeys);
 
         CompositeMap localComp;
         std::map<int, std::string> localCompLabels;

@@ -70,7 +70,7 @@ std::string LinearElasticSystem::className =
  * @param x   co-ordinates of triangle/tetrahedron
  * @param xf  components of mapping
  */
-inline DNekMat MappingIdealToRef(SpatialDomains::GeometrySharedPtr geom)
+inline DNekMat MappingIdealToRef(SpatialDomains::Geometry *geom)
 {
     int n = geom->GetNumVerts(), i, j;
 
@@ -458,12 +458,11 @@ void LinearElasticSystem::v_DoSolve()
             {
                 // Calculate element area
                 LocalRegions::ExpansionSharedPtr exp = m_fields[0]->GetExp(i);
-                LibUtilities::PointsKeyVector pkey   = exp->GetPointsKeys();
-                Array<OneD, NekDouble> jac = exp->GetMetricInfo()->GetJac(pkey);
+                Array<OneD, NekDouble> jac = exp->GetGeomFactors()->GetJac();
 
                 int offset = m_fields[0]->GetPhys_Offset(i);
 
-                if (exp->GetMetricInfo()->GetGtype() ==
+                if (exp->GetGeomFactors()->GetGtype() ==
                     SpatialDomains::eDeformed)
                 {
                     Vmath::Smul(exp->GetTotPoints(), m_beta, jac, 1,
@@ -480,15 +479,16 @@ void LinearElasticSystem::v_DoSolve()
     }
     else if (tempEval == "Metric")
     {
-        ASSERTL0((m_fields[0]->GetCoordim(0) == 2 &&
-                  m_graph->GetAllQuadGeoms().size() == 0) ||
-                     (m_fields[0]->GetCoordim(0) == 3 &&
-                      m_graph->GetAllPrismGeoms().size() == 0 &&
-                      m_graph->GetAllPyrGeoms().size() == 0 &&
-                      m_graph->GetAllHexGeoms().size() == 0),
-                 "LinearIdealMetric temperature only implemented for "
-                 "two-dimensional triangular meshes or three-dimensional "
-                 "tetrahedral meshes.");
+        ASSERTL0(
+            (m_fields[0]->GetCoordim(0) == 2 &&
+             m_graph->GetGeomMap<SpatialDomains::QuadGeom>().size() == 0) ||
+                (m_fields[0]->GetCoordim(0) == 3 &&
+                 m_graph->GetGeomMap<SpatialDomains::PrismGeom>().size() == 0 &&
+                 m_graph->GetGeomMap<SpatialDomains::PyrGeom>().size() == 0 &&
+                 m_graph->GetGeomMap<SpatialDomains::HexGeom>().size() == 0),
+            "LinearIdealMetric temperature only implemented for "
+            "two-dimensional triangular meshes or three-dimensional "
+            "tetrahedral meshes.");
 
         m_temperature = Array<OneD, Array<OneD, NekDouble>>(nVel);
         m_stress      = Array<OneD, Array<OneD, Array<OneD, NekDouble>>>(nVel);
@@ -512,7 +512,7 @@ void LinearElasticSystem::v_DoSolve()
             LocalRegions::ExpansionSharedPtr exp = m_fields[0]->GetExp(i);
             LibUtilities::PointsKeyVector pkey   = exp->GetPointsKeys();
             Array<OneD, Array<OneD, Array<OneD, NekDouble>>> deriv =
-                exp->GetMetricInfo()->GetDeriv(pkey);
+                exp->GetGeomFactors()->GetDeriv(pkey);
             int offset = m_fields[0]->GetPhys_Offset(i);
 
             DNekMat i2rm = MappingIdealToRef(exp->GetGeom());

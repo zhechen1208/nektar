@@ -52,7 +52,7 @@ public:
     LOCAL_REGIONS_EXPORT TetExp(const LibUtilities::BasisKey &Ba,
                                 const LibUtilities::BasisKey &Bb,
                                 const LibUtilities::BasisKey &Bc,
-                                const SpatialDomains::TetGeomSharedPtr &geom);
+                                SpatialDomains::Geometry3D *geom);
 
     LOCAL_REGIONS_EXPORT TetExp(const TetExp &T);
 
@@ -66,30 +66,8 @@ protected:
     v_Integral(const Array<OneD, const NekDouble> &inarray) override;
 
     //-----------------------------
-    // Differentiation Methods
-    //-----------------------------
-    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &out_d0, Array<OneD, NekDouble> &out_d1,
-        Array<OneD, NekDouble> &out_d2) override;
-
-    //-----------------------------
-    // Transforms
-    //-----------------------------
-    LOCAL_REGIONS_EXPORT void v_FwdTrans(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-
-    //-----------------------------
     // Inner product functions
     //-----------------------------
-    LOCAL_REGIONS_EXPORT void v_IProductWRTBase(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-    LOCAL_REGIONS_EXPORT void v_IProductWRTBase_SumFac(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray,
-        bool multiplybyweights = true) override;
     LOCAL_REGIONS_EXPORT void v_IProductWRTDerivBase(
         const int dir, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
@@ -100,13 +78,6 @@ protected:
     //-----------------------------
     // Evaluation functions
     //-----------------------------
-    LOCAL_REGIONS_EXPORT NekDouble
-    v_StdPhysEvaluate(const Array<OneD, const NekDouble> &Lcoord,
-                      const Array<OneD, const NekDouble> &physvals) override;
-
-    LOCAL_REGIONS_EXPORT NekDouble
-    v_PhysEvaluate(const Array<OneD, const NekDouble> &coords,
-                   const Array<OneD, const NekDouble> &physvals) override;
     LOCAL_REGIONS_EXPORT NekDouble
     v_PhysEvalFirstDeriv(const Array<OneD, NekDouble> &coord,
                          const Array<OneD, const NekDouble> &inarray,
@@ -123,9 +94,6 @@ protected:
     //-----------------------------
     // Helper functions
     //-----------------------------
-    LOCAL_REGIONS_EXPORT LibUtilities::ShapeType v_DetShapeType()
-        const override;
-
     LOCAL_REGIONS_EXPORT StdRegions::StdExpansionSharedPtr v_GetStdExp(
         void) const override;
 
@@ -141,14 +109,10 @@ protected:
         const int face, Array<OneD, int> &outarray) override;
 
     LOCAL_REGIONS_EXPORT void v_ComputeTraceNormal(const int face) override;
+
     //-----------------------------
     // Operator creation functions
     //-----------------------------
-    LOCAL_REGIONS_EXPORT void v_HelmholtzMatrixOp(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray,
-        const StdRegions::StdMatrixKey &mkey) override;
-
     LOCAL_REGIONS_EXPORT void v_LaplacianMatrixOp(
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray,

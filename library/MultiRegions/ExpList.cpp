@@ -46,6 +46,8 @@
 #include <LocalRegions/Expansion3D.h>
 #include <LocalRegions/HexExp.h>
 #include <LocalRegions/MatrixKey.h> // for MatrixKey
+#include <LocalRegions/NodalPrismExp.h>
+#include <LocalRegions/NodalTetExp.h>
 #include <LocalRegions/NodalTriExp.h>
 #include <LocalRegions/PointExp.h>
 #include <LocalRegions/PrismExp.h>
@@ -229,7 +231,7 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
 //----------------------------------------------------------------------
 //                        0D Expansion Constructors
 //----------------------------------------------------------------------
-ExpList::ExpList(const SpatialDomains::PointGeomSharedPtr &geom)
+ExpList::ExpList(SpatialDomains::PointGeom *geom)
     : m_expType(e0D), m_ncoeffs(1), m_npoints(1), m_physState(false),
       m_exp(MemoryManager<LocalRegions::ExpansionVector>::AllocateSharedPtr()),
       m_blockMat(MemoryManager<BlockMatrixMap>::AllocateSharedPtr()),
@@ -282,12 +284,11 @@ ExpList::ExpList(
     int i, j, id, elmtid = 0;
     set<int> tracesDone;
 
-    SpatialDomains::PointGeomSharedPtr PointGeom;
-    SpatialDomains::Geometry1DSharedPtr segGeom;
-    SpatialDomains::Geometry2DSharedPtr ElGeom;
-    SpatialDomains::Geometry2DSharedPtr FaceGeom;
-    SpatialDomains::QuadGeomSharedPtr QuadGeom;
-    SpatialDomains::TriGeomSharedPtr TriGeom;
+    SpatialDomains::PointGeom *PointGeom;
+    SpatialDomains::Geometry1D *segGeom;
+    SpatialDomains::Geometry2D *FaceGeom;
+    SpatialDomains::QuadGeom *QuadGeom;
+    SpatialDomains::TriGeom *TriGeom;
 
     LocalRegions::ExpansionSharedPtr exp;
     LocalRegions::Expansion0DSharedPtr exp0D;
@@ -346,10 +347,8 @@ ExpList::ExpList(
                     {
                         if ((eInfo->m_basisKeyVector ==
                              ExpOrder[i][0]->m_basisKeyVector) &&
-                            (eInfo->m_geomShPtr->GetGeomFactors()->GetGtype() ==
-                             ExpOrder[i][0]
-                                 ->m_geomShPtr->GetGeomFactors()
-                                 ->GetGtype()))
+                            (eInfo->m_geomPtr->CalcGeomType() ==
+                             ExpOrder[i][0]->m_geomPtr->CalcGeomType()))
                         {
                             ExpOrder[i].push_back(eInfo);
                             break;
@@ -376,18 +375,16 @@ ExpList::ExpList(
         {
 
             if ((PointGeom =
-                     std::dynamic_pointer_cast<SpatialDomains::PointGeom>(
-                         eit->m_geomShPtr)))
+                     dynamic_cast<SpatialDomains::PointGeom *>(eit->m_geomPtr)))
             {
                 m_expType = e0D;
 
                 exp = MemoryManager<LocalRegions::PointExp>::AllocateSharedPtr(
                     PointGeom);
-                tracesDone.insert(PointGeom->GetVid());
+                tracesDone.insert(PointGeom->GetGlobalID());
             }
-            else if ((segGeom =
-                          std::dynamic_pointer_cast<SpatialDomains::SegGeom>(
-                              eit->m_geomShPtr)))
+            else if ((segGeom = dynamic_cast<SpatialDomains::SegGeom *>(
+                          eit->m_geomPtr)))
             {
                 m_expType = e1D;
 
@@ -395,9 +392,8 @@ ExpList::ExpList(
                     eit->m_basisKeyVector[0], segGeom);
                 tracesDone.insert(segGeom->GetGlobalID());
             }
-            else if ((TriGeom =
-                          std::dynamic_pointer_cast<SpatialDomains::TriGeom>(
-                              eit->m_geomShPtr)))
+            else if ((TriGeom = dynamic_cast<SpatialDomains::TriGeom *>(
+                          eit->m_geomPtr)))
             {
                 m_expType = e2D;
 
@@ -407,9 +403,8 @@ ExpList::ExpList(
 
                 tracesDone.insert(TriGeom->GetGlobalID());
             }
-            else if ((QuadGeom =
-                          std::dynamic_pointer_cast<SpatialDomains::QuadGeom>(
-                              eit->m_geomShPtr)))
+            else if ((QuadGeom = dynamic_cast<SpatialDomains::QuadGeom *>(
+                          eit->m_geomPtr)))
             {
                 m_expType = e2D;
                 exp = MemoryManager<LocalRegions::QuadExp>::AllocateSharedPtr(
@@ -427,10 +422,10 @@ ExpList::ExpList(
         }
     }
 
-    map<int, pair<SpatialDomains::Geometry1DSharedPtr, LibUtilities::BasisKey>>
+    map<int, pair<SpatialDomains::Geometry1D *, LibUtilities::BasisKey>>
         edgeOrders;
 
-    map<int, pair<SpatialDomains::Geometry2DSharedPtr,
+    map<int, pair<SpatialDomains::Geometry2D *,
                   pair<LibUtilities::BasisKey, LibUtilities::BasisKey>>>
         faceOrders;
 
@@ -444,7 +439,7 @@ ExpList::ExpList(
             for (j = 0; j < 2; ++j)
             {
                 PointGeom = (exp1D->GetGeom1D())->GetVertex(j);
-                id        = PointGeom->GetVid();
+                id        = PointGeom->GetGlobalID();
 
                 // Ignore Dirichlet edges
                 if (tracesDone.count(id) != 0)
@@ -487,8 +482,10 @@ ExpList::ExpList(
                         locexp[i]->GetTraceBasisKey(j);
                     LibUtilities::BasisKey existing = it->second.second;
 
-                    int np1 = edge.GetNumPoints();
-                    int np2 = existing.GetNumPoints();
+                    int np1 = LibUtilities::GetDegreeOfExactness(
+                        edge.GetPointsType(), edge.GetNumPoints());
+                    int np2 = LibUtilities::GetDegreeOfExactness(
+                        existing.GetPointsType(), existing.GetNumPoints());
                     int nm1 = edge.GetNumModes();
                     int nm2 = existing.GetNumModes();
 
@@ -561,16 +558,27 @@ ExpList::ExpList(
                     LibUtilities::BasisKey existing0 = it->second.second.first;
                     LibUtilities::BasisKey existing1 = it->second.second.second;
 
-                    // np -- number of points; nm -- number of modes;
-                    // np_I_J --- I=1 current; I=2 existing; J=1 dir0; J=2 dir1;
-                    int np11 = face0.GetNumPoints();
-                    int np12 = face1.GetNumPoints();
-                    int np21 = existing0.GetNumPoints();
-                    int np22 = existing1.GetNumPoints();
-                    int nm11 = face0.GetNumModes();
-                    int nm12 = face1.GetNumModes();
-                    int nm21 = existing0.GetNumModes();
-                    int nm22 = existing1.GetNumModes();
+                    // np -- number of points (now change to degree of
+                    // exactness); nm -- number of modes; np_I_J --- I=1
+                    // current; I=2 existing; J=1 dir0; J=2 dir1;
+                    // -----------old design-----------
+                    // int np00 = face0.GetNumPoints();
+                    // int np01 = face1.GetNumPoints();
+                    // int np10 = existing0.GetNumPoints();
+                    // int np11 = existing1.GetNumPoints();
+                    // -----------new design-----------
+                    int np00 = LibUtilities::GetDegreeOfExactness(
+                        face0.GetPointsType(), face0.GetNumPoints());
+                    int np01 = LibUtilities::GetDegreeOfExactness(
+                        face1.GetPointsType(), face1.GetNumPoints());
+                    int np10 = LibUtilities::GetDegreeOfExactness(
+                        existing0.GetPointsType(), existing0.GetNumPoints());
+                    int np11 = LibUtilities::GetDegreeOfExactness(
+                        existing1.GetPointsType(), existing1.GetNumPoints());
+                    int nm00 = face0.GetNumModes();
+                    int nm01 = face1.GetNumModes();
+                    int nm10 = existing0.GetNumModes();
+                    int nm11 = existing1.GetNumModes();
 
                     // If the axes 1, 2 of the current face correspond to
                     // the axes 2, 1 of existing face, respectively,
@@ -581,89 +589,48 @@ ExpList::ExpList(
                     // eDir1BwdDir2_Dir2BwdDir1 = 12
                     if (locexp[i]->GetTraceOrient(j) >= 9)
                     {
-                        std::swap(np11, np12);
-                        std::swap(nm11, nm12);
+                        std::swap(np00, np01);
+                        std::swap(nm00, nm01);
                         std::swap(face0, face1);
-                    }
-
-                    // The baiskey return by GetTraceBasisKey should always
-                    // have GLL for eModified_A and GR for eModified_B.
-                    // But we still use GetPointsType to check this.
-                    if (existing1.GetPointsType() ==
-                        LibUtilities::eGaussRadauMAlpha1Beta0)
-                    {
-                        if (face1.GetPointsType() ==
-                            LibUtilities::eGaussLobattoLegendre)
-                        {
-                            np12--; // make np12 comparable to np22
-                        }
-                    }
-                    else
-                    {
-                        if (face1.GetPointsType() ==
-                            LibUtilities::eGaussRadauMAlpha1Beta0)
-                        {
-                            np12++; // make np12 comparable to np22
-                        }
-                    }
-
-                    if (existing0.GetPointsType() ==
-                        LibUtilities::eGaussRadauMAlpha1Beta0)
-                    {
-                        if (face0.GetPointsType() ==
-                            LibUtilities::eGaussLobattoLegendre)
-                        {
-                            np11--; // make np11 comparable to np21
-                        }
-                    }
-                    else
-                    {
-                        if (face0.GetPointsType() ==
-                            LibUtilities::eGaussRadauMAlpha1Beta0)
-                        {
-                            np11++; // make np11 comparable to np21
-                        }
                     }
 
                     // if the existing face_i has less points/modes than the
                     // present face_i, then we update the existing face_i with
                     // present one (trace should always have highest order)
-                    if (np22 >= np12 && nm22 >= nm12)
+                    if (np11 >= np01 && nm11 >= nm01)
                     {
                         // keep existing face_i and do nothing
                     }
-                    else if (np22 <= np12 && nm22 <= nm12)
+                    else if (np11 <= np01 && nm11 <= nm01)
                     {
-                        // Instead of using face0 directly, We create new
-                        // basiskey with original Type but higher order.
-                        LibUtilities::BasisKey newbkey(
-                            existing1.GetBasisType(), nm12,
-                            LibUtilities::PointsKey(np12,
-                                                    existing1.GetPointsType()));
+                        // create new basiskey with original basis but
+                        // more points
+                        LibUtilities::BasisKey newbkey(existing1.GetBasisType(),
+                                                       nm01,
+                                                       face1.GetPointsKey());
                         it->second.second.second = newbkey;
                     }
-                    else // np22 > np12 but nm22 < nm12
+                    else // np11 > np01 but nm11 < nm01
                     {
                         NEKERROR(ErrorUtil::efatal,
                                  "inappropriate number of points/modes (max"
                                  "num of points is not set with max order)");
                     }
 
-                    if (np21 >= np11 && nm21 >= nm11)
+                    if (np10 >= np00 && nm10 >= nm00)
                     {
                         // keep existing face_i and do nothing
                     }
-                    else if (np21 <= np11 && nm21 <= nm11)
+                    else if (np10 <= np00 && nm10 <= nm00)
                     {
-                        // Instead of using face0 directly, We create new
-                        // basiskey with original Type but higher order.
-                        LibUtilities::PointsKey newpkey(
-                            np11, existing0.GetPointsType());
+                        // create new basiskey with original basis but
+                        // more points
                         LibUtilities::BasisKey newbkey(existing0.GetBasisType(),
-                                                       nm11, newpkey);
+                                                       nm00,
+                                                       face0.GetPointsKey());
                         it->second.second.first = newbkey;
                     }
-                    else // np21 > np11 but nm21 < nm11
+                    else // np10 > np00 but nm10 < nm00
                     {
                         NEKERROR(ErrorUtil::efatal,
                                  "inappropriate number of points/modes (max"
@@ -807,8 +774,13 @@ ExpList::ExpList(
 
                 LibUtilities::BasisKey existing = it->second.second;
 
-                int np1 = TracesTotPnts0[i];
-                int np2 = existing.GetNumPoints();
+                auto ptype =
+                    static_cast<LibUtilities::PointsType>(TracesPointsType0[i]);
+
+                int np1 = LibUtilities::GetDegreeOfExactness(ptype,
+                                                             TracesTotPnts0[i]);
+                int np2 = LibUtilities::GetDegreeOfExactness(
+                    existing.GetPointsType(), existing.GetNumPoints());
                 int nm1 = TracesTotNm0[i];
                 int nm2 = existing.GetNumModes();
 
@@ -824,7 +796,7 @@ ExpList::ExpList(
                     // MPI::AllReduce does not support BasisKey directly.
                     LibUtilities::BasisKey newbkey(
                         existing.GetBasisType(), nm1,
-                        LibUtilities::PointsKey(np1, existing.GetPointsType()));
+                        LibUtilities::PointsKey(TracesTotPnts0[i], ptype));
                     it->second.second = newbkey;
                 }
                 else
@@ -851,93 +823,57 @@ ExpList::ExpList(
 
                 // np -- number of points; nm -- number of modes;
                 // np_I_J --- I=1 current; I=2 existing; J=1 dir0; J=2 dir1;
-                int np11 = TracesTotPnts0[i];
-                int np12 = TracesTotPnts1[i];
-                int np21 = existing0.GetNumPoints();
-                int np22 = existing1.GetNumPoints();
-                int nm11 = TracesTotNm0[i];
-                int nm12 = TracesTotNm1[i];
-                int nm21 = existing0.GetNumModes();
-                int nm22 = existing1.GetNumModes();
+                auto ptype0 =
+                    static_cast<LibUtilities::PointsType>(TracesPointsType0[i]);
+                auto ptype1 =
+                    static_cast<LibUtilities::PointsType>(TracesPointsType1[i]);
 
-                // The orientation is already aligned
-                // Here we only need to compare pointsType
-                // and adjust np
-                if (existing1.GetPointsType() ==
-                    LibUtilities::eGaussRadauMAlpha1Beta0)
-                {
-                    if (static_cast<LibUtilities::PointsType>(
-                            TracesPointsType1[i]) ==
-                        LibUtilities::eGaussLobattoLegendre)
-                    {
-                        np12--; // make np12 comparable to np22
-                    }
-                }
-                else
-                {
-                    if (static_cast<LibUtilities::PointsType>(
-                            TracesPointsType1[i]) ==
-                        LibUtilities::eGaussRadauMAlpha1Beta0)
-                    {
-                        np12++; // make np12 comparable to np22
-                    }
-                }
-
-                if (existing0.GetPointsType() ==
-                    LibUtilities::eGaussRadauMAlpha1Beta0)
-                {
-                    if (static_cast<LibUtilities::PointsType>(
-                            TracesPointsType0[i]) ==
-                        LibUtilities::eGaussLobattoLegendre)
-                    {
-                        np11--; // make np11 comparable to np21
-                    }
-                }
-                else
-                {
-                    if (static_cast<LibUtilities::PointsType>(
-                            TracesPointsType0[i]) ==
-                        LibUtilities::eGaussRadauMAlpha1Beta0)
-                    {
-                        np11++; // make np11 comparable to np21
-                    }
-                }
+                int np00 = LibUtilities::GetDegreeOfExactness(
+                    ptype0, TracesTotPnts0[i]);
+                int np01 = LibUtilities::GetDegreeOfExactness(
+                    ptype1, TracesTotPnts1[i]);
+                int np10 = LibUtilities::GetDegreeOfExactness(
+                    existing0.GetPointsType(), existing0.GetNumPoints());
+                int np11 = LibUtilities::GetDegreeOfExactness(
+                    existing1.GetPointsType(), existing1.GetNumPoints());
+                int nm00 = TracesTotNm0[i];
+                int nm01 = TracesTotNm1[i];
+                int nm10 = existing0.GetNumModes();
+                int nm11 = existing1.GetNumModes();
 
                 // if the existing face_i has less points/modes than the
                 // present face_i, then we update the existing face_i with
                 // present one (trace should always have highest order)
-                if (np22 >= np12 && nm22 >= nm12)
+                if (np11 >= np01 && nm11 >= nm01)
                 {
                     // keep existing face_i and do nothing
                 }
-                else if (np22 <= np12 && nm22 <= nm12)
+                else if (np11 <= np01 && nm11 <= nm01)
                 {
                     LibUtilities::BasisKey newbkey(
-                        existing1.GetBasisType(), nm12,
-                        LibUtilities::PointsKey(np12,
-                                                existing1.GetPointsType()));
+                        existing1.GetBasisType(), nm01,
+                        LibUtilities::PointsKey(TracesTotPnts1[i], ptype1));
                     it->second.second.second = newbkey;
                 }
-                else // np22 > np12 but nm22 < nm12
+                else // np11 > np01 but nm11 < nm01
                 {
                     NEKERROR(ErrorUtil::efatal,
-                             "inappropriate number of points/modes (max "
+                             "inappropriate number of points/modes (max"
                              "num of points is not set with max order)");
                 }
 
-                if (np21 >= np11 && nm21 >= nm11)
+                if (np10 >= np00 && nm10 >= nm00)
                 {
                     // keep existing face_i and do nothing
                 }
-                else if (np21 <= np11 && nm21 <= nm11)
+                else if (np10 <= np00 && nm10 <= nm00)
                 {
                     LibUtilities::BasisKey newbkey(
-                        existing0.GetBasisType(), nm11,
-                        LibUtilities::PointsKey(np11,
-                                                existing0.GetPointsType()));
+                        existing0.GetBasisType(), nm00,
+                        LibUtilities::PointsKey(TracesTotPnts0[i], ptype0));
                     it->second.second.first = newbkey;
                 }
-                else // np21 > np11 but nm21 < nm11
+                else // np10 > np00 but nm10 < nm00
                 {
                     NEKERROR(ErrorUtil::efatal,
                              "inappropriate number of points/modes (max"
@@ -962,8 +898,8 @@ ExpList::ExpList(
                     auto it1 = edgeOrders.find(opt[i][0]);
 
                     if ((it.second.second == it1->second.second) &&
-                        (it.second.first->GetGeomFactors()->GetGtype() ==
-                         it1->second.first->GetGeomFactors()->GetGtype()))
+                        (it.second.first->CalcGeomType() ==
+                         it1->second.first->CalcGeomType()))
                     {
                         opt[i].push_back(it.first);
                         break;
@@ -1016,8 +952,8 @@ ExpList::ExpList(
                     if ((it.second.second.first == it1->second.second.first) &&
                         (it.second.second.second ==
                          it1->second.second.second) &&
-                        (it.second.first->GetGeomFactors()->GetGtype() ==
-                         it1->second.first->GetGeomFactors()->GetGtype()))
+                        (it.second.first->CalcGeomType() ==
+                         it1->second.first->CalcGeomType()))
                     {
                         opt[i].push_back(it.first);
                         break;
@@ -1048,16 +984,15 @@ ExpList::ExpList(
                 FaceGeom = it->second.first;
 
                 if ((QuadGeom =
-                         std::dynamic_pointer_cast<SpatialDomains::QuadGeom>(
-                             FaceGeom)))
+                         dynamic_cast<SpatialDomains::QuadGeom *>(FaceGeom)))
                 {
                     exp =
                         MemoryManager<LocalRegions::QuadExp>::AllocateSharedPtr(
                             it->second.second.first, it->second.second.second,
                             QuadGeom);
                 }
-                else if ((TriGeom = std::dynamic_pointer_cast<
-                              SpatialDomains::TriGeom>(FaceGeom)))
+                else if ((TriGeom = dynamic_cast<SpatialDomains::TriGeom *>(
+                              FaceGeom)))
                 {
                     exp =
                         MemoryManager<LocalRegions::TriExp>::AllocateSharedPtr(
@@ -1116,12 +1051,11 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
 {
     int i, j, elmtid = 0;
 
-    SpatialDomains::PointGeomSharedPtr PointGeom;
-    SpatialDomains::Geometry1DSharedPtr segGeom;
-    SpatialDomains::Geometry2DSharedPtr ElGeom;
-    SpatialDomains::Geometry2DSharedPtr FaceGeom;
-    SpatialDomains::QuadGeomSharedPtr QuadGeom;
-    SpatialDomains::TriGeomSharedPtr TriGeom;
+    SpatialDomains::PointGeom *PointGeom;
+    SpatialDomains::Geometry1D *segGeom;
+    SpatialDomains::Geometry2D *FaceGeom;
+    SpatialDomains::QuadGeom *QuadGeom;
+    SpatialDomains::TriGeom *TriGeom;
 
     LocalRegions::ExpansionSharedPtr exp;
     LocalRegions::Expansion0DSharedPtr exp0D;
@@ -1206,15 +1140,14 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                     locexp[i]->GetBasis(dir1)->GetBasisKey();
 
                 if ((QuadGeom =
-                         std::dynamic_pointer_cast<SpatialDomains::QuadGeom>(
-                             FaceGeom)))
+                         dynamic_cast<SpatialDomains::QuadGeom *>(FaceGeom)))
                 {
                     exp =
                         MemoryManager<LocalRegions::QuadExp>::AllocateSharedPtr(
                             face_dir0, face_dir1, QuadGeom);
                 }
-                else if ((TriGeom = std::dynamic_pointer_cast<
-                              SpatialDomains::TriGeom>(FaceGeom)))
+                else if ((TriGeom = dynamic_cast<SpatialDomains::TriGeom *>(
+                              FaceGeom)))
                 {
                     LibUtilities::BasisKey nface_dir0(face0_dir0.GetBasisType(),
                                                       face_dir0.GetNumModes(),
@@ -1280,10 +1213,10 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
       m_WaveSpace(false)
 {
     int j, elmtid = 0;
-    SpatialDomains::PointGeomSharedPtr PtGeom;
-    SpatialDomains::SegGeomSharedPtr SegGeom;
-    SpatialDomains::TriGeomSharedPtr TriGeom;
-    SpatialDomains::QuadGeomSharedPtr QuadGeom;
+    SpatialDomains::PointGeom *PtGeom;
+    SpatialDomains::SegGeom *SegGeom;
+    SpatialDomains::TriGeom *TriGeom;
+    SpatialDomains::QuadGeom *QuadGeom;
 
     LocalRegions::ExpansionSharedPtr exp;
 
@@ -1306,7 +1239,7 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
     int cnt = 0;
     for (auto &compIt : domain)
     {
-        bool IsNot0D = true; // Cehck for 0D expansion
+        bool IsNot0D = true; // Check for 0D expansion
         // Process each expansion in the region.
         for (j = 0; j < compIt.second->m_geomVec.size(); ++j)
         {
@@ -1315,7 +1248,7 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                 MemoryManager<SpatialDomains::ExpansionInfo>::AllocateSharedPtr(
                     compIt.second->m_geomVec[j], PtBvec);
 
-            if ((SegGeom = std::dynamic_pointer_cast<SpatialDomains::SegGeom>(
+            if ((SegGeom = dynamic_cast<SpatialDomains::SegGeom *>(
                      compIt.second->m_geomVec[j])))
             {
                 if (meshdim == 1)
@@ -1332,8 +1265,8 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                     // Currently we assume the elements adjacent to the edge
                     // have the same type. So we directly fetch the first
                     // element.
-                    SpatialDomains::GeometrySharedPtr geom = elmts->at(0).first;
-                    int edge_id = elmts->at(0).second;
+                    SpatialDomains::Geometry *geom = elmts->at(0).first;
+                    int edge_id                    = elmts->at(0).second;
                     SpatialDomains::ExpansionInfoShPtr expInfo =
                         graph->GetExpansionInfo(geom, variable);
                     LibUtilities::BasisKey Ba = expInfo->m_basisKeyVector[0];
@@ -1362,9 +1295,8 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                         elmtStdExp->GetTraceBasisKey(edge_id));
                 }
             }
-            else if ((TriGeom =
-                          std::dynamic_pointer_cast<SpatialDomains::TriGeom>(
-                              compIt.second->m_geomVec[j])))
+            else if ((TriGeom = dynamic_cast<SpatialDomains::TriGeom *>(
+                          compIt.second->m_geomVec[j])))
             {
                 // First, create the element stdExp that the face belongs to
                 SpatialDomains::GeometryLinkSharedPtr elmts =
@@ -1372,59 +1304,66 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                 // elmts -> std::vector<std::pair<GeometrySharedPtr, int> >
                 // Currently we assume the elements adjacent to the face have
                 // the same type. So we directly fetch the first element.
-                SpatialDomains::GeometrySharedPtr geom = elmts->at(0).first;
-                int face_id                            = elmts->at(0).second;
+                SpatialDomains::Geometry *geom = elmts->at(0).first;
+                int face_id                    = elmts->at(0).second;
                 auto expInfo = expansions.find(geom->GetGlobalID());
-                ASSERTL0(expInfo != expansions.end(),
-                         "Failed to find expansion info");
-                LibUtilities::BasisKey Ba =
-                    expInfo->second->m_basisKeyVector[0];
-                LibUtilities::BasisKey Bb =
-                    expInfo->second->m_basisKeyVector[1];
-                LibUtilities::BasisKey Bc =
-                    expInfo->second->m_basisKeyVector[2];
-                StdRegions::StdExpansionSharedPtr elmtStdExp;
+                if (expInfo == expansions.end())
+                {
+                    NEKERROR(ErrorUtil::ewarning,
+                             "Failed to find expansion info for goemetry id: " +
+                                 std::to_string(geom->GetGlobalID()));
+                }
+                else
+                {
+                    LibUtilities::BasisKey Ba =
+                        expInfo->second->m_basisKeyVector[0];
+                    LibUtilities::BasisKey Bb =
+                        expInfo->second->m_basisKeyVector[1];
+                    LibUtilities::BasisKey Bc =
+                        expInfo->second->m_basisKeyVector[2];
+                    StdRegions::StdExpansionSharedPtr elmtStdExp;
 
-                if (geom->GetShapeType() == LibUtilities::ePrism)
-                {
-                    elmtStdExp = MemoryManager<
-                        StdRegions::StdPrismExp>::AllocateSharedPtr(Ba, Bb, Bc);
-                }
-                else if (geom->GetShapeType() == LibUtilities::eTetrahedron)
-                {
-                    elmtStdExp =
-                        MemoryManager<StdRegions::StdTetExp>::AllocateSharedPtr(
-                            Ba, Bb, Bc);
-                }
-                else if (geom->GetShapeType() == LibUtilities::ePyramid)
-                {
-                    elmtStdExp =
-                        MemoryManager<StdRegions::StdPyrExp>::AllocateSharedPtr(
-                            Ba, Bb, Bc);
-                }
-                else // hex cannot have tri surface
-                {
-                    NEKERROR(ErrorUtil::efatal,
-                             "Fail to cast geom to a known 3D shape.");
-                }
-                // Then, get the trace basis key from the element stdExp,
-                // which may be different from Ba, Bb and Bc.
-                LibUtilities::BasisKey TriBa =
-                    elmtStdExp->GetTraceBasisKey(face_id, 0, UseGLLOnTri);
-                LibUtilities::BasisKey TriBb =
-                    elmtStdExp->GetTraceBasisKey(face_id, 1, UseGLLOnTri);
-                // swap TriBa and TriBb orientation is transposed
-                if (geom->GetForient(face_id) >= 9)
-                {
-                    std::swap(TriBa, TriBb);
-                }
+                    if (geom->GetShapeType() == LibUtilities::ePrism)
+                    {
+                        elmtStdExp = MemoryManager<
+                            StdRegions::StdPrismExp>::AllocateSharedPtr(Ba, Bb,
+                                                                        Bc);
+                    }
+                    else if (geom->GetShapeType() == LibUtilities::eTetrahedron)
+                    {
+                        elmtStdExp = MemoryManager<
+                            StdRegions::StdTetExp>::AllocateSharedPtr(Ba, Bb,
+                                                                      Bc);
+                    }
+                    else if (geom->GetShapeType() == LibUtilities::ePyramid)
+                    {
+                        elmtStdExp = MemoryManager<
+                            StdRegions::StdPyrExp>::AllocateSharedPtr(Ba, Bb,
+                                                                      Bc);
+                    }
+                    else // hex cannot have tri surface
+                    {
+                        NEKERROR(ErrorUtil::efatal,
+                                 "Fail to cast geom to a known 3D shape.");
+                    }
+                    // Then, get the trace basis key from the element stdExp,
+                    // which may be different from Ba, Bb and Bc.
+                    LibUtilities::BasisKey TriBa =
+                        elmtStdExp->GetTraceBasisKey(face_id, 0, UseGLLOnTri);
+                    LibUtilities::BasisKey TriBb =
+                        elmtStdExp->GetTraceBasisKey(face_id, 1, UseGLLOnTri);
+                    // swap TriBa and TriBb orientation is transposed
+                    if (geom->GetForient(face_id) >= 9)
+                    {
+                        std::swap(TriBa, TriBb);
+                    }
 
-                eInfo->m_basisKeyVector.push_back(TriBa);
-                eInfo->m_basisKeyVector.push_back(TriBb);
+                    eInfo->m_basisKeyVector.push_back(TriBa);
+                    eInfo->m_basisKeyVector.push_back(TriBb);
+                }
             }
-            else if ((QuadGeom =
-                          std::dynamic_pointer_cast<SpatialDomains::QuadGeom>(
-                              compIt.second->m_geomVec[j])))
+            else if ((QuadGeom = dynamic_cast<SpatialDomains::QuadGeom *>(
+                          compIt.second->m_geomVec[j])))
             {
                 // First, create the element stdExp that the face belongs to
                 SpatialDomains::GeometryLinkSharedPtr elmts =
@@ -1432,55 +1371,63 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                 // elmts -> std::vector<std::pair<GeometrySharedPtr, int> >
                 // Currently we assume the elements adjacent to the face have
                 // the same type. So we directly fetch the first element.
-                SpatialDomains::GeometrySharedPtr geom = elmts->at(0).first;
-                int face_id                            = elmts->at(0).second;
+                SpatialDomains::Geometry *geom = elmts->at(0).first;
+                int face_id                    = elmts->at(0).second;
                 auto expInfo = expansions.find(geom->GetGlobalID());
-                ASSERTL0(expInfo != expansions.end(),
-                         "Failed to find expansion info");
-                LibUtilities::BasisKey Ba =
-                    expInfo->second->m_basisKeyVector[0];
-                LibUtilities::BasisKey Bb =
-                    expInfo->second->m_basisKeyVector[1];
-                LibUtilities::BasisKey Bc =
-                    expInfo->second->m_basisKeyVector[2];
-                StdRegions::StdExpansionSharedPtr elmtStdExp;
+                if (expInfo == expansions.end())
+                {
+                    NEKERROR(ErrorUtil::ewarning,
+                             "Failed to find expansion info for goemetry id: " +
+                                 std::to_string(geom->GetGlobalID()));
+                }
+                else
+                {
+                    LibUtilities::BasisKey Ba =
+                        expInfo->second->m_basisKeyVector[0];
+                    LibUtilities::BasisKey Bb =
+                        expInfo->second->m_basisKeyVector[1];
+                    LibUtilities::BasisKey Bc =
+                        expInfo->second->m_basisKeyVector[2];
+                    StdRegions::StdExpansionSharedPtr elmtStdExp;
 
-                if (geom->GetShapeType() == LibUtilities::ePrism)
-                {
-                    elmtStdExp = MemoryManager<
-                        StdRegions::StdPrismExp>::AllocateSharedPtr(Ba, Bb, Bc);
-                }
-                else if (geom->GetShapeType() == LibUtilities::eHexahedron)
-                {
-                    elmtStdExp =
-                        MemoryManager<StdRegions::StdHexExp>::AllocateSharedPtr(
-                            Ba, Bb, Bc);
-                }
-                else if (geom->GetShapeType() == LibUtilities::ePyramid)
-                {
-                    elmtStdExp =
-                        MemoryManager<StdRegions::StdPyrExp>::AllocateSharedPtr(
-                            Ba, Bb, Bc);
-                }
-                else // Tet cannot have quad surface
-                {
-                    NEKERROR(ErrorUtil::efatal,
-                             "Fail to cast geom to a known 3D shape.");
-                }
-                // Then, get the trace basis key from the element stdExp,
-                // which may be different from Ba, Bb and Bc.
-                LibUtilities::BasisKey QuadBa =
-                    elmtStdExp->GetTraceBasisKey(face_id, 0);
-                LibUtilities::BasisKey QuadBb =
-                    elmtStdExp->GetTraceBasisKey(face_id, 1);
-                // swap Ba and Bb if the orientation is transposed
-                if (geom->GetForient(face_id) >= 9)
-                {
-                    std::swap(QuadBa, QuadBb);
-                }
+                    if (geom->GetShapeType() == LibUtilities::ePrism)
+                    {
+                        elmtStdExp = MemoryManager<
+                            StdRegions::StdPrismExp>::AllocateSharedPtr(Ba, Bb,
+                                                                        Bc);
+                    }
+                    else if (geom->GetShapeType() == LibUtilities::eHexahedron)
+                    {
+                        elmtStdExp = MemoryManager<
+                            StdRegions::StdHexExp>::AllocateSharedPtr(Ba, Bb,
+                                                                      Bc);
+                    }
+                    else if (geom->GetShapeType() == LibUtilities::ePyramid)
+                    {
+                        elmtStdExp = MemoryManager<
+                            StdRegions::StdPyrExp>::AllocateSharedPtr(Ba, Bb,
+                                                                      Bc);
+                    }
+                    else // Tet cannot have quad surface
+                    {
+                        NEKERROR(ErrorUtil::efatal,
+                                 "Fail to cast geom to a known 3D shape.");
+                    }
+                    // Then, get the trace basis key from the element stdExp,
+                    // which may be different from Ba, Bb and Bc.
+                    LibUtilities::BasisKey QuadBa =
+                        elmtStdExp->GetTraceBasisKey(face_id, 0);
+                    LibUtilities::BasisKey QuadBb =
+                        elmtStdExp->GetTraceBasisKey(face_id, 1);
+                    // swap Ba and Bb if the orientation is transposed
+                    if (geom->GetForient(face_id) >= 9)
+                    {
+                        std::swap(QuadBa, QuadBb);
+                    }
 
-                eInfo->m_basisKeyVector.push_back(QuadBa);
-                eInfo->m_basisKeyVector.push_back(QuadBb);
+                    eInfo->m_basisKeyVector.push_back(QuadBa);
+                    eInfo->m_basisKeyVector.push_back(QuadBb);
+                }
             }
             else
             {
@@ -1494,10 +1441,8 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                 {
                     if ((eInfo->m_basisKeyVector ==
                          ExpOrder[i][0]->m_basisKeyVector) &&
-                        (eInfo->m_geomShPtr->GetGeomFactors()->GetGtype() ==
-                         ExpOrder[i][0]
-                             ->m_geomShPtr->GetGeomFactors()
-                             ->GetGtype()))
+                        (eInfo->m_geomPtr->CalcGeomType() ==
+                         ExpOrder[i][0]->m_geomPtr->CalcGeomType()))
                     {
                         ExpOrder[i].push_back(eInfo);
                         break;
@@ -1522,28 +1467,28 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
         for (auto &eit : ordIt.second)
         {
             // Process each expansion in the region.
-            if ((PtGeom = std::dynamic_pointer_cast<SpatialDomains::PointGeom>(
-                     eit->m_geomShPtr)))
+            if ((PtGeom =
+                     dynamic_cast<SpatialDomains::PointGeom *>(eit->m_geomPtr)))
             {
                 m_expType = e0D;
 
                 exp = MemoryManager<LocalRegions::PointExp>::AllocateSharedPtr(
                     PtGeom);
             }
-            else if ((SegGeom =
-                          std::dynamic_pointer_cast<SpatialDomains::SegGeom>(
-                              eit->m_geomShPtr)))
+            else if ((SegGeom = dynamic_cast<SpatialDomains::SegGeom *>(
+                          eit->m_geomPtr)))
             {
                 m_expType = e1D;
 
                 if (SetToOneSpaceDimension)
                 {
-                    SpatialDomains::SegGeomSharedPtr OneDSegmentGeom =
-                        SegGeom->GenerateOneSpaceDimGeom();
+                    SpatialDomains::SegGeomUniquePtr OneDSegmentGeom =
+                        SegGeom->GenerateOneSpaceDimGeom(m_holder);
 
                     exp =
                         MemoryManager<LocalRegions::SegExp>::AllocateSharedPtr(
-                            eit->m_basisKeyVector[0], OneDSegmentGeom);
+                            eit->m_basisKeyVector[0], OneDSegmentGeom.get());
+                    m_holder.m_segVec.push_back(std::move(OneDSegmentGeom));
                 }
                 else
                 {
@@ -1552,9 +1497,8 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                             eit->m_basisKeyVector[0], SegGeom);
                 }
             }
-            else if ((TriGeom =
-                          std::dynamic_pointer_cast<SpatialDomains::TriGeom>(
-                              eit->m_geomShPtr)))
+            else if ((TriGeom = dynamic_cast<SpatialDomains::TriGeom *>(
+                          eit->m_geomPtr)))
             {
                 m_expType = e2D;
 
@@ -1576,9 +1520,8 @@ ExpList::ExpList(const LibUtilities::SessionReaderSharedPtr &pSession,
                             TriGeom);
                 }
             }
-            else if ((QuadGeom =
-                          std::dynamic_pointer_cast<SpatialDomains::QuadGeom>(
-                              eit->m_geomShPtr)))
+            else if ((QuadGeom = dynamic_cast<SpatialDomains::QuadGeom *>(
+                          eit->m_geomPtr)))
             {
                 m_expType = e2D;
 
@@ -1676,13 +1619,13 @@ void ExpList::SetupCoeffPhys(bool DeclareCoeffPhysArrays, bool SetupOffsets)
 void ExpList::InitialiseExpVector(
     const SpatialDomains::ExpansionInfoMap &expmap)
 {
-    SpatialDomains::SegGeomSharedPtr SegmentGeom;
-    SpatialDomains::TriGeomSharedPtr TriangleGeom;
-    SpatialDomains::QuadGeomSharedPtr QuadrilateralGeom;
-    SpatialDomains::TetGeomSharedPtr TetGeom;
-    SpatialDomains::HexGeomSharedPtr HexGeom;
-    SpatialDomains::PrismGeomSharedPtr PrismGeom;
-    SpatialDomains::PyrGeomSharedPtr PyrGeom;
+    SpatialDomains::SegGeom *SegmentGeom;
+    SpatialDomains::TriGeom *TriangleGeom;
+    SpatialDomains::QuadGeom *QuadrilateralGeom;
+    SpatialDomains::TetGeom *TetGeom;
+    SpatialDomains::HexGeom *HexGeom;
+    SpatialDomains::PrismGeom *PrismGeom;
+    SpatialDomains::PyrGeom *PyrGeom;
 
     int id = 0;
     LocalRegions::ExpansionSharedPtr exp;
@@ -1709,8 +1652,8 @@ void ExpList::InitialiseExpVector(
 
                 if ((expIt->second->m_basisKeyVector ==
                      expInfo->m_basisKeyVector) &&
-                    (expIt->second->m_geomShPtr->GetGeomFactors()->GetGtype() ==
-                     expInfo->m_geomShPtr->GetGeomFactors()->GetGtype()))
+                    (expIt->second->m_geomPtr->CalcGeomType() ==
+                     expInfo->m_geomPtr->CalcGeomType()))
                 {
                     ExpOrder[i].push_back(expIt->first);
                     break;
@@ -1750,9 +1693,8 @@ void ExpList::InitialiseExpVector(
                              "Cannot mix expansion dimensions in one vector");
                     m_expType = e1D;
 
-                    if ((SegmentGeom =
-                             std::dynamic_pointer_cast<SpatialDomains::SegGeom>(
-                                 expInfo->m_geomShPtr)))
+                    if ((SegmentGeom = dynamic_cast<SpatialDomains::SegGeom *>(
+                             expInfo->m_geomPtr)))
                     {
                         // Retrieve basis key from expansion
                         LibUtilities::BasisKey bkey =
@@ -1777,8 +1719,9 @@ void ExpList::InitialiseExpVector(
                     LibUtilities::BasisKey Ba = expInfo->m_basisKeyVector[0];
                     LibUtilities::BasisKey Bb = expInfo->m_basisKeyVector[1];
 
-                    if ((TriangleGeom = std::dynamic_pointer_cast<
-                             SpatialDomains ::TriGeom>(expInfo->m_geomShPtr)))
+                    if ((TriangleGeom =
+                             dynamic_cast<SpatialDomains ::TriGeom *>(
+                                 expInfo->m_geomPtr)))
                     {
                         // This is not elegantly implemented needs re-thinking.
                         if (Ba.GetBasisType() == LibUtilities::eGLL_Lagrange)
@@ -1799,9 +1742,9 @@ void ExpList::InitialiseExpVector(
                                 AllocateSharedPtr(Ba, Bb, TriangleGeom);
                         }
                     }
-                    else if ((QuadrilateralGeom = std::dynamic_pointer_cast<
-                                  SpatialDomains::QuadGeom>(
-                                  expInfo->m_geomShPtr)))
+                    else if ((QuadrilateralGeom =
+                                  dynamic_cast<SpatialDomains::QuadGeom *>(
+                                      expInfo->m_geomPtr)))
                     {
                         exp = MemoryManager<LocalRegions::QuadExp>::
                             AllocateSharedPtr(Ba, Bb, QuadrilateralGeom);
@@ -1823,12 +1766,29 @@ void ExpList::InitialiseExpVector(
                     LibUtilities::BasisKey Bb = expInfo->m_basisKeyVector[1];
                     LibUtilities::BasisKey Bc = expInfo->m_basisKeyVector[2];
 
-                    if ((TetGeom =
-                             std::dynamic_pointer_cast<SpatialDomains::TetGeom>(
-                                 expInfo->m_geomShPtr)))
+                    if ((TetGeom = dynamic_cast<SpatialDomains::TetGeom *>(
+                             expInfo->m_geomPtr)))
                     {
-                        if (Ba.GetBasisType() == LibUtilities::eGLL_Lagrange ||
-                            Ba.GetBasisType() == LibUtilities::eGauss_Lagrange)
+                        if (Ba.GetBasisType() == LibUtilities::eGLL_Lagrange)
+                        {
+                            // This is not elegantly implemented needs
+                            // re-thinking.
+                            if (Ba.GetBasisType() ==
+                                LibUtilities::eGLL_Lagrange)
+                            {
+                                LibUtilities::BasisKey newBa(
+                                    LibUtilities::eOrtho_A, Ba.GetNumModes(),
+                                    Ba.GetPointsKey());
+
+                                LibUtilities::PointsType TetNb =
+                                    LibUtilities::eNodalTetElec;
+                                exp = MemoryManager<LocalRegions::NodalTetExp>::
+                                    AllocateSharedPtr(newBa, Bb, Bc, TetNb,
+                                                      TetGeom);
+                            }
+                        }
+                        else if (Ba.GetBasisType() ==
+                                 LibUtilities::eGauss_Lagrange)
                         {
                             NEKERROR(
                                 ErrorUtil::efatal,
@@ -1841,24 +1801,38 @@ void ExpList::InitialiseExpVector(
                                 AllocateSharedPtr(Ba, Bb, Bc, TetGeom);
                         }
                     }
-                    else if ((PrismGeom = std::dynamic_pointer_cast<
-                                  SpatialDomains ::PrismGeom>(
-                                  expInfo->m_geomShPtr)))
+                    else if ((PrismGeom =
+                                  dynamic_cast<SpatialDomains ::PrismGeom *>(
+                                      expInfo->m_geomPtr)))
                     {
-                        exp = MemoryManager<LocalRegions::PrismExp>::
-                            AllocateSharedPtr(Ba, Bb, Bc, PrismGeom);
+                        if (Ba.GetBasisType() == LibUtilities::eGLL_Lagrange)
+                        {
+                            LibUtilities::BasisKey newBa(LibUtilities::eOrtho_A,
+                                                         Ba.GetNumModes(),
+                                                         Ba.GetPointsKey());
+
+                            LibUtilities::PointsType PrismNb =
+                                LibUtilities::eNodalPrismElec;
+
+                            exp = MemoryManager<LocalRegions::NodalPrismExp>::
+                                AllocateSharedPtr(newBa, Bb, Bc, PrismNb,
+                                                  PrismGeom);
+                        }
+                        else
+                        {
+                            exp = MemoryManager<LocalRegions::PrismExp>::
+                                AllocateSharedPtr(Ba, Bb, Bc, PrismGeom);
+                        }
                     }
-                    else if ((PyrGeom = std::dynamic_pointer_cast<
-                                  SpatialDomains::PyrGeom>(
-                                  expInfo->m_geomShPtr)))
+                    else if ((PyrGeom = dynamic_cast<SpatialDomains::PyrGeom *>(
+                                  expInfo->m_geomPtr)))
                     {
                         exp = MemoryManager<
                             LocalRegions::PyrExp>::AllocateSharedPtr(Ba, Bb, Bc,
                                                                      PyrGeom);
                     }
-                    else if ((HexGeom = std::dynamic_pointer_cast<
-                                  SpatialDomains::HexGeom>(
-                                  expInfo->m_geomShPtr)))
+                    else if ((HexGeom = dynamic_cast<SpatialDomains::HexGeom *>(
+                                  expInfo->m_geomPtr)))
                     {
                         exp = MemoryManager<
                             LocalRegions::HexExp>::AllocateSharedPtr(Ba, Bb, Bc,
@@ -3239,13 +3213,13 @@ int ExpList::GetExpIndex(const Array<OneD, const NekDouble> &gloCoords,
     NekDouble x = (gloCoords.size() > 0 ? gloCoords[0] : 0.0);
     NekDouble y = (gloCoords.size() > 1 ? gloCoords[1] : 0.0);
     NekDouble z = (gloCoords.size() > 2 ? gloCoords[2] : 0.0);
-    SpatialDomains::PointGeomSharedPtr p =
-        MemoryManager<SpatialDomains::PointGeom>::AllocateSharedPtr(
+    SpatialDomains::PointGeomUniquePtr p =
+        ObjPoolManager<SpatialDomains::PointGeom>::AllocateUniquePtr(
             GetExp(0)->GetCoordim(), -1, x, y, z);
 
     // Get the list of elements whose bounding box contains the desired
     // point.
-    std::vector<int> elmts = m_graph->GetElementsContainingPoint(p);
+    std::vector<int> elmts = m_graph->GetElementsContainingPoint(p.get());
 
     // Check each element in turn to see if point lies within it.
     for (int i = 0; i < elmts.size(); ++i)
@@ -4439,7 +4413,7 @@ void ExpList::v_GetMovingFrames(const SpatialDomains::GeomMMF MMFdir,
         }
 
         // MF from LOCALREGIONS
-        (*m_exp)[i]->GetMetricInfo()->GetMovingFrames(
+        (*m_exp)[i]->GetGeomFactors()->GetMovingFrames(
             (*m_exp)[i]->GetPointsKeys(), MMFdir, CircCentre, MFloc);
 
         // Get the physical data offset for this expansion.
@@ -4901,7 +4875,7 @@ void ExpList::v_GetNormals(Array<OneD, Array<OneD, NekDouble>> &normals)
                 Array<OneD, NekDouble> traceNormals(faceNq0 * faceNq1);
                 for (j = 0; j < coordim; ++j)
                 {
-                    Vmath::Scatr(faceNq0 * faceNq1, locNormals[j], map,
+                    Vmath::Gathr(faceNq0 * faceNq1, locNormals[j], map,
                                  traceNormals);
 
                     LibUtilities::Interp2D(
@@ -5182,7 +5156,8 @@ void ExpList::v_ExtractTracePhys(
 
 void ExpList::v_ExtractTracePhys(
     [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
-    [[maybe_unused]] Array<OneD, NekDouble> &outarray)
+    [[maybe_unused]] Array<OneD, NekDouble> &outarray,
+    [[maybe_unused]] bool gridVelocity)
 {
     NEKERROR(ErrorUtil::efatal,
              "This method is not defined or valid for this class type");
@@ -5223,15 +5198,18 @@ GlobalLinSysKey ExpList::v_LinearAdvectionDiffusionReactionSolve(
     return NullGlobalLinSysKey;
 }
 
-void ExpList::v_LinearAdvectionReactionSolve(
-    [[maybe_unused]] const Array<OneD, Array<OneD, NekDouble>> &velocity,
+GlobalLinSysKey ExpList::v_LinearAdvectionReactionSolve(
     [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
     [[maybe_unused]] Array<OneD, NekDouble> &outarray,
-    [[maybe_unused]] const NekDouble lambda,
-    [[maybe_unused]] const Array<OneD, const NekDouble> &dirForcing)
+    [[maybe_unused]] const StdRegions::ConstFactorMap &factors,
+    [[maybe_unused]] const StdRegions::VarCoeffMap &varcoeff,
+    [[maybe_unused]] const MultiRegions::VarFactorsMap &varfactors,
+    [[maybe_unused]] const Array<OneD, const NekDouble> &dirForcing,
+    [[maybe_unused]] const bool PhysSpaceForcing)
 {
     NEKERROR(ErrorUtil::efatal,
-             "This method is not defined or valid for this class type");
+             "LinearAdvectionReactionSolve not implemented.");
+    return NullGlobalLinSysKey;
 }
 
 void ExpList::v_HomogeneousFwdTrans(
@@ -5337,6 +5315,20 @@ void ExpList::v_NormVectorIProductWRTBase(
 }
 
 void ExpList::v_ImposeDirichletConditions(
+    [[maybe_unused]] Array<OneD, NekDouble> &outarray)
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This method is not defined or valid for this class type");
+}
+
+void ExpList::v_ImposeNeumannConditions(
+    [[maybe_unused]] Array<OneD, NekDouble> &outarray)
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This method is not defined or valid for this class type");
+}
+
+void ExpList::v_ImposeRobinConditions(
     [[maybe_unused]] Array<OneD, NekDouble> &outarray)
 {
     NEKERROR(ErrorUtil::efatal,
@@ -5715,6 +5707,30 @@ void ExpList::v_PeriodicBwdCopy(
     NEKERROR(ErrorUtil::efatal, "v_PeriodicBwdCopy not defined");
 }
 
+void ExpList::v_PeriodicBwdRot(
+    [[maybe_unused]] Array<OneD, Array<OneD, NekDouble>> &Bwd)
+{
+    NEKERROR(ErrorUtil::efatal, "v_PeriodicBwdRot not defined");
+}
+
+void ExpList::v_PeriodicDeriveBwdRot(
+    [[maybe_unused]] TensorOfArray3D<NekDouble> &Bwd)
+{
+    NEKERROR(ErrorUtil::efatal, "v_PeriodicDeriveBwdRot not defined");
+}
+
+void ExpList::v_RotLocalBwdTrace(
+    [[maybe_unused]] Array<OneD, Array<OneD, NekDouble>> &Bwd)
+{
+    NEKERROR(ErrorUtil::efatal, "v_RotLocalBwdTrace not defined");
+}
+
+void ExpList::v_RotLocalBwdDeriveTrace(
+    [[maybe_unused]] TensorOfArray3D<NekDouble> &Bwd)
+{
+    NEKERROR(ErrorUtil::efatal, "v_RotLocalBwdDeriveTrace not defined");
+}
+
 /**
  */
 const Array<OneD, const SpatialDomains::BoundaryConditionShPtr> &ExpList::
@@ -5868,7 +5884,7 @@ void ExpList::CreateCollections(Collections::ImplementationType ImpType)
 
     // initialize the deformed flag based on the first element
     bool prevDef =
-        exp->GetMetricInfo()->GetGtype() == SpatialDomains::eDeformed;
+        exp->GetGeomFactors()->GetGtype() == SpatialDomains::eDeformed;
     // collsize is the maximum size among all collections
     int collsize = 0;
     int mincol   = (*m_exp).size();
@@ -5886,7 +5902,7 @@ void ExpList::CreateCollections(Collections::ImplementationType ImpType)
         }
         // fetch deformed flag of current element
         bool Deformed =
-            (exp->GetMetricInfo()->GetGtype() == SpatialDomains::eDeformed);
+            (exp->GetGeomFactors()->GetGtype() == SpatialDomains::eDeformed);
 
         // Check if this element is the same type as the previous one or
         // if we have reached the maximum collection size
@@ -6636,8 +6652,9 @@ void ExpList::v_PhysGalerkinProjection1DScaled(
                 // get new points key
                 int pt0  = (*m_exp)[i]->GetNumPoints(0);
                 int pt1  = (*m_exp)[i]->GetNumPoints(1);
-                int npt0 = (int)pt0 * scale;
-                int npt1 = (int)pt1 * scale;
+                int npt0 = (int)(pt0 * scale);
+                int npt1 = (pt0 - pt1 == 1) ? (int)(pt0 * scale - 1)
+                                            : (int)(pt1 * scale);
 
                 LibUtilities::PointsKey newPointsKey0(
                     npt0, (*m_exp)[i]->GetPointsType(0));
@@ -6663,9 +6680,11 @@ void ExpList::v_PhysGalerkinProjection1DScaled(
                 int pt0  = (*m_exp)[i]->GetNumPoints(0);
                 int pt1  = (*m_exp)[i]->GetNumPoints(1);
                 int pt2  = (*m_exp)[i]->GetNumPoints(2);
-                int npt0 = (int)pt0 * scale;
-                int npt1 = (int)pt1 * scale;
-                int npt2 = (int)pt2 * scale;
+                int npt0 = (int)(pt0 * scale);
+                int npt1 = (pt0 - pt1 == 1) ? (int)(pt0 * scale - 1)
+                                            : (int)(pt1 * scale);
+                int npt2 = (pt0 - pt2 == 1) ? (int)(pt0 * scale - 1)
+                                            : (int)(pt2 * scale);
 
                 LibUtilities::PointsKey newPointsKey0(
                     npt0, (*m_exp)[i]->GetPointsType(0));

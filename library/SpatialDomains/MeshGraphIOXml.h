@@ -70,10 +70,12 @@ protected:
         const std::string &outfilename, bool defaultExp = false,
         const LibUtilities::FieldMetaDataMap &metadata =
             LibUtilities::NullFieldMetaDataMap) override;
-    SPATIAL_DOMAINS_EXPORT void v_ReadGeometry(
-        LibUtilities::DomainRangeShPtr rng, bool fillGraph) override;
+    SPATIAL_DOMAINS_EXPORT void v_ReadGeometry(bool fillGraph) override;
     SPATIAL_DOMAINS_EXPORT void v_PartitionMesh(
         LibUtilities::SessionReaderSharedPtr session) override;
+
+    SPATIAL_DOMAINS_EXPORT void SetupCompositeRange(
+        LibUtilities::DomainRangeShPtr &rng);
 
     virtual void v_ReadVertices();
     virtual void v_ReadCurves();
@@ -101,16 +103,31 @@ protected:
                           const std::string &token,
                           CompositeSharedPtr &composite);
 
-    virtual void v_WriteVertices(TiXmlElement *geomTag, PointGeomMap &verts);
-    virtual void v_WriteEdges(TiXmlElement *geomTag, SegGeomMap &edges);
-    virtual void v_WriteTris(TiXmlElement *faceTag, TriGeomMap &tris);
-    virtual void v_WriteQuads(TiXmlElement *faceTag, QuadGeomMap &quads);
-    virtual void v_WriteHexs(TiXmlElement *elmtTag, HexGeomMap &hexs);
-    virtual void v_WritePrisms(TiXmlElement *elmtTag, PrismGeomMap &pris);
-    virtual void v_WritePyrs(TiXmlElement *elmtTag, PyrGeomMap &pyrs);
-    virtual void v_WriteTets(TiXmlElement *elmtTag, TetGeomMap &tets);
+    // *keysToWrite specifies a subset of GeomMap to write during partitioning.
+    virtual void v_WriteVertices(
+        TiXmlElement *geomTag,
+        std::vector<int> keysToWrite = std::vector<int>());
+    virtual void v_WriteEdges(
+        TiXmlElement *geomTag,
+        std::vector<int> keysToWrite = std::vector<int>());
+    virtual void v_WriteTris(TiXmlElement *faceTag,
+                             std::vector<int> keysToWrite = std::vector<int>());
+    virtual void v_WriteQuads(
+        TiXmlElement *faceTag,
+        std::vector<int> keysToWrite = std::vector<int>());
+    virtual void v_WriteHexs(TiXmlElement *elmtTag,
+                             std::vector<int> keysToWrite = std::vector<int>());
+    virtual void v_WritePrisms(
+        TiXmlElement *elmtTag,
+        std::vector<int> keysToWrite = std::vector<int>());
+    virtual void v_WritePyrs(TiXmlElement *elmtTag,
+                             std::vector<int> keysToWrite = std::vector<int>());
+    virtual void v_WriteTets(TiXmlElement *elmtTag,
+                             std::vector<int> keysToWrite = std::vector<int>());
     virtual void v_WriteCurves(TiXmlElement *geomTag, CurveMap &edges,
-                               CurveMap &faces);
+                               CurveMap &faces,
+                               std::vector<int> *keysToWriteEdges = nullptr,
+                               std::vector<int> *keysToWriteFaces = nullptr);
     void WriteComposites(TiXmlElement *geomTag, CompositeMap &comps,
                          std::map<int, std::string> &compLabels);
     void WriteDomain(TiXmlElement *geomTag,

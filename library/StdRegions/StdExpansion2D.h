@@ -53,6 +53,45 @@ public:
 
     // Generic operations in different element
 
+    STD_REGIONS_EXPORT NekDouble
+    Integral(const Array<OneD, const NekDouble> &inarray,
+             const Array<OneD, const NekDouble> &w0,
+             const Array<OneD, const NekDouble> &w1);
+
+    // find derivative of u (inarray) at all coords points
+    STD_REGIONS_EXPORT inline NekDouble BaryTensorDeriv(
+        const Array<OneD, NekDouble> &coord,
+        const Array<OneD, const NekDouble> &inarray,
+        std::array<NekDouble, 3> &firstOrderDerivs)
+    {
+        const int nq0 = m_base[0]->GetNumPoints();
+        const int nq1 = m_base[1]->GetNumPoints();
+
+        const NekDouble *ptr = &inarray[0];
+        Array<OneD, NekDouble> deriv0(nq1, 0.0);
+        Array<OneD, NekDouble> phys0(nq1, 0.0);
+
+        for (int j = 0; j < nq1; ++j, ptr += nq0)
+        {
+            phys0[j] =
+                StdExpansion::BaryEvaluate<0, true>(coord[0], ptr, deriv0[j]);
+        }
+        firstOrderDerivs[0] =
+            StdExpansion::BaryEvaluate<1, false>(coord[1], &deriv0[0]);
+
+        return StdExpansion::BaryEvaluate<1, true>(coord[1], &phys0[0],
+                                                   firstOrderDerivs[1]);
+    }
+
+    STD_REGIONS_EXPORT void IProductWRTBaseKernel(
+        const Array<OneD, const NekDouble> &base0,
+        const Array<OneD, const NekDouble> &base1,
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray, const Array<OneD, NekDouble> &jac,
+        const bool Deformed, [[maybe_unused]] bool CollDir0 = false,
+        [[maybe_unused]] bool CollDir1 = false);
+
+protected:
     /** \brief Calculate the 2D derivative in the local
      *  tensor/collapsed coordinate at the physical points
      *
@@ -89,52 +128,11 @@ public:
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray_d0,
         Array<OneD, NekDouble> &outarray_d1);
+    STD_REGIONS_EXPORT void v_PhysDeriv(
+        const int dir, const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
+    using StdExpansion::v_PhysDeriv;
 
-    STD_REGIONS_EXPORT NekDouble
-    Integral(const Array<OneD, const NekDouble> &inarray,
-             const Array<OneD, const NekDouble> &w0,
-             const Array<OneD, const NekDouble> &w1);
-
-    // find derivative of u (inarray) at all coords points
-    STD_REGIONS_EXPORT inline NekDouble BaryTensorDeriv(
-        const Array<OneD, NekDouble> &coord,
-        const Array<OneD, const NekDouble> &inarray,
-        std::array<NekDouble, 3> &firstOrderDerivs)
-    {
-        const int nq0 = m_base[0]->GetNumPoints();
-        const int nq1 = m_base[1]->GetNumPoints();
-
-        const NekDouble *ptr = &inarray[0];
-        Array<OneD, NekDouble> deriv0(nq1, 0.0);
-        Array<OneD, NekDouble> phys0(nq1, 0.0);
-
-        for (int j = 0; j < nq1; ++j, ptr += nq0)
-        {
-            phys0[j] =
-                StdExpansion::BaryEvaluate<0, true>(coord[0], ptr, deriv0[j]);
-        }
-        firstOrderDerivs[0] =
-            StdExpansion::BaryEvaluate<1, false>(coord[1], &deriv0[0]);
-
-        return StdExpansion::BaryEvaluate<1, true>(coord[1], &phys0[0],
-                                                   firstOrderDerivs[1]);
-    }
-
-    STD_REGIONS_EXPORT void BwdTrans_SumFacKernel(
-        const Array<OneD, const NekDouble> &base0,
-        const Array<OneD, const NekDouble> &base1,
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-        bool doCheckCollDir0 = true, bool doCheckCollDir1 = true);
-
-    STD_REGIONS_EXPORT void IProductWRTBase_SumFacKernel(
-        const Array<OneD, const NekDouble> &base0,
-        const Array<OneD, const NekDouble> &base1,
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-        bool doCheckCollDir0 = true, bool doCheckCollDir1 = true);
-
-protected:
     /** \brief This function evaluates the expansion at a single
      *  (arbitrary) point of the domain
      *
@@ -158,26 +156,27 @@ protected:
      *  \return returns the value of the expansion at the single point
      */
     STD_REGIONS_EXPORT NekDouble
-    v_PhysEvaluate(const Array<OneD, const NekDouble> &coords,
-                   const Array<OneD, const NekDouble> &physvals) override;
+    v_StdPhysEvaluate(const Array<OneD, const NekDouble> &coords,
+                      const Array<OneD, const NekDouble> &physvals) override;
 
     STD_REGIONS_EXPORT NekDouble
     v_PhysEvaluateInterp(const Array<OneD, DNekMatSharedPtr> &I,
                          const Array<OneD, const NekDouble> &physvals) override;
 
-    STD_REGIONS_EXPORT virtual void v_BwdTrans_SumFacKernel(
+    STD_REGIONS_EXPORT void v_IProductWRTBase(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
+    STD_REGIONS_EXPORT virtual void v_IProductWRTBaseKernel(
         const Array<OneD, const NekDouble> &base0,
         const Array<OneD, const NekDouble> &base1,
         const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-        bool doCheckCollDir0, bool doCheckCollDir1) = 0;
+        Array<OneD, NekDouble> &outarray, const Array<OneD, NekDouble> &jac,
+        const bool Deformed, [[maybe_unused]] bool CollDir0 = false,
+        [[maybe_unused]] bool CollDir1 = false) = 0;
 
-    STD_REGIONS_EXPORT virtual void v_IProductWRTBase_SumFacKernel(
-        const Array<OneD, const NekDouble> &base0,
-        const Array<OneD, const NekDouble> &base1,
+    STD_REGIONS_EXPORT void v_MultiplyByStdQuadratureMetric(
         const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-        bool doCheckCollDir0, bool doCheckCollDir1) = 0;
+        Array<OneD, NekDouble> &outarray) override;
 
     STD_REGIONS_EXPORT void v_LaplacianMatrixOp_MatFree(
         const Array<OneD, const NekDouble> &inarray,
@@ -210,10 +209,13 @@ protected:
         const Array<OneD, const NekDouble> &fromData,
         Array<OneD, NekDouble> &toData) override;
 
-private:
     int v_GetShapeDimension() const final
     {
         return 2;
+    }
+    bool v_IsCollocatedBasis() const final
+    {
+        return ((m_base[0]->Collocation()) && (m_base[1]->Collocation()));
     }
 };
 

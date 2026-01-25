@@ -256,6 +256,7 @@ SET(LinearAlgebraSources
 SET(MemoryHeaders
 ./Memory/ThreadSpecificPool.hpp
 ./Memory/NekMemoryManager.hpp
+./Memory/ObjectPool.hpp
 )
 
 SET(MemorySources
@@ -280,7 +281,6 @@ SET(TimeIntegrationHeaders
         ./TimeIntegration/DIRKTimeIntegrationSchemes.h
         ./TimeIntegration/IMEXTimeIntegrationSchemes.h
         ./TimeIntegration/IMEXdirkTimeIntegrationSchemes.h
-        ./TimeIntegration/IMEXGearTimeIntegrationScheme.h
         ./TimeIntegration/IMEXTimeIntegrationSchemeSDC.h
         ./TimeIntegration/ImplicitTimeIntegrationSchemeSDC.h
         ./TimeIntegration/MCNABTimeIntegrationScheme.h

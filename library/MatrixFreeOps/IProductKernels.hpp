@@ -445,6 +445,12 @@ NEK_FORCE_INLINE static void IProductTetKernel(
                                                                       // 1x
             }
         }
+
+        // increment mode in case order1!=order2
+        for (int q = nm1 - p; q < nm2 - p; ++q)
+        {
+            mode2 += nm2 - p - q;
+        }
     }
 
     if (correct)
@@ -665,7 +671,7 @@ NEK_FORCE_INLINE static void IProductPyrKernel(
     std::vector<vec_t, allocator<vec_t>> &sums_k,
     std::vector<vec_t, allocator<vec_t>> &out, NekDouble scale = 1.0)
 {
-    int mode_pqr = 0;
+    int mode2 = 0, mode_pqr = 0;
 
     for (int p = 0; p < nm0; ++p)
     {
@@ -717,13 +723,13 @@ NEK_FORCE_INLINE static void IProductPyrKernel(
                 sums_k[k] = sum_k; // Store 1x
             }
 
-            for (int r = 0; r < nm2 - p; ++r, ++mode_pqr)
+            for (int r = 0; r < nm2 - p; ++r, ++mode2, ++mode_pqr)
             {
                 vec_t sum_k = 0.0;
 
                 for (int k = 0; k < nq2; ++k)
                 {
-                    sum_k.fma(basis2[mode_pqr * nq2 + k] * w2[k],
+                    sum_k.fma(basis2[mode2 * nq2 + k] * w2[k],
                               sums_k[k]); // Load 3x
                 }
 
@@ -749,19 +755,25 @@ NEK_FORCE_INLINE static void IProductPyrKernel(
                 sums_k[k] = sum_k; // Store 1x
             }
 
-            for (int r = 0; r < nm2 - q; ++r, ++mode_pqr)
+            for (int r = 0; r < nm2 - q; ++r, ++mode2, ++mode_pqr)
             {
                 vec_t sum_k = 0.0;
 
                 for (int k = 0; k < nq2; ++k)
                 {
-                    sum_k.fma(basis2[mode_pqr * nq2 + k] * w2[k],
+                    sum_k.fma(basis2[mode2 * nq2 + k] * w2[k],
                               sums_k[k]); // Load 3x
                 }
 
                 ScaleAppend<SCALE, APPEND>(out[mode_pqr], sum_k,
                                            scale); // Store 1x
             }
+        }
+
+        // increment mode in case order1!=order2
+        for (int q = nm1; q < nm2; ++q)
+        {
+            mode2 += nm2 - q;
         }
     }
 

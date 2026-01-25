@@ -68,6 +68,10 @@ class Equation
 {
 public:
     LIB_UTILITIES_EXPORT Equation(const Equation &) = default;
+
+    // Null Constructor
+    LIB_UTILITIES_EXPORT Equation();
+
     LIB_UTILITIES_EXPORT Equation(InterpreterSharedPtr evaluator,
                                   const std::string &expr  = "",
                                   const std::string &vlist = "");
@@ -79,6 +83,8 @@ public:
     LIB_UTILITIES_EXPORT NekDouble Evaluate(NekDouble x, NekDouble y = 0,
                                             NekDouble z = 0,
                                             NekDouble t = 0) const;
+
+    LIB_UTILITIES_EXPORT NekDouble Evaluate(std::vector<NekDouble> point) const;
 
     LIB_UTILITIES_EXPORT void Evaluate(const Array<OneD, const NekDouble> &x,
                                        const Array<OneD, const NekDouble> &y,

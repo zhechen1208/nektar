@@ -36,7 +36,9 @@
 #include <Collections/IProduct.h>
 #include <Collections/MatrixFreeBase.h>
 #include <Collections/Operator.h>
+#include <LocalRegions/Expansion.h>
 #include <MatrixFreeOps/Operator.hpp>
+#include <SpatialDomains/GeomFactors.h>
 
 using namespace std;
 
@@ -44,6 +46,9 @@ namespace Nektar::Collections
 {
 
 using LibUtilities::eHexahedron;
+using LibUtilities::eNodalPrism;
+using LibUtilities::eNodalTet;
+using LibUtilities::eNodalTri;
 using LibUtilities::ePrism;
 using LibUtilities::ePyramid;
 using LibUtilities::eQuadrilateral;
@@ -144,7 +149,7 @@ OperatorKey IProductWRTBase_StdMat::m_typeArr[] = {
         OperatorKey(eTriangle, eIProductWRTBase, eStdMat, false),
         IProductWRTBase_StdMat::create, "IProductWRTBase_StdMat_Tri"),
     GetOperatorFactory().RegisterCreatorFunction(
-        OperatorKey(eTriangle, eIProductWRTBase, eStdMat, true),
+        OperatorKey(eNodalTri, eIProductWRTBase, eStdMat, true),
         IProductWRTBase_StdMat::create, "IProductWRTBase_StdMat_NodalTri"),
     GetOperatorFactory().RegisterCreatorFunction(
         OperatorKey(eQuadrilateral, eIProductWRTBase, eStdMat, false),
@@ -153,7 +158,7 @@ OperatorKey IProductWRTBase_StdMat::m_typeArr[] = {
         OperatorKey(eTetrahedron, eIProductWRTBase, eStdMat, false),
         IProductWRTBase_StdMat::create, "IProductWRTBase_StdMat_Tet"),
     GetOperatorFactory().RegisterCreatorFunction(
-        OperatorKey(eTetrahedron, eIProductWRTBase, eStdMat, true),
+        OperatorKey(eNodalTet, eIProductWRTBase, eStdMat, true),
         IProductWRTBase_StdMat::create, "IProductWRTBase_StdMat_NodalTet"),
     GetOperatorFactory().RegisterCreatorFunction(
         OperatorKey(ePyramid, eIProductWRTBase, eStdMat, false),
@@ -162,7 +167,7 @@ OperatorKey IProductWRTBase_StdMat::m_typeArr[] = {
         OperatorKey(ePrism, eIProductWRTBase, eStdMat, false),
         IProductWRTBase_StdMat::create, "IProductWRTBase_StdMat_Prism"),
     GetOperatorFactory().RegisterCreatorFunction(
-        OperatorKey(ePrism, eIProductWRTBase, eStdMat, true),
+        OperatorKey(eNodalPrism, eIProductWRTBase, eStdMat, true),
         IProductWRTBase_StdMat::create, "IProductWRTBase_StdMat_NodalPrism"),
     GetOperatorFactory().RegisterCreatorFunction(
         OperatorKey(eHexahedron, eIProductWRTBase, eStdMat, false),
@@ -286,12 +291,24 @@ public:
         const int nPhys   = m_stdExp->GetTotPoints();
         Array<OneD, NekDouble> tmp;
 
-        Vmath::Vmul(m_jacWStdW.size(), m_jacWStdW, 1, input, 1, wsp, 1);
-
-        for (int i = 0; i < m_numElmt; ++i)
+        if (m_deformed)
         {
-            m_stdExp->IProductWRTBase_SumFac(wsp + i * nPhys,
-                                             tmp = output + i * nCoeffs, false);
+            Vmath::Vmul(m_jac.size(), m_jac, 1, input, 1, wsp, 1);
+            for (int i = 0; i < m_numElmt; ++i)
+            {
+                m_stdExp->IProductWRTBase(wsp + i * nPhys,
+                                          tmp = output + i * nCoeffs);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < m_numElmt; ++i)
+            {
+                Vmath::Smul(nPhys, m_jac[i], input + i * nPhys, 1,
+                            tmp = wsp + i * nPhys, 1);
+                m_stdExp->IProductWRTBase(wsp + i * nPhys,
+                                          tmp = output + i * nCoeffs);
+            }
         }
     }
 
@@ -304,7 +321,8 @@ public:
     }
 
 protected:
-    Array<OneD, NekDouble> m_jacWStdW;
+    bool m_deformed;
+    Array<OneD, NekDouble> m_jac;
 
 private:
     IProductWRTBase_IterPerExp(
@@ -314,7 +332,12 @@ private:
     {
         int nqtot = pCollExp[0]->GetTotPoints();
 
-        m_jacWStdW = pGeomData->GetJacWithStdWeights(pCollExp);
+        const StdRegions::StdExpansion *sep = &(*pCollExp[0]);
+        const LocalRegions::Expansion *lep =
+            dynamic_cast<const LocalRegions::Expansion *>(sep);
+        m_deformed =
+            (lep->GetGeomFactors()->GetGtype() == SpatialDomains::eDeformed);
+        m_jac = pGeomData->GetJac(pCollExp);
 
         m_wspSize = nqtot * m_numElmt;
     }
@@ -329,7 +352,7 @@ OperatorKey IProductWRTBase_IterPerExp::m_typeArr[] = {
         OperatorKey(eTriangle, eIProductWRTBase, eIterPerExp, false),
         IProductWRTBase_IterPerExp::create, "IProductWRTBase_IterPerExp_Tri"),
     GetOperatorFactory().RegisterCreatorFunction(
-        OperatorKey(eTriangle, eIProductWRTBase, eIterPerExp, true),
+        OperatorKey(eNodalTri, eIProductWRTBase, eIterPerExp, true),
         IProductWRTBase_IterPerExp::create,
         "IProductWRTBase_IterPerExp_NodalTri"),
     GetOperatorFactory().RegisterCreatorFunction(
@@ -339,7 +362,7 @@ OperatorKey IProductWRTBase_IterPerExp::m_typeArr[] = {
         OperatorKey(eTetrahedron, eIProductWRTBase, eIterPerExp, false),
         IProductWRTBase_IterPerExp::create, "IProductWRTBase_IterPerExp_Tet"),
     GetOperatorFactory().RegisterCreatorFunction(
-        OperatorKey(eTetrahedron, eIProductWRTBase, eIterPerExp, true),
+        OperatorKey(eNodalTet, eIProductWRTBase, eIterPerExp, true),
         IProductWRTBase_IterPerExp::create,
         "IProductWRTBase_IterPerExp_NodalTet"),
     GetOperatorFactory().RegisterCreatorFunction(
@@ -349,7 +372,7 @@ OperatorKey IProductWRTBase_IterPerExp::m_typeArr[] = {
         OperatorKey(ePrism, eIProductWRTBase, eIterPerExp, false),
         IProductWRTBase_IterPerExp::create, "IProductWRTBase_IterPerExp_Prism"),
     GetOperatorFactory().RegisterCreatorFunction(
-        OperatorKey(ePrism, eIProductWRTBase, eIterPerExp, true),
+        OperatorKey(eNodalPrism, eIProductWRTBase, eIterPerExp, true),
         IProductWRTBase_IterPerExp::create,
         "IProductWRTBase_IterPerExp_NodalPrism"),
     GetOperatorFactory().RegisterCreatorFunction(
@@ -417,7 +440,7 @@ OperatorKey IProductWRTBase_NoCollection::m_typeArr[] = {
         IProductWRTBase_NoCollection::create,
         "IProductWRTBase_NoCollection_Tri"),
     GetOperatorFactory().RegisterCreatorFunction(
-        OperatorKey(eTriangle, eIProductWRTBase, eNoCollection, true),
+        OperatorKey(eNodalTri, eIProductWRTBase, eNoCollection, true),
         IProductWRTBase_NoCollection::create,
         "IProductWRTBase_NoCollection_NodalTri"),
     GetOperatorFactory().RegisterCreatorFunction(
@@ -429,7 +452,7 @@ OperatorKey IProductWRTBase_NoCollection::m_typeArr[] = {
         IProductWRTBase_NoCollection::create,
         "IProductWRTBase_NoCollection_Tet"),
     GetOperatorFactory().RegisterCreatorFunction(
-        OperatorKey(eTetrahedron, eIProductWRTBase, eNoCollection, true),
+        OperatorKey(eNodalTet, eIProductWRTBase, eNoCollection, true),
         IProductWRTBase_NoCollection::create,
         "IProductWRTBase_NoCollection_NodalTet"),
     GetOperatorFactory().RegisterCreatorFunction(
@@ -441,7 +464,7 @@ OperatorKey IProductWRTBase_NoCollection::m_typeArr[] = {
         IProductWRTBase_NoCollection::create,
         "IProductWRTBase_NoCollection_Prism"),
     GetOperatorFactory().RegisterCreatorFunction(
-        OperatorKey(ePrism, eIProductWRTBase, eNoCollection, true),
+        OperatorKey(eNodalPrism, eIProductWRTBase, eNoCollection, true),
         IProductWRTBase_NoCollection::create,
         "IProductWRTBase_NoCollection_NodalPrism"),
     GetOperatorFactory().RegisterCreatorFunction(

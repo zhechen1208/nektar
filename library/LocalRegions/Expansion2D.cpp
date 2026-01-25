@@ -47,7 +47,7 @@ using namespace std;
 
 namespace Nektar::LocalRegions
 {
-Expansion2D::Expansion2D(SpatialDomains::Geometry2DSharedPtr pGeom)
+Expansion2D::Expansion2D(SpatialDomains::Geometry2D *pGeom)
     : StdExpansion(), Expansion(pGeom), StdExpansion2D()
 {
 }
@@ -57,15 +57,15 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
     DNekScalMatSharedPtr returnval;
     LibUtilities::PointsKeyVector ptsKeys = GetPointsKeys();
 
-    ASSERTL2(m_metricinfo->GetGtype() != SpatialDomains::eNoGeomType,
+    ASSERTL2(m_geomFactors->GetGtype() != SpatialDomains::eNoGeomType,
              "Geometric information is not set up");
 
     switch (mkey.GetMatrixType())
     {
         case StdRegions::eMass:
         {
-            if ((m_metricinfo->GetGtype() == SpatialDomains::eDeformed) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffMass)))
+            if ((m_geomFactors->GetGtype() == SpatialDomains::eDeformed) ||
+                mkey.HasVarCoeffForMatrixType(StdRegions::eMass))
             {
                 NekDouble one        = 1.0;
                 DNekMatSharedPtr mat = GenMatrix(mkey);
@@ -75,7 +75,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
             }
             else
             {
-                NekDouble jac        = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac        = (m_geomFactors->GetJac())[0];
                 DNekMatSharedPtr mat = GetStdMatrix(mkey);
 
                 returnval =
@@ -111,7 +111,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
         break;
         case StdRegions::eInvMass:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
             {
                 NekDouble one = 1.0;
                 StdRegions::StdMatrixKey masskey(StdRegions::eMass,
@@ -124,7 +124,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
             }
             else
             {
-                NekDouble fac        = 1.0 / (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble fac        = 1.0 / (m_geomFactors->GetJac())[0];
                 DNekMatSharedPtr mat = GetStdMatrix(mkey);
 
                 returnval =
@@ -136,14 +136,8 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
         case StdRegions::eWeakDeriv1:
         case StdRegions::eWeakDeriv2:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffLaplacian)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD00)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD01)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD02)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD11)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD12)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD22)))
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed ||
+                mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian))
             {
                 NekDouble one        = 1.0;
                 DNekMatSharedPtr mat = GenMatrix(mkey);
@@ -153,9 +147,9 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
             }
             else
             {
-                NekDouble jac = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac = (m_geomFactors->GetJac())[0];
                 Array<TwoD, const NekDouble> df =
-                    m_metricinfo->GetDerivFactors(ptsKeys);
+                    m_geomFactors->GetDerivFactors();
                 int dir = 0;
                 if (mkey.GetMatrixType() == StdRegions::eWeakDeriv0)
                 {
@@ -193,7 +187,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
         break;
         case StdRegions::eWeakDirectionalDeriv:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed ||
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed ||
                 mkey.GetNVarCoeff())
             {
                 NekDouble one        = 1.0;
@@ -212,9 +206,9 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
                 // dfdireta = tan_{eta_x} * d \eta/dx
                 //         + tan_{xi_y} * d \xi/dy
                 //         + tan_{xi_z} * d \xi/dz
-                NekDouble jac = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac = (m_geomFactors->GetJac())[0];
                 Array<TwoD, const NekDouble> df =
-                    m_metricinfo->GetDerivFactors(ptsKeys);
+                    m_geomFactors->GetDerivFactors();
 
                 Array<OneD, NekDouble> direction =
                     mkey.GetVarCoeff(StdRegions::eVarCoeffMF);
@@ -277,18 +271,9 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
         }
         case StdRegions::eLaplacian:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffLaplacian)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD00)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD01)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD10)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD02)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD20)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD11)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD12)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD21)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD22)) ||
-                (mkey.ConstFactorExists(StdRegions::eFactorSVVCutoffRatio)))
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed ||
+                mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian) ||
+                mkey.ConstFactorExists(StdRegions::eFactorSVVDiffCoeff))
             {
                 NekDouble one        = 1.0;
                 DNekMatSharedPtr mat = GenMatrix(mkey);
@@ -309,9 +294,9 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
                 DNekMat &lap01 = *GetStdMatrix(lap01key);
                 DNekMat &lap11 = *GetStdMatrix(lap11key);
 
-                NekDouble jac = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac = (m_geomFactors->GetJac())[0];
                 Array<TwoD, const NekDouble> gmat =
-                    m_metricinfo->GetGmat(ptsKeys);
+                    m_geomFactors->GetGmat(ptsKeys);
 
                 int rows = lap00.GetRows();
                 int cols = lap00.GetColumns();
@@ -339,10 +324,29 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
         {
             NekDouble factor = mkey.GetConstFactor(StdRegions::eFactorLambda);
 
-            MatrixKey masskey(mkey, StdRegions::eMass);
+            // Construct mass matrix
+            // Check for mass-specific varcoeffs to avoid unncessary
+            // re-computation of the elemental matrix every time step
+            StdRegions::VarCoeffMap massVarcoeffs = StdRegions::NullVarCoeffMap;
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eMass))
+            {
+                massVarcoeffs[StdRegions::eVarCoeffMass] =
+                    mkey.GetVarCoeff(StdRegions::eVarCoeffMass);
+            }
+            MatrixKey masskey(StdRegions::eMass, mkey.GetShapeType(), *this,
+                              mkey.GetConstFactors(), massVarcoeffs);
             DNekScalMat &MassMat = *GetLocMatrix(masskey);
 
-            MatrixKey lapkey(mkey, StdRegions::eLaplacian);
+            // Construct laplacian matrix
+            // Take all varcoeffs if one or more are detected
+            // use mapping from MatrixType to Vector of Varcoeffs
+            StdRegions::VarCoeffMap lapVarcoeffs = StdRegions::NullVarCoeffMap;
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian))
+            {
+                lapVarcoeffs = mkey.GetVarCoeffs();
+            }
+            MatrixKey lapkey(StdRegions::eLaplacian, mkey.GetShapeType(), *this,
+                             mkey.GetConstFactors(), lapVarcoeffs);
             DNekScalMat &LapMat = *GetLocMatrix(lapkey);
 
             int rows = LapMat.GetRows();
@@ -356,6 +360,16 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
 
             returnval =
                 MemoryManager<DNekScalMat>::AllocateSharedPtr(one, helm);
+
+            // Only drop matrix if time-dependence possible
+            if (!massVarcoeffs.empty())
+            {
+                DropLocMatrix(masskey);
+            }
+            if (!lapVarcoeffs.empty())
+            {
+                DropLocMatrix(lapkey);
+            }
         }
         break;
         case StdRegions::eHelmholtzGJP:
@@ -384,6 +398,48 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
                 HelmMat.Scale(), NDTraceMat);
         }
         break;
+        case StdRegions::eLinearAdvectionReaction:
+        {
+            NekDouble lambda = mkey.GetConstFactor(StdRegions::eFactorLambda);
+
+            // Construct mass matrix
+            // Check for mass-specific varcoeffs to avoid unncessary
+            // re-computation of the elemental matrix every time step
+            StdRegions::VarCoeffMap massVarcoeffs = StdRegions::NullVarCoeffMap;
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eMass))
+            {
+                massVarcoeffs[StdRegions::eVarCoeffMass] =
+                    mkey.GetVarCoeff(StdRegions::eVarCoeffMass);
+            }
+            MatrixKey masskey(StdRegions::eMass, mkey.GetShapeType(), *this,
+                              mkey.GetConstFactors(), massVarcoeffs);
+            DNekScalMat &MassMat = *GetLocMatrix(masskey);
+
+            // Construct advection matrix
+            // Check for varcoeffs not required;
+            // assume advection velocity is always time-dependent
+            MatrixKey advkey(mkey, StdRegions::eLinearAdvection);
+            DNekScalMat &AdvMat = *GetLocMatrix(advkey);
+
+            int rows = MassMat.GetRows();
+            int cols = MassMat.GetColumns();
+
+            DNekMatSharedPtr adr =
+                MemoryManager<DNekMat>::AllocateSharedPtr(rows, cols);
+
+            NekDouble one = 1.0;
+            (*adr)        = -lambda * MassMat + AdvMat;
+
+            returnval = MemoryManager<DNekScalMat>::AllocateSharedPtr(one, adr);
+
+            // Clear memory for time-dependent matrices
+            DropLocMatrix(advkey);
+            if (!massVarcoeffs.empty())
+            {
+                DropLocMatrix(masskey);
+            }
+        }
+        break;
         case StdRegions::eLinearAdvectionDiffusionReaction:
         {
             NekDouble lambda = mkey.GetConstFactor(StdRegions::eFactorLambda);
@@ -406,16 +462,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
             // TODO We might want to have a map
             // from MatrixType to Vector of Varcoeffs and vice-versa
             StdRegions::VarCoeffMap lapVarcoeffs = StdRegions::NullVarCoeffMap;
-            if ((mkey.HasVarCoeff(StdRegions::eVarCoeffLaplacian)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD00)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD01)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD10)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD02)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD20)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD11)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD12)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD21)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD22)))
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian))
             {
                 lapVarcoeffs = mkey.GetVarCoeffs();
             }
@@ -460,7 +507,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
 
             // Construct mass matrix (Check for varcoeffs)
             StdRegions::VarCoeffMap massVarcoeffs = StdRegions::NullVarCoeffMap;
-            if (mkey.HasVarCoeff(StdRegions::eVarCoeffMass))
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eMass))
             {
                 massVarcoeffs[StdRegions::eVarCoeffMass] =
                     mkey.GetVarCoeff(StdRegions::eVarCoeffMass);
@@ -471,16 +518,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
 
             // Construct laplacian matrix (Check for varcoeffs)
             StdRegions::VarCoeffMap lapVarcoeffs = StdRegions::NullVarCoeffMap;
-            if ((mkey.HasVarCoeff(StdRegions::eVarCoeffLaplacian)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD00)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD01)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD10)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD02)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD20)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD11)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD12)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD21)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD22)))
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian))
             {
                 lapVarcoeffs = mkey.GetVarCoeffs();
             }
@@ -532,7 +570,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
         break;
         case StdRegions::eIProductWRTBase:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
             {
                 NekDouble one        = 1.0;
                 DNekMatSharedPtr mat = GenMatrix(mkey);
@@ -542,7 +580,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
             }
             else
             {
-                NekDouble jac        = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac        = (m_geomFactors->GetJac())[0];
                 DNekMatSharedPtr mat = GetStdMatrix(mkey);
 
                 returnval =
@@ -554,7 +592,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
         case StdRegions::eIProductWRTDerivBase1:
         case StdRegions::eIProductWRTDerivBase2:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
             {
                 NekDouble one        = 1.0;
                 DNekMatSharedPtr mat = GenMatrix(mkey);
@@ -564,10 +602,10 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
             }
             else
             {
-                NekDouble jac = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac = (m_geomFactors->GetJac())[0];
 
                 const Array<TwoD, const NekDouble> &df =
-                    m_metricinfo->GetDerivFactors(ptsKeys);
+                    m_geomFactors->GetDerivFactors();
                 int dir = 0;
                 if (mkey.GetMatrixType() == StdRegions::eIProductWRTDerivBase0)
                 {
@@ -660,6 +698,127 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
     }
 
     return returnval;
+}
+
+void Expansion2D::v_PhysDeriv(const int dir,
+                              const Array<OneD, const NekDouble> &inarray,
+                              Array<OneD, NekDouble> &outarray)
+{
+    switch (dir)
+    {
+        case 0:
+        {
+            v_PhysDeriv(inarray, outarray, NullNekDouble1DArray,
+                        NullNekDouble1DArray);
+            break;
+        }
+
+        case 1:
+        {
+            v_PhysDeriv(inarray, NullNekDouble1DArray, outarray,
+                        NullNekDouble1DArray);
+            break;
+        }
+
+        case 2:
+        {
+            v_PhysDeriv(inarray, NullNekDouble1DArray, NullNekDouble1DArray,
+                        outarray);
+            break;
+        }
+
+        default:
+        {
+            ASSERTL1(false, "input dir is out of range");
+        }
+        break;
+    }
+}
+
+void Expansion2D::v_PhysDeriv(const Array<OneD, const NekDouble> &inarray,
+                              Array<OneD, NekDouble> &out_d0,
+                              Array<OneD, NekDouble> &out_d1,
+                              Array<OneD, NekDouble> &out_d2)
+{
+    int nquad0                             = m_base[0]->GetNumPoints();
+    int nquad1                             = m_base[1]->GetNumPoints();
+    int nqtot                              = nquad0 * nquad1;
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
+    Array<OneD, NekDouble> diff0(2 * nqtot);
+    Array<OneD, NekDouble> diff1(diff0 + nqtot);
+
+    v_StdPhysDeriv(inarray, diff0, diff1, NullNekDouble1DArray);
+
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
+    {
+        if (out_d0.size())
+        {
+            Vmath::Vmul(nqtot, df[0], 1, diff0, 1, out_d0, 1);
+            Vmath::Vvtvp(nqtot, df[1], 1, diff1, 1, out_d0, 1, out_d0, 1);
+        }
+
+        if (out_d1.size())
+        {
+            Vmath::Vmul(nqtot, df[2], 1, diff0, 1, out_d1, 1);
+            Vmath::Vvtvp(nqtot, df[3], 1, diff1, 1, out_d1, 1, out_d1, 1);
+        }
+
+        if (out_d2.size())
+        {
+            Vmath::Vmul(nqtot, df[4], 1, diff0, 1, out_d2, 1);
+            Vmath::Vvtvp(nqtot, df[5], 1, diff1, 1, out_d2, 1, out_d2, 1);
+        }
+    }
+    else // regular geometry
+    {
+        if (out_d0.size())
+        {
+            Vmath::Smul(nqtot, df[0][0], diff0, 1, out_d0, 1);
+            Blas::Daxpy(nqtot, df[1][0], diff1, 1, out_d0, 1);
+        }
+
+        if (out_d1.size())
+        {
+            Vmath::Smul(nqtot, df[2][0], diff0, 1, out_d1, 1);
+            Blas::Daxpy(nqtot, df[3][0], diff1, 1, out_d1, 1);
+        }
+
+        if (out_d2.size())
+        {
+            Vmath::Smul(nqtot, df[4][0], diff0, 1, out_d2, 1);
+            Blas::Daxpy(nqtot, df[5][0], diff1, 1, out_d2, 1);
+        }
+    }
+}
+
+void Expansion2D::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
+                                    Array<OneD, NekDouble> &outarray)
+{
+    const bool CollDir0 = m_base[0]->Collocation();
+    const bool CollDir1 = m_base[1]->Collocation();
+
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
+
+    if (v_IsCollocatedBasis())
+    {
+        int nqtot = GetTotPoints();
+        if (Deformed)
+        {
+            Vmath::Vmul(nqtot, jac, 1, inarray, 1, outarray, 1);
+        }
+        else
+        {
+            Vmath::Smul(nqtot, jac[0], inarray, 1, outarray, 1);
+        }
+        v_MultiplyByStdQuadratureMetric(outarray, outarray);
+    }
+    else
+    {
+        v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
+                                inarray, outarray, jac, Deformed, CollDir0,
+                                CollDir1);
+    }
 }
 
 void Expansion2D::v_AddEdgeNormBoundaryInt(
@@ -1247,8 +1406,8 @@ void Expansion2D::GetPhysEdgeVarCoeffsFromElement(
 }
 
 /**
- * Computes matrices needed for the HDG formulation. References to
- * equations relate to the following paper:
+ *   Computes matrices needed for the HDG formulation. References to
+ *   equations relate to the following paper:
  *   R. M. Kirby, S. J. Sherwin, B. Cockburn, To CG or to HDG: A
  *   Comparative Study, J. Sci. Comp P1-30
  *   DOI 10.1007/s10915-011-9501-7
@@ -1867,7 +2026,7 @@ DNekMatSharedPtr Expansion2D::v_GenMatrix(const StdRegions::StdMatrixKey &mkey)
             for (int i = 0; i < m_ncoeffs; ++i)
             {
                 FillMode(i, phys);
-                PhysDeriv(phys, Deriv[0], Deriv[1], Deriv[2]);
+                v_PhysDeriv(phys, Deriv[0], Deriv[1], Deriv[2]);
 
                 for (int t = 0; t < ntraces; ++t)
                 {
@@ -2207,7 +2366,7 @@ Array<OneD, unsigned int> Expansion2D::GetTraceInverseBoundaryMap(int eid)
     // Number of interior edge coefficients
     nEdgeCoeffs = GetTraceNcoeffs(eid) - 2;
 
-    const SpatialDomains::Geometry2DSharedPtr &geom = GetGeom2D();
+    const SpatialDomains::Geometry2D *geom = GetGeom2D();
 
     Array<OneD, unsigned int> edgemaparray(nEdgeCoeffs);
     Array<OneD, unsigned int> maparray(nEdgeCoeffs);
@@ -2232,7 +2391,8 @@ void Expansion2D::v_SetUpPhysNormals(const int edge)
 
 void Expansion2D::v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                                          Array<OneD, int> &idmap, const int nq0,
-                                         [[maybe_unused]] const int nq1)
+                                         [[maybe_unused]] const int nq1,
+                                         [[maybe_unused]] bool Forwards)
 {
     if (idmap.size() != nq0)
     {
@@ -2320,7 +2480,7 @@ NekDouble Expansion2D::v_VectorFlux(
 
 void Expansion2D::v_TraceNormLen(const int traceid, NekDouble &h, NekDouble &p)
 {
-    SpatialDomains::GeometrySharedPtr geom = GetGeom();
+    SpatialDomains::Geometry *geom = GetGeom();
 
     int nverts = geom->GetNumVerts();
 

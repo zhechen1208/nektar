@@ -56,7 +56,7 @@ class Expansion2D : virtual public Expansion,
                     virtual public StdRegions::StdExpansion2D
 {
 public:
-    LOCAL_REGIONS_EXPORT Expansion2D(SpatialDomains::Geometry2DSharedPtr pGeom);
+    LOCAL_REGIONS_EXPORT Expansion2D(SpatialDomains::Geometry2D *pGeom);
 
     LOCAL_REGIONS_EXPORT ~Expansion2D() override = default;
 
@@ -99,17 +99,25 @@ public:
         const StdRegions::VarCoeffMap &dirForcing,
         Array<OneD, NekDouble> &outarray);
 
-    inline SpatialDomains::Geometry2DSharedPtr GetGeom2D() const;
+    inline SpatialDomains::Geometry2D *GetGeom2D() const;
 
     LOCAL_REGIONS_EXPORT void ReOrientEdgePhysMap(
         const int nvert, const StdRegions::Orientation orient, const int nq0,
         Array<OneD, int> &idmap);
 
-    DNekMatSharedPtr v_GenMatrix(const StdRegions::StdMatrixKey &mkey) override;
-    void v_GenTraceExp(const int traceid, ExpansionSharedPtr &exp) override;
-
 protected:
     std::vector<bool> m_requireNeg;
+
+    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
+        const int dir, const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
+    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &out_d0, Array<OneD, NekDouble> &out_d1,
+        Array<OneD, NekDouble> &out_d2 = NullNekDouble1DArray) override;
+    LOCAL_REGIONS_EXPORT void v_IProductWRTBase(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
 
     // Hybridized DG routines
     void v_DGDeriv(const int dir, const Array<OneD, const NekDouble> &incoeffs,
@@ -117,6 +125,9 @@ protected:
                    Array<OneD, Array<OneD, NekDouble>> &edgeCoeffs,
                    Array<OneD, NekDouble> &out_d) override;
 
+    DNekMatSharedPtr v_GenMatrix(const StdRegions::StdMatrixKey &mkey) override;
+
+    void v_GenTraceExp(const int traceid, ExpansionSharedPtr &exp) override;
     void v_AddEdgeNormBoundaryInt(const int edge,
                                   const ExpansionSharedPtr &EdgeExp,
                                   const Array<OneD, const NekDouble> &Fx,
@@ -142,7 +153,7 @@ protected:
 
     void v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                                 Array<OneD, int> &idmap, const int nq0,
-                                const int nq1) override;
+                                const int nq1, bool Forwards) override;
 
     void v_SetUpPhysNormals(const int edge) override;
     NekDouble v_VectorFlux(
@@ -161,9 +172,9 @@ private:
         const StdRegions::VarCoeffMap &varcoeffs);
 };
 
-inline SpatialDomains::Geometry2DSharedPtr Expansion2D::GetGeom2D() const
+inline SpatialDomains::Geometry2D *Expansion2D::GetGeom2D() const
 {
-    return std::dynamic_pointer_cast<SpatialDomains::Geometry2D>(m_geom);
+    return static_cast<SpatialDomains::Geometry2D *>(m_geom);
 }
 } // namespace Nektar::LocalRegions
 

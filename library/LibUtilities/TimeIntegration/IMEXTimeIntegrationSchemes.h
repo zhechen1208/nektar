@@ -43,9 +43,6 @@
 
 #define LUE LIB_UTILITIES_EXPORT
 
-#include <boost/core/ignore_unused.hpp>
-
-#include <LibUtilities/TimeIntegration/IMEXGearTimeIntegrationScheme.h>
 #include <LibUtilities/TimeIntegration/IMEXdirkTimeIntegrationSchemes.h>
 #include <LibUtilities/TimeIntegration/TimeIntegrationSchemeGLM.h>
 
@@ -88,19 +85,6 @@ public:
                 IMEXdirkTimeIntegrationScheme::SetupSchemeData(
                     m_integration_phases[0], order, freeParams);
             }
-        }
-        else if (variant == "Gear")
-        {
-            m_integration_phases    = TimeIntegrationAlgorithmGLMVector(2);
-            m_integration_phases[0] = TimeIntegrationAlgorithmGLMSharedPtr(
-                new TimeIntegrationAlgorithmGLM(this));
-            m_integration_phases[1] = TimeIntegrationAlgorithmGLMSharedPtr(
-                new TimeIntegrationAlgorithmGLM(this));
-
-            IMEXdirkTimeIntegrationScheme::SetupSchemeData(
-                m_integration_phases[0], 2, std::vector<NekDouble>{2, 2});
-            IMEXGearTimeIntegrationScheme::SetupSchemeData(
-                m_integration_phases[1]);
         }
         else if (variant == "")
         {
@@ -162,13 +146,11 @@ public:
         else
         {
             ASSERTL1(false, "IMEX Time integration scheme bad variant: " +
-                                variant + ". Must be blank, 'dirk' or 'Gear'");
+                                variant + ". Must be blank or 'dirk'");
         }
     }
 
-    ~IMEXTimeIntegrationScheme() override
-    {
-    }
+    ~IMEXTimeIntegrationScheme() override = default;
 
     static TimeIntegrationSchemeSharedPtr create(
         std::string variant, size_t order, std::vector<NekDouble> freeParams)
@@ -289,117 +271,6 @@ protected:
     }
 
 }; // end class IMEXTimeIntegrationScheme
-
-////////////////////////////////////////////////////////////////////////////////
-// Backwards compatibility
-class IMEXOrder1TimeIntegrationScheme : public IMEXTimeIntegrationScheme
-{
-public:
-    IMEXOrder1TimeIntegrationScheme(std::string variant, size_t order,
-                                    std::vector<NekDouble> freeParams)
-        : IMEXTimeIntegrationScheme("", 1, freeParams)
-    {
-        boost::ignore_unused(variant, order);
-    }
-
-    static TimeIntegrationSchemeSharedPtr create(
-        [[maybe_unused]] std::string variant, [[maybe_unused]] size_t order,
-        std::vector<NekDouble> freeParams)
-    {
-        TimeIntegrationSchemeSharedPtr p =
-            MemoryManager<IMEXTimeIntegrationScheme>::AllocateSharedPtr(
-                "", 1, freeParams);
-        return p;
-    }
-
-    static std::string className;
-
-protected:
-    static std::string TimeIntegrationMethodLookupId;
-
-}; // end class IMEXOrder1TimeIntegrationScheme
-
-class IMEXOrder2TimeIntegrationScheme : public IMEXTimeIntegrationScheme
-{
-public:
-    IMEXOrder2TimeIntegrationScheme(std::string variant, size_t order,
-                                    std::vector<NekDouble> freeParams)
-        : IMEXTimeIntegrationScheme("", 2, freeParams)
-    {
-        boost::ignore_unused(variant, order);
-    }
-
-    static TimeIntegrationSchemeSharedPtr create(
-        [[maybe_unused]] std::string variant, [[maybe_unused]] size_t order,
-        std::vector<NekDouble> freeParams)
-    {
-        TimeIntegrationSchemeSharedPtr p =
-            MemoryManager<IMEXTimeIntegrationScheme>::AllocateSharedPtr(
-                "", 2, freeParams);
-        return p;
-    }
-
-    static std::string className;
-
-protected:
-    static std::string TimeIntegrationMethodLookupId;
-
-}; // end class IMEXOrder2TimeIntegrationScheme
-
-class IMEXOrder3TimeIntegrationScheme : public IMEXTimeIntegrationScheme
-{
-public:
-    IMEXOrder3TimeIntegrationScheme(std::string variant, size_t order,
-                                    std::vector<NekDouble> freeParams)
-        : IMEXTimeIntegrationScheme("", 3, freeParams)
-    {
-        boost::ignore_unused(variant, order);
-    }
-
-    static TimeIntegrationSchemeSharedPtr create(
-        [[maybe_unused]] std::string variant, [[maybe_unused]] size_t order,
-        std::vector<NekDouble> freeParams)
-    {
-        TimeIntegrationSchemeSharedPtr p =
-            MemoryManager<IMEXTimeIntegrationScheme>::AllocateSharedPtr(
-                "", 3, freeParams);
-        return p;
-    }
-
-    static std::string className;
-
-protected:
-    static std::string TimeIntegrationMethodLookupId;
-
-}; // end class IMEXOrder3TimeIntegrationScheme
-
-class IMEXOrder4TimeIntegrationScheme : public IMEXTimeIntegrationScheme
-{
-public:
-    IMEXOrder4TimeIntegrationScheme(std::string variant, size_t order,
-                                    std::vector<NekDouble> freeParams)
-        : IMEXTimeIntegrationScheme("", 4, freeParams)
-    {
-        boost::ignore_unused(variant, order);
-    }
-
-    static TimeIntegrationSchemeSharedPtr create(
-        [[maybe_unused]] std::string variant, [[maybe_unused]] size_t order,
-        std::vector<NekDouble> freeParams)
-    {
-
-        TimeIntegrationSchemeSharedPtr p =
-            MemoryManager<IMEXTimeIntegrationScheme>::AllocateSharedPtr(
-                "", 4, freeParams);
-        return p;
-    }
-
-    static std::string className;
-
-protected:
-    static std::string TimeIntegrationMethodLookupId;
-
-}; // end class IMEXOrder4TimeIntegrationScheme
 
 } // namespace Nektar::LibUtilities
 

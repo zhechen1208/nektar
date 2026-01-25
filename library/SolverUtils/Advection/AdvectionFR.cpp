@@ -142,9 +142,8 @@ void AdvectionFR::SetupMetrics(
                 jac               = pFields[0]
                           ->GetExp(n)
                           ->as<LocalRegions::Expansion1D>()
-                          ->GetGeom1D()
-                          ->GetMetricInfo()
-                          ->GetJac(ptsKeys);
+                          ->GetGeomFactors()
+                          ->GetJac();
                 for (i = 0; i < nLocalSolutionPts; ++i)
                 {
                     m_jac[i + phys_offset] = jac[0];
@@ -195,21 +194,18 @@ void AdvectionFR::SetupMetrics(
                 jac = pFields[0]
                           ->GetExp(n)
                           ->as<LocalRegions::Expansion2D>()
-                          ->GetGeom2D()
-                          ->GetMetricInfo()
-                          ->GetJac(ptsKeys);
+                          ->GetGeomFactors()
+                          ->GetJac();
                 gmat = pFields[0]
                            ->GetExp(n)
                            ->as<LocalRegions::Expansion2D>()
-                           ->GetGeom2D()
-                           ->GetMetricInfo()
-                           ->GetDerivFactors(ptsKeys);
+                           ->GetGeomFactors()
+                           ->GetDerivFactors();
 
                 if (pFields[0]
                         ->GetExp(n)
                         ->as<LocalRegions::Expansion2D>()
-                        ->GetGeom2D()
-                        ->GetMetricInfo()
+                        ->GetGeomFactors()
                         ->GetGtype() == SpatialDomains::eDeformed)
                 {
                     for (i = 0; i < nLocalSolutionPts; ++i)
@@ -953,10 +949,10 @@ void AdvectionFR::v_Advect(
                 {
                     phys_offset = fields[0]->GetPhys_Offset(n);
                     fields[0]->GetExp(n)->StdPhysDeriv(
-                        0, auxArray1 = f_hat + phys_offset,
+                        auxArray1 = f_hat + phys_offset,
                         auxArray2 = DfluxvectorX1 + phys_offset);
                     fields[0]->GetExp(n)->StdPhysDeriv(
-                        1, auxArray1 = g_hat + phys_offset,
+                        auxArray1 = g_hat + phys_offset, NullNekDouble1DArray,
                         auxArray2 = DfluxvectorX2 + phys_offset);
                 }
 

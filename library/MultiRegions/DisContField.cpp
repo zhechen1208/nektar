@@ -34,6 +34,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <LibUtilities/BasicUtils/ParseUtils.h>
 #include <LibUtilities/Foundations/ManagerAccess.h>
 #include <LocalRegions/Expansion0D.h>
 #include <LocalRegions/Expansion1D.h>
@@ -101,7 +102,7 @@ DisContField::DisContField(const LibUtilities::SessionReaderSharedPtr &pSession,
         SpatialDomains::BoundaryConditions bcs(m_session, graph);
 
         GenerateBoundaryConditionExpansion(graph, bcs, bcvar,
-                                           DeclareCoeffPhysArrays);
+                                           DeclareCoeffPhysArrays, ImpType);
         if (DeclareCoeffPhysArrays)
         {
             EvaluateBoundaryConditions(0.0, bcvar);
@@ -174,6 +175,9 @@ void DisContField::SetUpDG(const std::string variable,
     m_trace = MemoryManager<ExpList>::AllocateSharedPtr(
         m_session, m_bndCondExpansions, m_bndConditions, *m_exp, m_graph,
         m_comm, true, "DefaultVar", ImpType);
+
+    m_locElmtTrace = MemoryManager<MultiRegions::ExpList>::AllocateSharedPtr(
+        m_session, *m_exp, GetGraph(), true, "LocElmtTrace");
 
     PeriodicMap periodicTraces = (m_expType == e1D)   ? m_periodicVerts
                                  : (m_expType == e2D) ? m_periodicEdges
@@ -543,7 +547,7 @@ SpatialDomains::BoundaryConditionsSharedPtr DisContField::GetDomainBCs(
         }
     }
 
-    map<int, SpatialDomains::GeometrySharedPtr> EndOfDomain;
+    map<int, SpatialDomains::Geometry *> EndOfDomain;
 
     // Now find out which points in domain have only one vertex
     for (auto &domIt : domain)
@@ -620,7 +624,8 @@ DisContField::DisContField(const LibUtilities::SessionReaderSharedPtr &pSession,
         SpatialDomains::BoundaryConditionsSharedPtr DomBCs =
             GetDomainBCs(domain, Allbcs, variable);
 
-        GenerateBoundaryConditionExpansion(m_graph, *DomBCs, variable);
+        GenerateBoundaryConditionExpansion(m_graph, *DomBCs, variable, true,
+                                           ImpType);
         EvaluateBoundaryConditions(0.0, variable);
         ApplyGeomInfo();
         FindPeriodicTraces(*DomBCs, variable);
@@ -637,18 +642,25 @@ DisContField::DisContField(const DisContField &In,
                            const bool DeclareCoeffPhysArrays)
     : ExpList(In, DeclareCoeffPhysArrays), m_bndConditions(In.m_bndConditions),
       m_bndCondExpansions(In.m_bndCondExpansions),
-      m_globalBndMat(In.m_globalBndMat), m_traceMap(In.m_traceMap),
-      m_boundaryTraces(In.m_boundaryTraces),
+      m_bndCondBndWeight(In.m_bndCondBndWeight),
+      m_interfaceMap(In.m_interfaceMap), m_globalBndMat(In.m_globalBndMat),
+      m_traceMap(In.m_traceMap), m_boundaryTraces(In.m_boundaryTraces),
       m_periodicVerts(In.m_periodicVerts),
       m_periodicFwdCopy(In.m_periodicFwdCopy),
       m_periodicBwdCopy(In.m_periodicBwdCopy),
       m_leftAdjacentTraces(In.m_leftAdjacentTraces),
       m_locTraceToTraceMap(In.m_locTraceToTraceMap)
 {
-    if (In.m_trace)
+    if (In.m_trace) // independent trace space
     {
         m_trace = MemoryManager<ExpList>::AllocateSharedPtr(
             *In.m_trace, DeclareCoeffPhysArrays);
+    }
+
+    if (In.m_locElmtTrace)
+    {
+        m_locElmtTrace = MemoryManager<ExpList>::AllocateSharedPtr(
+            *In.m_locElmtTrace, DeclareCoeffPhysArrays);
     }
 }
 
@@ -670,7 +682,8 @@ DisContField::DisContField(const DisContField &In,
     if (variable.compare("DefaultVar") != 0)
     {
         SpatialDomains::BoundaryConditions bcs(m_session, graph);
-        GenerateBoundaryConditionExpansion(graph, bcs, variable);
+        GenerateBoundaryConditionExpansion(In.m_bndCondExpansions, bcs,
+                                           variable);
 
         if (DeclareCoeffPhysArrays)
         {
@@ -736,6 +749,7 @@ DisContField::DisContField(const DisContField &In,
         {
             m_globalBndMat       = In.m_globalBndMat;
             m_trace              = In.m_trace;
+            m_locElmtTrace       = In.m_locElmtTrace;
             m_traceMap           = In.m_traceMap;
             m_interfaceMap       = In.m_interfaceMap;
             m_locTraceToTraceMap = In.m_locTraceToTraceMap;
@@ -812,7 +826,8 @@ DisContField::~DisContField()
 void DisContField::GenerateBoundaryConditionExpansion(
     const SpatialDomains::MeshGraphSharedPtr &graph,
     const SpatialDomains::BoundaryConditions &bcs, const std::string variable,
-    const bool DeclareCoeffPhysArrays)
+    const bool DeclareCoeffPhysArrays,
+    const Collections::ImplementationType ImpType)
 {
     int cnt = 0;
     SpatialDomains::BoundaryConditionShPtr bc;
@@ -822,21 +837,148 @@ void DisContField::GenerateBoundaryConditionExpansion(
     const SpatialDomains::BoundaryConditionCollection &bconditions =
         bcs.GetBoundaryConditions();
 
+    std::set<int> ProcessBnd;
+    if (m_session->DefinesTag("CreateBndRegions"))
+    {
+        // evaluate bnd regions to be generated
+        vector<unsigned int> bndRegions;
+        ASSERTL0(ParseUtils::GenerateVector(
+                     m_session->GetTag("CreateBndRegions"), bndRegions),
+                 "Failed to interpret bnd values string");
+
+        for (auto &bnd : bndRegions)
+        {
+            if (bregions.count(bnd) ==
+                1) // this boundary may not exist on processor
+            {
+                ProcessBnd.insert(bnd);
+            }
+        }
+    }
+    else
+    {
+        for (auto &it : bregions)
+        {
+            ProcessBnd.insert(it.first);
+        }
+    }
+
     m_bndCondExpansions =
-        Array<OneD, MultiRegions::ExpListSharedPtr>(bregions.size());
+        Array<OneD, MultiRegions::ExpListSharedPtr>(ProcessBnd.size());
     m_bndConditions =
-        Array<OneD, SpatialDomains::BoundaryConditionShPtr>(bregions.size());
+        Array<OneD, SpatialDomains::BoundaryConditionShPtr>(ProcessBnd.size());
 
     m_bndCondBndWeight = Array<OneD, NekDouble>{bregions.size(), 0.0};
 
     // count the number of non-periodic boundary points
     for (auto &it : bregions)
     {
+        // check to see if reduced bnd regions have been set in FieldConvert.
+        if (ProcessBnd.count(it.first) == 0)
+        {
+            continue;
+        }
+
         bc = GetBoundaryCondition(bconditions, it.first, variable);
 
         locExpList = MemoryManager<MultiRegions::ExpList>::AllocateSharedPtr(
             m_session, *(it.second), graph, DeclareCoeffPhysArrays, variable,
-            false, bc->GetComm());
+            false, bc->GetComm(), ImpType);
+
+        m_bndCondExpansions[cnt] = locExpList;
+        m_bndConditions[cnt]     = bc;
+
+        std::string type = m_bndConditions[cnt]->GetUserDefined();
+
+        // Set up normals on non-Dirichlet boundary conditions. Second
+        // two conditions ideally should be in local solver setup (when
+        // made into factory)
+        if (bc->GetBoundaryConditionType() != SpatialDomains::eDirichlet ||
+            boost::iequals(type, "I") || boost::iequals(type, "CalcBC"))
+        {
+            SetUpPhysNormals();
+        }
+        cnt++;
+    }
+}
+
+/**
+ * \brief This function discretises the boundary conditions using an already
+ * setup expansion list of one-dimensions lower boundary expansions.
+ *
+ * According to their boundary region, the separate  boundary
+ * expansions are bundled together in an object of the class
+ *
+ * @param   In          An array of boundary conditions from  an alread setup
+ *                      expansion and the spectral/hp element expansions.
+ * @param   bcs         Information about the enforced boundary
+ *                      conditions.
+ * @param   variable    The session variable associated with the
+ *                      boundary conditions to enforce.
+ * @param DeclareCoeffPhysArrays bool to identify if array
+ *                               space should be setup.
+ *                               Default is true.
+ */
+void DisContField::GenerateBoundaryConditionExpansion(
+    const Array<OneD, const MultiRegions::ExpListSharedPtr> &In,
+    const SpatialDomains::BoundaryConditions &bcs, const std::string variable,
+    const bool DeclareCoeffPhysArrays,
+    [[maybe_unused]] const Collections::ImplementationType ImpType)
+{
+    int cnt = 0;
+    SpatialDomains::BoundaryConditionShPtr bc;
+    MultiRegions::ExpListSharedPtr locExpList;
+    const SpatialDomains::BoundaryRegionCollection &bregions =
+        bcs.GetBoundaryRegions();
+    const SpatialDomains::BoundaryConditionCollection &bconditions =
+        bcs.GetBoundaryConditions();
+
+    std::set<int> ProcessBnd;
+    if (m_session->DefinesTag("CreateBndRegions"))
+    {
+        // evaluate bnd regions to be generated
+        vector<unsigned int> bndRegions;
+        ASSERTL0(ParseUtils::GenerateVector(
+                     m_session->GetTag("CreateBndRegions"), bndRegions),
+                 "Failed to interpret bnd values string");
+
+        for (auto &bnd : bndRegions)
+        {
+            if (bregions.count(bnd) == 1)
+            {
+                ProcessBnd.insert(bnd);
+            }
+        }
+    }
+    else
+    {
+        for (auto &it : bregions)
+        {
+            ProcessBnd.insert(it.first);
+        }
+    }
+
+    m_bndCondExpansions =
+        Array<OneD, MultiRegions::ExpListSharedPtr>(ProcessBnd.size());
+    m_bndConditions =
+        Array<OneD, SpatialDomains::BoundaryConditionShPtr>(ProcessBnd.size());
+
+    m_bndCondBndWeight = Array<OneD, NekDouble>{bregions.size(), 0.0};
+
+    // count the number of non-periodic boundary points
+    for (auto &it : bregions)
+    {
+        // check to see if reduced bnd regions have been set in FieldConvert.
+        if (ProcessBnd.count(it.first) == 0)
+        {
+            continue;
+        }
+
+        bc = GetBoundaryCondition(bconditions, it.first, variable);
+
+        // make a copy of existing Bc passed to generate function
+        locExpList = MemoryManager<MultiRegions::ExpList>::AllocateSharedPtr(
+            *(In[cnt]), DeclareCoeffPhysArrays);
 
         m_bndCondExpansions[cnt] = locExpList;
         m_bndConditions[cnt]     = bc;
@@ -1045,10 +1187,10 @@ void DisContField::FindPeriodicTraces(
 
                 for (i = 0; i < c->m_geomVec.size(); ++i)
                 {
-                    SpatialDomains::SegGeomSharedPtr segGeom =
-                        std::dynamic_pointer_cast<SpatialDomains::SegGeom>(
+                    SpatialDomains::SegGeom *segGeom =
+                        dynamic_cast<SpatialDomains::SegGeom *>(
                             c->m_geomVec[i]);
-                    ASSERTL0(segGeom, "Unable to cast to shared ptr");
+                    ASSERTL0(segGeom, "Unable to cast to SegGeom*");
 
                     SpatialDomains::GeometryLinkSharedPtr elmt =
                         m_graph->GetElementsFromEdge(segGeom);
@@ -1056,8 +1198,8 @@ void DisContField::FindPeriodicTraces(
                              "The periodic boundaries belong to "
                              "more than one element of the mesh");
 
-                    SpatialDomains::Geometry2DSharedPtr geom =
-                        std::dynamic_pointer_cast<SpatialDomains::Geometry2D>(
+                    SpatialDomains::Geometry2D *geom =
+                        dynamic_cast<SpatialDomains::Geometry2D *>(
                             elmt->at(0).first);
 
                     allEdges[c->m_geomVec[i]->GetGlobalID()] =
@@ -1302,9 +1444,12 @@ void DisContField::FindPeriodicTraces(
                          "Unable to find composite " + id1s + " in order map.");
                 ASSERTL0(compOrder.count(id2) > 0,
                          "Unable to find composite " + id2s + " in order map.");
-                ASSERTL0(compOrder[id1].size() == compOrder[id2].size(),
-                         "Periodic composites " + id1s + " and " + id2s +
-                             " should have the same number of elements.");
+                WARNINGL0(
+                    compOrder[id1].size() == compOrder[id2].size(),
+                    "Periodic composites " + id1s + " and " + id2s +
+                        " should have the same number of elements. Have " +
+                        std::to_string(compOrder[id1].size()) + " vs " +
+                        std::to_string(compOrder[id2].size()));
                 ASSERTL0(compOrder[id1].size() > 0, "Periodic composites " +
                                                         id1s + " and " + id2s +
                                                         " are empty!");
@@ -1549,7 +1694,7 @@ void DisContField::FindPeriodicTraces(
             map<int, RotPeriodicInfo> rotComp;
             map<int, int> perComps;
             map<int, vector<int>> allVerts;
-            map<int, SpatialDomains::PointGeomVector> allCoord;
+            map<int, std::vector<SpatialDomains::PointGeom *>> allCoord;
             map<int, vector<int>> allEdges;
             map<int, vector<StdRegions::Orientation>> allOrient;
             set<int> locVerts;
@@ -1684,10 +1829,10 @@ void DisContField::FindPeriodicTraces(
                 // record of all faces local to this process.
                 for (i = 0; i < c->m_geomVec.size(); ++i)
                 {
-                    SpatialDomains::Geometry2DSharedPtr faceGeom =
-                        std::dynamic_pointer_cast<SpatialDomains::Geometry2D>(
+                    SpatialDomains::Geometry2D *faceGeom =
+                        dynamic_cast<SpatialDomains::Geometry2D *>(
                             c->m_geomVec[i]);
-                    ASSERTL1(faceGeom, "Unable to cast to shared ptr");
+                    ASSERTL1(faceGeom, "Unable to cast to Geometry2D*");
 
                     // Get geometry ID of this face and store in locFaces.
                     int faceId = c->m_geomVec[i]->GetGlobalID();
@@ -1703,7 +1848,7 @@ void DisContField::FindPeriodicTraces(
                     // Loop over vertices and edges of the face to populate
                     // allVerts, allEdges and allCoord maps.
                     vector<int> vertList, edgeList;
-                    SpatialDomains::PointGeomVector coordVec;
+                    std::vector<SpatialDomains::PointGeom *> coordVec;
                     vector<StdRegions::Orientation> orientVec;
                     for (j = 0; j < faceGeom->GetNumVerts(); ++j)
                     {
@@ -1949,20 +2094,20 @@ void DisContField::FindPeriodicTraces(
             // routine, but now hold information for all periodic vertices.
             map<int, vector<int>> vertMap;
             map<int, vector<int>> edgeMap;
-            map<int, SpatialDomains::PointGeomVector> coordMap;
+            map<int, std::vector<SpatialDomains::PointGeom *>> coordMap;
 
             // These final two maps are required for determining the relative
             // orientation of periodic edges. vCoMap associates vertex IDs with
             // their coordinates, and eIdMap maps an edge ID to the two vertices
             // which construct it.
-            map<int, SpatialDomains::PointGeomSharedPtr> vCoMap;
+            map<int, SpatialDomains::PointGeomUniquePtr> vCoMap;
             map<int, pair<int, int>> eIdMap;
 
             for (cnt = i = 0; i < totFaces; ++i)
             {
                 vector<int> edges(faceVerts[i]);
                 vector<int> verts(faceVerts[i]);
-                SpatialDomains::PointGeomVector coord(faceVerts[i]);
+                std::vector<SpatialDomains::PointGeom *> coord(faceVerts[i]);
 
                 // Keep track of cnt to enable correct edge vertices to be
                 // inserted into eIdMap.
@@ -1971,10 +2116,21 @@ void DisContField::FindPeriodicTraces(
                 {
                     edges[j] = edgeIds[cnt];
                     verts[j] = vertIds[cnt];
-                    coord[j] = MemoryManager<SpatialDomains::PointGeom>::
-                        AllocateSharedPtr(3, verts[j], vertX[cnt], vertY[cnt],
-                                          vertZ[cnt]);
-                    vCoMap[vertIds[cnt]] = coord[j];
+
+                    auto vIt = vCoMap.find(vertIds[cnt]);
+
+                    if (vIt == vCoMap.end())
+                    {
+                        auto pt = ObjPoolManager<SpatialDomains::PointGeom>::
+                            AllocateUniquePtr(3, verts[j], vertX[cnt],
+                                              vertY[cnt], vertZ[cnt]);
+                        coord[j]             = pt.get();
+                        vCoMap[vertIds[cnt]] = std::move(pt);
+                    }
+                    else
+                    {
+                        coord[j] = vIt->second.get();
+                    }
 
                     // Try to insert edge into the eIdMap to avoid re-inserting.
                     auto testIns = eIdMap.insert(make_pair(
@@ -2102,9 +2258,12 @@ void DisContField::FindPeriodicTraces(
                          "Unable to find composite " + id1s + " in order map.");
                 ASSERTL0(compOrder.count(id2) > 0,
                          "Unable to find composite " + id2s + " in order map.");
-                ASSERTL0(compOrder[id1].size() == compOrder[id2].size(),
-                         "Periodic composites " + id1s + " and " + id2s +
-                             " should have the same number of elements.");
+                WARNINGL0(
+                    compOrder[id1].size() == compOrder[id2].size(),
+                    "Periodic composites " + id1s + " and " + id2s +
+                        " should have the same number of elements. Have " +
+                        std::to_string(compOrder[id1].size()) + " vs " +
+                        std::to_string(compOrder[id2].size()));
                 ASSERTL0(compOrder[id1].size() > 0, "Periodic composites " +
                                                         id1s + " and " + id2s +
                                                         " are empty!");
@@ -2147,7 +2306,7 @@ void DisContField::FindPeriodicTraces(
 
                     // Loop up coordinates of the faces, check they have the
                     // same number of vertices.
-                    SpatialDomains::PointGeomVector tmpVec[2] = {
+                    std::vector<SpatialDomains::PointGeom *> tmpVec[2] = {
                         coordMap[ids[0]], coordMap[ids[1]]};
 
                     ASSERTL0(tmpVec[0].size() == tmpVec[1].size(),
@@ -2193,14 +2352,19 @@ void DisContField::FindPeriodicTraces(
                         if (tmpVec[0].size() == 3)
                         {
                             o = SpatialDomains::TriGeom::GetFaceOrientation(
-                                tmpVec[i], tmpVec[other], rotbnd, dir,
-                                sign * angle, tol);
+                                {tmpVec[i][0], tmpVec[i][1], tmpVec[i][2]},
+                                {tmpVec[other][0], tmpVec[other][1],
+                                 tmpVec[other][2]},
+                                rotbnd, dir, sign * angle, tol);
                         }
                         else
                         {
                             o = SpatialDomains::QuadGeom::GetFaceOrientation(
-                                tmpVec[i], tmpVec[other], rotbnd, dir,
-                                sign * angle, tol);
+                                {tmpVec[i][0], tmpVec[i][1], tmpVec[i][2],
+                                 tmpVec[i][3]},
+                                {tmpVec[other][0], tmpVec[other][1],
+                                 tmpVec[other][2], tmpVec[other][3]},
+                                rotbnd, dir, sign * angle, tol);
                         }
 
                         // Record face ID, orientation and whether other face is
@@ -2223,14 +2387,19 @@ void DisContField::FindPeriodicTraces(
                         if (tmpVec[0].size() == 3)
                         {
                             o = SpatialDomains::TriGeom::GetFaceOrientation(
-                                tmpVec[i], tmpVec[other], rotbnd, dir,
-                                sign * angle, tol);
+                                {tmpVec[i][0], tmpVec[i][1], tmpVec[i][2]},
+                                {tmpVec[other][0], tmpVec[other][1],
+                                 tmpVec[other][2]},
+                                rotbnd, dir, sign * angle, tol);
                         }
                         else
                         {
                             o = SpatialDomains::QuadGeom::GetFaceOrientation(
-                                tmpVec[i], tmpVec[other], rotbnd, dir,
-                                sign * angle, tol);
+                                {tmpVec[i][0], tmpVec[i][1], tmpVec[i][2],
+                                 tmpVec[i][3]},
+                                {tmpVec[other][0], tmpVec[other][1],
+                                 tmpVec[other][2], tmpVec[other][3]},
+                                rotbnd, dir, sign * angle, tol);
                         }
 
                         if (nFaceVerts == 3)
@@ -2309,14 +2478,19 @@ void DisContField::FindPeriodicTraces(
                         if (tmpVec[0].size() == 3)
                         {
                             o = SpatialDomains::TriGeom::GetFaceOrientation(
-                                tmpVec[i], tmpVec[other], rotbnd, dir,
-                                sign * angle, tol);
+                                {tmpVec[i][0], tmpVec[i][1], tmpVec[i][2]},
+                                {tmpVec[other][0], tmpVec[other][1],
+                                 tmpVec[other][2]},
+                                rotbnd, dir, sign * angle, tol);
                         }
                         else
                         {
                             o = SpatialDomains::QuadGeom::GetFaceOrientation(
-                                tmpVec[i], tmpVec[other], rotbnd, dir,
-                                sign * angle, tol);
+                                {tmpVec[i][0], tmpVec[i][1], tmpVec[i][2],
+                                 tmpVec[i][3]},
+                                {tmpVec[other][0], tmpVec[other][1],
+                                 tmpVec[other][2], tmpVec[other][3]},
+                                rotbnd, dir, sign * angle, tol);
                         }
 
                         vector<int> per1 = edgeMap[ids[i]];
@@ -2420,18 +2594,24 @@ void DisContField::FindPeriodicTraces(
                         // to be periodic with. perFaceId is the face
                         // ID which is periodic with faceId. The logic
                         // is much the same as the loop above.
-                        SpatialDomains::PointGeomVector tmpVec[2] = {
+                        std::vector<SpatialDomains::PointGeom *> tmpVec[2] = {
                             coordMap[faceId], coordMap[perFaceId]};
 
                         int nFaceVerts = tmpVec[0].size();
                         StdRegions::Orientation o =
                             nFaceVerts == 3
                                 ? SpatialDomains::TriGeom::GetFaceOrientation(
-                                      tmpVec[0], tmpVec[1], rotbnd, dir, angle,
-                                      tol)
+                                      {tmpVec[0][0], tmpVec[0][1],
+                                       tmpVec[0][2]},
+                                      {tmpVec[1][0], tmpVec[1][1],
+                                       tmpVec[1][2]},
+                                      rotbnd, dir, angle, tol)
                                 : SpatialDomains::QuadGeom::GetFaceOrientation(
-                                      tmpVec[0], tmpVec[1], rotbnd, dir, angle,
-                                      tol);
+                                      {tmpVec[0][0], tmpVec[0][1], tmpVec[0][2],
+                                       tmpVec[0][3]},
+                                      {tmpVec[1][0], tmpVec[1][1], tmpVec[1][2],
+                                       tmpVec[1][3]},
+                                      rotbnd, dir, angle, tol);
 
                         // Use vmap to determine which vertex of the other face
                         // should be periodic with this one.
@@ -2463,18 +2643,24 @@ void DisContField::FindPeriodicTraces(
                         // with. perFaceId is the face ID which is
                         // periodic with faceId. The logic is much the
                         // same as the loop above.
-                        SpatialDomains::PointGeomVector tmpVec[2] = {
+                        std::vector<SpatialDomains::PointGeom *> tmpVec[2] = {
                             coordMap[faceId], coordMap[perFaceId]};
 
                         int nFaceEdges = tmpVec[0].size();
                         StdRegions::Orientation o =
                             nFaceEdges == 3
                                 ? SpatialDomains::TriGeom::GetFaceOrientation(
-                                      tmpVec[0], tmpVec[1], rotbnd, dir, angle,
-                                      tol)
+                                      {tmpVec[0][0], tmpVec[0][1],
+                                       tmpVec[0][2]},
+                                      {tmpVec[1][0], tmpVec[1][1],
+                                       tmpVec[1][2]},
+                                      rotbnd, dir, angle, tol)
                                 : SpatialDomains::QuadGeom::GetFaceOrientation(
-                                      tmpVec[0], tmpVec[1], rotbnd, dir, angle,
-                                      tol);
+                                      {tmpVec[0][0], tmpVec[0][1], tmpVec[0][2],
+                                       tmpVec[0][3]},
+                                      {tmpVec[1][0], tmpVec[1][1], tmpVec[1][2],
+                                       tmpVec[1][3]},
+                                      rotbnd, dir, angle, tol);
 
                         // Use emap to determine which edge of the other
                         // face should be periodic with this one.
@@ -2866,6 +3052,119 @@ void DisContField::v_PeriodicBwdCopy(const Array<OneD, const NekDouble> &Fwd,
     }
 }
 
+void DisContField::v_PeriodicBwdRot(Array<OneD, Array<OneD, NekDouble>> &Bwd)
+{
+    int cnt = 0;
+    for (int n = 0; n < m_bndConditions.size(); ++n)
+    {
+        // check to see if boundary is rotationally aligned
+        if (boost::icontains(m_bndConditions[n]->GetUserDefined(), "Rotated"))
+        {
+            vector<string> tmpstr;
+
+            boost::split(tmpstr, m_bndConditions[n]->GetUserDefined(),
+                         boost::is_any_of(":"));
+
+            ASSERTL1(tmpstr.size() > 2,
+                     "Expected Rotated user defined string to "
+                     "contain direction and rotation angle "
+                     "and optionally a tolerance, "
+                     "i.e. Rotated:dir:PI/2:1e-6");
+
+            ASSERTL1((tmpstr[1] == "x") || (tmpstr[1] == "y") ||
+                         (tmpstr[1] == "z"),
+                     "Rotated Dir is "
+                     "not specified as x,y or z");
+
+            RotPeriodicInfo RotInfo;
+            RotInfo.m_dir = (tmpstr[1] == "x") ? 0 : (tmpstr[1] == "y") ? 1 : 2;
+
+            LibUtilities::Interpreter strEval;
+            int ExprId      = strEval.DefineFunction("", tmpstr[2]);
+            RotInfo.m_angle = strEval.Evaluate(ExprId);
+
+            auto ne = m_bndCondExpansions[n]->GetExpSize();
+
+            // Loop over each element in the boundary condition and rotate
+            // velocity
+            for (int e = 0; e < ne; ++e)
+            {
+                auto id2 = m_trace->GetPhys_Offset(
+                    m_traceMap->GetPerBndCondIDToGlobalTraceID(e + cnt));
+                int npts = m_bndCondExpansions[n]->GetExp(e)->GetTotPoints();
+                Rotate(Bwd, RotInfo.m_dir, -RotInfo.m_angle, id2, npts);
+            }
+            cnt += ne;
+        }
+    }
+}
+
+void DisContField::v_PeriodicDeriveBwdRot(TensorOfArray3D<NekDouble> &Bwd)
+{
+    int cnt = 0;
+    for (int n = 0; n < m_bndConditions.size(); ++n)
+    {
+        // check to see if boundary is rotationally aligned
+        if (boost::icontains(m_bndConditions[n]->GetUserDefined(), "Rotated"))
+        {
+            vector<string> tmpstr;
+
+            boost::split(tmpstr, m_bndConditions[n]->GetUserDefined(),
+                         boost::is_any_of(":"));
+
+            ASSERTL1(tmpstr.size() > 2,
+                     "Expected Rotated user defined string to "
+                     "contain direction and rotation angle "
+                     "and optionally a tolerance, "
+                     "i.e. Rotated:dir:PI/2:1e-6");
+
+            ASSERTL1((tmpstr[1] == "x") || (tmpstr[1] == "y") ||
+                         (tmpstr[1] == "z"),
+                     "Rotated Dir is "
+                     "not specified as x,y or z");
+
+            RotPeriodicInfo RotInfo;
+            RotInfo.m_dir = (tmpstr[1] == "x") ? 0 : (tmpstr[1] == "y") ? 1 : 2;
+
+            LibUtilities::Interpreter strEval;
+            int ExprId      = strEval.DefineFunction("", tmpstr[2]);
+            RotInfo.m_angle = strEval.Evaluate(ExprId);
+
+            auto ne = m_bndCondExpansions[n]->GetExpSize();
+            // Loop over each element in the boundary condition and rotate
+            // velocity
+            for (int e = 0; e < ne; ++e)
+            {
+                auto id2 = m_trace->GetPhys_Offset(
+                    m_traceMap->GetPerBndCondIDToGlobalTraceID(e + cnt));
+                int npts = m_bndCondExpansions[n]->GetExp(e)->GetTotPoints();
+                DeriveRotate(Bwd, RotInfo.m_dir, -RotInfo.m_angle, id2, npts);
+            }
+            cnt += ne;
+        }
+    }
+}
+
+void DisContField::v_RotLocalBwdTrace(Array<OneD, Array<OneD, NekDouble>> &Bwd)
+{
+    int nDim = GetCoordim(0);
+    for (auto &interfaceTrace : m_interfaceMap->GetLocalInterface())
+    {
+
+        interfaceTrace->RotLocalBwdTrace(Bwd, nDim);
+    }
+}
+
+void DisContField::v_RotLocalBwdDeriveTrace(TensorOfArray3D<NekDouble> &Bwd)
+{
+    int nDim = GetCoordim(0);
+    for (auto &interfaceTrace : m_interfaceMap->GetLocalInterface())
+    {
+
+        interfaceTrace->RotLocalBwdDeriveTrace(Bwd, nDim);
+    }
+}
+
 void DisContField::v_GetFwdBwdTracePhys(Array<OneD, NekDouble> &Fwd,
                                         Array<OneD, NekDouble> &Bwd)
 {
@@ -3189,11 +3488,13 @@ void DisContField::v_ExtractTracePhys(Array<OneD, NekDouble> &outarray)
  *                  to extract the edge data.
  * @param outarray  The resulting edge information.
  *
+ * @param gridVelocity Avoid performing parallel exchanges of the grid velocity
+ *
  * This will not work for non-boundary expansions
  */
 void DisContField::v_ExtractTracePhys(
     const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
+    Array<OneD, NekDouble> &outarray, bool gridVelocity)
 {
     LibUtilities::BasisSharedPtr basis = (*m_exp)[0]->GetBasis(0);
     if ((basis->GetBasisType() != LibUtilities::eGauss_Lagrange))
@@ -3203,7 +3504,11 @@ void DisContField::v_ExtractTracePhys(
             m_locTraceToTraceMap->GetNFwdLocTracePts());
         m_locTraceToTraceMap->FwdLocTracesFromField(inarray, tracevals);
         m_locTraceToTraceMap->InterpLocTracesToTrace(0, tracevals, outarray);
-        m_traceMap->GetAssemblyCommDG()->PerformExchange(outarray, outarray);
+        if (!gridVelocity)
+        {
+            m_traceMap->GetAssemblyCommDG()->PerformExchange(outarray,
+                                                             outarray);
+        }
     }
     else
     {
@@ -3611,7 +3916,8 @@ void DisContField::v_EvaluateBoundaryConditions(const NekDouble time,
 
     for (i = 0; i < m_bndCondExpansions.size(); ++i)
     {
-        if (time == 0.0 || m_bndConditions[i]->IsTimeDependent())
+        if (m_bndCondExpansions[i] &&
+            (time == 0.0 || m_bndConditions[i]->IsTimeDependent()))
         {
             m_bndCondBndWeight[i] = 1.0;
             locExpList            = m_bndCondExpansions[i];
@@ -3643,35 +3949,43 @@ void DisContField::v_EvaluateBoundaryConditions(const NekDouble time,
                 if (m_bndConditions[i]->GetBoundaryConditionType() ==
                     SpatialDomains::eDirichlet)
                 {
-
-                    m_bndCondExpansions[i]->SetCoeff(
-                        0, (std::static_pointer_cast<
-                                SpatialDomains::DirichletBoundaryCondition>(
-                                m_bndConditions[i])
-                                ->m_dirichletCondition)
-                               .Evaluate(x0[0], x1[0], x2[0], time));
-                    m_bndCondExpansions[i]->SetPhys(
-                        0, m_bndCondExpansions[i]->GetCoeff(0));
+                    for (int n = 0; n < npoints; ++n)
+                    {
+                        m_bndCondExpansions[i]->SetCoeff(
+                            n, (std::static_pointer_cast<
+                                    SpatialDomains::DirichletBoundaryCondition>(
+                                    m_bndConditions[i])
+                                    ->m_dirichletCondition)
+                                   ->Evaluate(x0[n], x1[n], x2[n], time));
+                        m_bndCondExpansions[i]->SetPhys(
+                            n, m_bndCondExpansions[i]->GetCoeff(n));
+                    }
                 }
                 else if (m_bndConditions[i]->GetBoundaryConditionType() ==
                          SpatialDomains::eNeumann)
                 {
-                    m_bndCondExpansions[i]->SetCoeff(
-                        0, (std::static_pointer_cast<
-                                SpatialDomains::NeumannBoundaryCondition>(
-                                m_bndConditions[i])
-                                ->m_neumannCondition)
-                               .Evaluate(x0[0], x1[0], x2[0], time));
+                    for (int n = 0; n < npoints; ++n)
+                    {
+                        m_bndCondExpansions[i]->SetCoeff(
+                            n, (std::static_pointer_cast<
+                                    SpatialDomains::NeumannBoundaryCondition>(
+                                    m_bndConditions[i])
+                                    ->m_neumannCondition)
+                                   ->Evaluate(x0[n], x1[n], x2[n], time));
+                    }
                 }
                 else if (m_bndConditions[i]->GetBoundaryConditionType() ==
                          SpatialDomains::eRobin)
                 {
-                    m_bndCondExpansions[i]->SetCoeff(
-                        0, (std::static_pointer_cast<
-                                SpatialDomains::RobinBoundaryCondition>(
-                                m_bndConditions[i])
-                                ->m_robinFunction)
-                               .Evaluate(x0[0], x1[0], x2[0], time));
+                    for (int n = 0; n < npoints; ++n)
+                    {
+                        m_bndCondExpansions[i]->SetCoeff(
+                            n, (std::static_pointer_cast<
+                                    SpatialDomains::RobinBoundaryCondition>(
+                                    m_bndConditions[i])
+                                    ->m_robinFunction)
+                                   ->Evaluate(x0[n], x1[n], x2[n], time));
+                    }
                 }
                 else if (m_bndConditions[i]->GetBoundaryConditionType() ==
                          SpatialDomains::ePeriodic)
@@ -3716,13 +4030,13 @@ void DisContField::v_EvaluateBoundaryConditions(const NekDouble time,
 
                     if (exprbcs != "")
                     {
-                        LibUtilities::Equation condition =
+                        LibUtilities::EquationSharedPtr condition =
                             std::static_pointer_cast<
                                 SpatialDomains::DirichletBoundaryCondition>(
                                 m_bndConditions[i])
                                 ->m_dirichletCondition;
 
-                        condition.Evaluate(x0, x1, x2, time, valuesExp);
+                        condition->Evaluate(x0, x1, x2, time, valuesExp);
                     }
 
                     Vmath::Vmul(npoints, valuesExp, 1, valuesFile, 1,
@@ -3749,13 +4063,13 @@ void DisContField::v_EvaluateBoundaryConditions(const NekDouble time,
                     }
                     else
                     {
-                        LibUtilities::Equation condition =
+                        LibUtilities::EquationSharedPtr condition =
                             std::static_pointer_cast<
                                 SpatialDomains::NeumannBoundaryCondition>(
                                 m_bndConditions[i])
                                 ->m_neumannCondition;
-                        condition.Evaluate(x0, x1, x2, time,
-                                           locExpList->UpdatePhys());
+                        condition->Evaluate(x0, x1, x2, time,
+                                            locExpList->UpdatePhys());
                     }
 
                     locExpList->IProductWRTBase(locExpList->GetPhys(),
@@ -3781,13 +4095,13 @@ void DisContField::v_EvaluateBoundaryConditions(const NekDouble time,
                     }
                     else
                     {
-                        LibUtilities::Equation condition =
+                        LibUtilities::EquationSharedPtr condition =
                             std::static_pointer_cast<
                                 SpatialDomains::RobinBoundaryCondition>(
                                 m_bndConditions[i])
                                 ->m_robinFunction;
-                        condition.Evaluate(x0, x1, x2, time,
-                                           locExpList->UpdatePhys());
+                        condition->Evaluate(x0, x1, x2, time,
+                                            locExpList->UpdatePhys());
                     }
 
                     locExpList->IProductWRTBase(locExpList->GetPhys(),
@@ -3898,8 +4212,7 @@ void DisContField::v_GetBoundaryToElmtMap(Array<OneD, int> &ElmtID,
                         Vid = m_bndCondExpansions[n]
                                   ->GetExp(i)
                                   ->GetGeom()
-                                  ->GetVertex(0)
-                                  ->GetVid();
+                                  ->GetVid(0);
                         VertGID[Vid] = cnt++;
                     }
                 }
@@ -3992,7 +4305,10 @@ void DisContField::v_GetBoundaryToElmtMap(Array<OneD, int> &ElmtID,
                 // Determine number of boundary condition expansions.
                 for (i = 0; i < m_bndConditions.size(); ++i)
                 {
-                    nbcs += m_bndCondExpansions[i]->GetExpSize();
+                    if (m_bndCondExpansions[i])
+                    {
+                        nbcs += m_bndCondExpansions[i]->GetExpSize();
+                    }
                 }
 
                 // Initialize arrays
@@ -4130,13 +4446,13 @@ map<int, RobinBCInfoSharedPtr> DisContField::v_GetRobinBCInfo(void)
 
             locExpList->GetCoords(x0, x1, x2);
 
-            LibUtilities::Equation coeffeqn =
+            LibUtilities::EquationSharedPtr coeffeqn =
                 std::static_pointer_cast<
                     SpatialDomains::RobinBoundaryCondition>(m_bndConditions[i])
                     ->m_robinPrimitiveCoeff;
 
             // evalaute coefficient
-            coeffeqn.Evaluate(x0, x1, x2, 0.0, coeffphys);
+            coeffeqn->Evaluate(x0, x1, x2, 0.0, coeffphys);
 
             for (e = 0; e < locExpList->GetExpSize(); ++e)
             {
@@ -4323,8 +4639,8 @@ void DisContField::EvaluateHDGPostProcessing(
                                               num_modes[0], PkeyQ1);
                 LibUtilities::BasisKey BkeyQ2(LibUtilities::eOrtho_A,
                                               num_modes[1], PkeyQ2);
-                SpatialDomains::QuadGeomSharedPtr qGeom =
-                    std::dynamic_pointer_cast<SpatialDomains::QuadGeom>(
+                SpatialDomains::QuadGeom *qGeom =
+                    dynamic_cast<SpatialDomains::QuadGeom *>(
                         (*m_exp)[i]->GetGeom());
                 ppExp = MemoryManager<LocalRegions::QuadExp>::AllocateSharedPtr(
                     BkeyQ1, BkeyQ2, qGeom);
@@ -4340,8 +4656,8 @@ void DisContField::EvaluateHDGPostProcessing(
                                               num_modes[0], PkeyT1);
                 LibUtilities::BasisKey BkeyT2(LibUtilities::eOrtho_B,
                                               num_modes[1], PkeyT2);
-                SpatialDomains::TriGeomSharedPtr tGeom =
-                    std::dynamic_pointer_cast<SpatialDomains::TriGeom>(
+                SpatialDomains::TriGeom *tGeom =
+                    dynamic_cast<SpatialDomains::TriGeom *>(
                         (*m_exp)[i]->GetGeom());
                 ppExp = MemoryManager<LocalRegions::TriExp>::AllocateSharedPtr(
                     BkeyT1, BkeyT2, tGeom);
@@ -4361,8 +4677,8 @@ void DisContField::EvaluateHDGPostProcessing(
                                               num_modes[1], PkeyH2);
                 LibUtilities::BasisKey BkeyH3(LibUtilities::eOrtho_A,
                                               num_modes[2], PkeyH3);
-                SpatialDomains::HexGeomSharedPtr hGeom =
-                    std::dynamic_pointer_cast<SpatialDomains::HexGeom>(
+                SpatialDomains::HexGeom *hGeom =
+                    dynamic_cast<SpatialDomains::HexGeom *>(
                         (*m_exp)[i]->GetGeom());
                 ppExp = MemoryManager<LocalRegions::HexExp>::AllocateSharedPtr(
                     BkeyH1, BkeyH2, BkeyH3, hGeom);
@@ -4382,8 +4698,8 @@ void DisContField::EvaluateHDGPostProcessing(
                                               num_modes[1], PkeyT2);
                 LibUtilities::BasisKey BkeyT3(LibUtilities::eOrtho_C,
                                               num_modes[2], PkeyT3);
-                SpatialDomains::TetGeomSharedPtr tGeom =
-                    std::dynamic_pointer_cast<SpatialDomains::TetGeom>(
+                SpatialDomains::TetGeom *tGeom =
+                    dynamic_cast<SpatialDomains::TetGeom *>(
                         (*m_exp)[i]->GetGeom());
                 ppExp = MemoryManager<LocalRegions::TetExp>::AllocateSharedPtr(
                     BkeyT1, BkeyT2, BkeyT3, tGeom);
@@ -4463,4 +4779,197 @@ void DisContField::v_AddTraceIntegralToOffDiag(
     m_trace->IProductWRTBase(BwdFlux, FCoeffs);
     m_locTraceToTraceMap->AddTraceCoeffsToFieldCoeffs(0, FCoeffs, outarray);
 }
+
+/// \brief Rotate the slice [offset, offset + npts) of the
+/// 3D vector field in Bwd around the axis 'dir' by 'angle'.
+void DisContField::Rotate(Array<OneD, Array<OneD, NekDouble>> &Bwd,
+                          const int dir, const NekDouble angle,
+                          const int offset, const int npts)
+{
+    // Precompute trigonometric values for improved precision
+    const NekDouble cosA = cos(angle);
+    const NekDouble sinA = sin(angle);
+
+    switch (dir)
+    {
+        // ----------------------------------------------------------
+        // Rotate around the x-axis by 'angle':
+        //  y' =  y*cos(angle) - z*sin(angle)
+        //  z' =  y*sin(angle) + z*cos(angle)
+        //  x' =  x (unchanged)
+        // ----------------------------------------------------------
+        case 0:
+        {
+            for (int i = offset; i < offset + npts; ++i)
+            {
+                NekDouble tmpY = Bwd[2][i];
+                NekDouble tmpZ = Bwd[3][i];
+
+                NekDouble yrot = cosA * tmpY - sinA * tmpZ;
+                NekDouble zrot = sinA * tmpY + cosA * tmpZ;
+
+                Bwd[2][i] = yrot;
+                Bwd[3][i] = zrot;
+            }
+        }
+        break;
+
+        // ----------------------------------------------------------
+        // Rotate around the y-axis by 'angle':
+        //  z' =  z*cos(angle) - x*sin(angle)
+        //  x' =  z*sin(angle) + x*cos(angle)
+        //  y' =  y (unchanged)
+        // ----------------------------------------------------------
+        case 1:
+        {
+            for (int i = offset; i < offset + npts; ++i)
+            {
+                NekDouble tmpX = Bwd[1][i];
+                NekDouble tmpZ = Bwd[3][i];
+
+                NekDouble zrot = cosA * tmpZ - sinA * tmpX;
+                NekDouble xrot = sinA * tmpZ + cosA * tmpX;
+
+                Bwd[1][i] = xrot;
+                Bwd[3][i] = zrot;
+            }
+        }
+        break;
+
+        // ----------------------------------------------------------
+        // Rotate around the z-axis by 'angle':
+        //  x' =  x*cos(angle) - y*sin(angle)
+        //  y' =  x*sin(angle) + y*cos(angle)
+        //  z' =  z (unchanged)
+        // ----------------------------------------------------------
+        case 2:
+        {
+            for (int i = offset; i < offset + npts; ++i)
+            {
+                NekDouble tmpX = Bwd[1][i];
+                NekDouble tmpY = Bwd[2][i];
+
+                NekDouble xrot = cosA * tmpX - sinA * tmpY;
+                NekDouble yrot = sinA * tmpX + cosA * tmpY;
+
+                Bwd[1][i] = xrot;
+                Bwd[2][i] = yrot;
+            }
+        }
+        break;
+
+        default:
+            NEKERROR(ErrorUtil::efatal,
+                     "Rotate() axis must be 0 (x), 1 (y), or 2 (z).");
+            break;
+    }
+}
+
+/// \brief Rotate the slice [offset, offset + npts) of the
+/// 3D vector field in Bwd around the axis 'dir' by 'angle'.
+void DisContField::DeriveRotate(TensorOfArray3D<NekDouble> &Bwd, const int dir,
+                                const NekDouble angle, const int offset,
+                                const int npts)
+{
+    // Precompute trigonometric values using correct angle input
+    const NekDouble cosA = cos(angle);
+    const NekDouble sinA = sin(angle);
+
+    // Define rotation matrix R (3x3) using Array<OneD, NekDouble> in
+    // **column-major order**
+    Array<OneD, NekDouble> R(9, 0.0);
+
+    if (dir == 0) // Rotation around X-axis
+    {
+        R[0] = 1.0;
+        R[3] = 0.0;
+        R[6] = 0.0;
+        R[1] = 0.0;
+        R[4] = cosA;
+        R[7] = -sinA;
+        R[2] = 0.0;
+        R[5] = sinA;
+        R[8] = cosA;
+    }
+    else if (dir == 1) // Rotation around Y-axis
+    {
+        R[0] = cosA;
+        R[3] = 0.0;
+        R[6] = sinA;
+        R[1] = 0.0;
+        R[4] = 1.0;
+        R[7] = 0.0;
+        R[2] = -sinA;
+        R[5] = 0.0;
+        R[8] = cosA;
+    }
+    else if (dir == 2) // Rotation around Z-axis
+    {
+        R[0] = cosA;
+        R[3] = -sinA;
+        R[6] = 0.0;
+        R[1] = sinA;
+        R[4] = cosA;
+        R[7] = 0.0;
+        R[2] = 0.0;
+        R[5] = 0.0;
+        R[8] = 1.0;
+    }
+    else
+    {
+        NEKERROR(
+            ErrorUtil::efatal,
+            "Invalid rotation axis for first-order derivative transformation.");
+    }
+
+    for (int p = offset; p < offset + npts; ++p)
+    {
+        // Allocate gradient tensor (3x3) in **column-major order**
+        Array<OneD, NekDouble> gradU(9, 0.0);
+
+        // Load original velocity gradient tensor into **column-major** format
+        gradU[0] = Bwd[0][1][p]; // ∂u_x/∂x
+        gradU[3] = Bwd[1][1][p]; // ∂u_x/∂y
+        gradU[6] = Bwd[2][1][p]; // ∂u_x/∂z
+
+        gradU[1] = Bwd[0][2][p]; // ∂u_y/∂x
+        gradU[4] = Bwd[1][2][p]; // ∂u_y/∂y
+        gradU[7] = Bwd[2][2][p]; // ∂u_y/∂z
+
+        gradU[2] = Bwd[0][3][p]; // ∂u_z/∂x
+        gradU[5] = Bwd[1][3][p]; // ∂u_z/∂y
+        gradU[8] = Bwd[2][3][p]; // ∂u_z/∂z
+
+        // Allocate intermediate matrix R * gradU in **column-major order**
+        Array<OneD, NekDouble> R_gradU(9, 0.0);
+
+        // Perform matrix multiplication R * gradU using Blas::Dgemm in
+        // **column-major order**
+        Blas::Dgemm('N', 'N', 3, 3, 3, 1.0, R.data(), 3, gradU.data(), 3, 0.0,
+                    R_gradU.data(), 3);
+
+        // Allocate final rotated gradient (R * gradU) * R^T in **column-major
+        // order**
+        Array<OneD, NekDouble> gradU_rotated(9, 0.0);
+
+        // Perform matrix multiplication (R * gradU) * R^T using Blas::Dgemm in
+        // **column-major order**
+        Blas::Dgemm('N', 'T', 3, 3, 3, 1.0, R_gradU.data(), 3, R.data(), 3, 0.0,
+                    gradU_rotated.data(), 3);
+
+        // Store rotated gradients back in Bwd in **column-major order**
+        Bwd[0][1][p] = gradU_rotated[0]; // ∂u_x'/∂x'
+        Bwd[1][1][p] = gradU_rotated[3]; // ∂u_x'/∂y'
+        Bwd[2][1][p] = gradU_rotated[6]; // ∂u_x'/∂z'
+
+        Bwd[0][2][p] = gradU_rotated[1]; // ∂u_y'/∂x'
+        Bwd[1][2][p] = gradU_rotated[4]; // ∂u_y'/∂y'
+        Bwd[2][2][p] = gradU_rotated[7]; // ∂u_y'/∂z'
+
+        Bwd[0][3][p] = gradU_rotated[2]; // ∂u_z'/∂x'
+        Bwd[1][3][p] = gradU_rotated[5]; // ∂u_z'/∂y'
+        Bwd[2][3][p] = gradU_rotated[8]; // ∂u_z'/∂z'
+    }
+}
+
 } // namespace Nektar::MultiRegions

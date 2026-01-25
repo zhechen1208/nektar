@@ -45,41 +45,26 @@
 namespace Nektar::SpatialDomains
 {
 
-class Geometry0D;
-class Geometry1D;
-class Geometry2D;
-class PointGeom;
-class SegGeom;
-
-typedef std::shared_ptr<PointGeom> PointGeomSharedPtr;
-typedef std::shared_ptr<Geometry0D> Geometry0DSharedPtr;
-typedef std::shared_ptr<Geometry1D> Geometry1DSharedPtr;
-typedef std::shared_ptr<Geometry2D> Geometry2DSharedPtr;
-typedef std::shared_ptr<SegGeom> SegGeomSharedPtr;
-typedef std::vector<Geometry2DSharedPtr> Geometry2DVector;
-typedef std::vector<PointGeomSharedPtr> PointGeomVector;
-typedef std::vector<SegGeomSharedPtr> SegGeomVector;
-
 /// 2D geometry information
 class Geometry2D : public Geometry
 {
 public:
     SPATIAL_DOMAINS_EXPORT Geometry2D();
-    SPATIAL_DOMAINS_EXPORT Geometry2D(const int coordim, CurveSharedPtr curve);
+    SPATIAL_DOMAINS_EXPORT Geometry2D(const int coordim, Curve *curve);
     SPATIAL_DOMAINS_EXPORT ~Geometry2D() override = default;
 
     SPATIAL_DOMAINS_EXPORT static const int kDim = 2;
-
-    SPATIAL_DOMAINS_EXPORT CurveSharedPtr GetCurve()
+    SPATIAL_DOMAINS_EXPORT Curve *GetCurve()
     {
         return m_curve;
     }
+    SPATIAL_DOMAINS_EXPORT void SetCurve(Curve *curvePtr)
+    {
+        m_curve = curvePtr;
+    }
 
 protected:
-    PointGeomVector m_verts;
-    SegGeomVector m_edges;
-    std::vector<StdRegions::Orientation> m_eorient;
-    CurveSharedPtr m_curve;
+    Curve *m_curve;
     Array<OneD, int> m_manifold;
     Array<OneD, Array<OneD, NekDouble>> m_edgeNormal;
 
@@ -95,17 +80,11 @@ protected:
     void SolveStraightEdgeQuad(const Array<OneD, const NekDouble> &coords,
                                Array<OneD, NekDouble> &Lcoords);
     void v_CalculateInverseIsoParam() override;
-    int v_AllLeftCheck(const Array<OneD, const NekDouble> &gloCoord) override;
 
     //---------------------------------------
     // Helper functions
     //---------------------------------------
     int v_GetShapeDim() const override;
-    PointGeomSharedPtr v_GetVertex(int i) const override;
-    Geometry1DSharedPtr v_GetEdge(int i) const override;
-    int v_GetNumVerts() const override;
-    int v_GetNumEdges() const override;
-    StdRegions::Orientation v_GetEorient(const int i) const override;
     NekDouble v_FindDistance(const Array<OneD, const NekDouble> &xs,
                              Array<OneD, NekDouble> &xi) override;
 };

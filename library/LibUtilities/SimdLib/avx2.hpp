@@ -232,7 +232,7 @@ template <typename T> struct avx2Int8
     }
 
     // subscript
-    // subscriptsoperators are convienient but expensive
+    // subscript operators are convienient but expensive
     // should not be used in optimized kernels
     inline scalarType operator[](size_t i) const
     {
@@ -458,7 +458,6 @@ struct avx2Double4
         _data = _mm256_set1_pd(rhs);
     }
 
-#if defined(__SSE2__) && defined(NEKTAR_ENABLE_SIMD_SSE2)
     // gather/scatter with sse2
     template <typename T>
     inline void gather(scalarType const *p, const sse2Int4<T> &indices)
@@ -478,7 +477,6 @@ struct avx2Double4
         out[_mm_extract_epi32(indices._data, 2)] = tmp[2];
         out[_mm_extract_epi32(indices._data, 3)] = tmp[3];
     }
-#endif
 
     // gather scatter with avx2
     template <typename T>
@@ -555,6 +553,11 @@ inline avx2Double4 operator-(avx2Double4 lhs, avx2Double4 rhs)
     return _mm256_sub_pd(lhs._data, rhs._data);
 }
 
+inline avx2Double4 operator-(avx2Double4 in)
+{
+    return _mm256_xor_pd(in._data, _mm256_set1_pd(-0.0));
+}
+
 inline avx2Double4 operator*(avx2Double4 lhs, avx2Double4 rhs)
 {
     return _mm256_mul_pd(lhs._data, rhs._data);
@@ -575,6 +578,16 @@ inline avx2Double4 abs(avx2Double4 in)
     // there is no avx2 _mm256_abs_pd intrinsic
     static const __m256d sign_mask = _mm256_set1_pd(-0.); // -0. = 1 << 63
     return _mm256_andnot_pd(sign_mask, in._data);         // !sign_mask & x
+}
+
+inline avx2Double4 min(avx2Double4 lhs, avx2Double4 rhs)
+{
+    return _mm256_min_pd(lhs._data, rhs._data);
+}
+
+inline avx2Double4 max(avx2Double4 lhs, avx2Double4 rhs)
+{
+    return _mm256_max_pd(lhs._data, rhs._data);
 }
 
 inline avx2Double4 log(avx2Double4 in)
@@ -839,6 +852,11 @@ inline avx2Float8 operator-(avx2Float8 lhs, avx2Float8 rhs)
     return _mm256_sub_ps(lhs._data, rhs._data);
 }
 
+inline avx2Float8 operator-(avx2Float8 in)
+{
+    return _mm256_xor_ps(in._data, _mm256_set1_ps(-0.0));
+}
+
 inline avx2Float8 operator*(avx2Float8 lhs, avx2Float8 rhs)
 {
     return _mm256_mul_ps(lhs._data, rhs._data);
@@ -859,6 +877,16 @@ inline avx2Float8 abs(avx2Float8 in)
     // there is no avx2 _mm256_abs_ps intrinsic
     static const __m256 sign_mask = _mm256_set1_ps(-0.); // -0. = 1 << 63
     return _mm256_andnot_ps(sign_mask, in._data);        // !sign_mask & x
+}
+
+inline avx2Float8 min(avx2Float8 lhs, avx2Float8 rhs)
+{
+    return _mm256_min_ps(lhs._data, rhs._data);
+}
+
+inline avx2Float8 max(avx2Float8 lhs, avx2Float8 rhs)
+{
+    return _mm256_max_ps(lhs._data, rhs._data);
 }
 
 inline avx2Float8 log(avx2Float8 in)
@@ -1026,5 +1054,6 @@ inline bool operator&&(avx2Mask8 lhs, bool rhs)
 }
 
 } // namespace tinysimd
+
 #endif // defined(__AVX2__)
 #endif

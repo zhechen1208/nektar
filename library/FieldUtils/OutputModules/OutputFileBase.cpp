@@ -38,6 +38,7 @@ using namespace std;
 
 #include "OutputFileBase.h"
 #include <LibUtilities/BasicUtils/Filesystem.hpp>
+#include <LibUtilities/BasicUtils/ParseUtils.h>
 #include <boost/format.hpp>
 #include <iomanip>
 
@@ -59,8 +60,6 @@ OutputFileBase::~OutputFileBase()
 
 void OutputFileBase::v_Process(po::variables_map &vm)
 {
-    m_f->SetUpExp(vm);
-
     string filename = m_config["outfile"].as<string>();
 
     if (filename == "")
@@ -70,6 +69,8 @@ void OutputFileBase::v_Process(po::variables_map &vm)
 
     if (m_f->m_fieldPts != LibUtilities::NullPtsField)
     {
+        m_f->SetUpExp(vm);
+
         ASSERTL0(!m_f->m_writeBndFld, "Boundary can't be obtained from pts.");
         if (WriteFile(filename, vm))
         {
@@ -81,13 +82,38 @@ void OutputFileBase::v_Process(po::variables_map &vm)
             }
         }
     }
-    else if (m_f->m_exp.size())
+    else
     {
         // reset expansion definition to use equispaced points if required.
         if (m_requireEquiSpaced && (vm.count("no-equispaced") == 0) &&
-            m_f->m_exp[0]->GetNumElmts() != 0 && !m_equispacedSetup)
+            m_f->m_graph->GetNumElements() != 0 && !m_equispacedSetup)
         {
-            ConvertExpToEquispaced(vm);
+            if (m_f->m_exp.size())
+            {
+                ConvertExpToEquispaced(vm);
+            }
+            else
+            {
+                m_f->SetUpExp(vm, true);
+                m_equispacedSetup = true;
+            }
+        }
+        else
+        {
+            m_f->SetUpExp(vm);
+        }
+        if (!m_f->m_exp.size())
+        {
+            if (m_f->m_data.size())
+            {
+                ASSERTL0(!m_f->m_writeBndFld,
+                         "Boundary extraction requires xml file.");
+                if (WriteFile(filename, vm))
+                {
+                    v_OutputFromData(vm);
+                }
+            }
+            return;
         }
         if (m_f->m_writeBndFld)
         {
@@ -145,12 +171,44 @@ void OutputFileBase::v_Process(po::variables_map &vm)
                 bcs.GetBoundaryRegions();
             map<int, int> BndRegionMap;
             map<int, LibUtilities::CommSharedPtr> BndRegionComm;
+
+            // when using extract we may not have defined all boundary regions
+            // so identify that here
+            std::set<int> ProcessBnd;
+            if (m_f->m_session->DefinesTag("CreateBndRegions"))
+            {
+                // evaluate bnd regions to be generated
+                vector<unsigned int> bndRegions;
+                ASSERTL0(
+                    ParseUtils::GenerateVector(
+                        m_f->m_session->GetTag("CreateBndRegions"), bndRegions),
+                    "Failed to interpret bnd values string");
+
+                for (auto &bnd : bndRegions)
+                {
+                    if (bregions.count(bnd) == 1)
+                    {
+                        ProcessBnd.insert(bnd);
+                    }
+                }
+            }
+            else
+            {
+                for (auto &it : bregions)
+                {
+                    ProcessBnd.insert(it.first);
+                }
+            }
+
             int cnt = 0;
             for (auto &breg_it : bregions)
             {
-                BndRegionMap[breg_it.first] = cnt++;
-                BndRegionComm[breg_it.first] =
-                    bcs.GetBoundaryCommunicators()[breg_it.first];
+                if (ProcessBnd.count(breg_it.first))
+                {
+                    BndRegionMap[breg_it.first] = cnt++;
+                    BndRegionComm[breg_it.first] =
+                        bcs.GetBoundaryCommunicators()[breg_it.first];
+                }
             }
 
             // find ending of output file and insert _b1, _b2
@@ -240,14 +298,6 @@ void OutputFileBase::v_Process(po::variables_map &vm)
                     PrintErrorFromExp();
                 }
             }
-        }
-    }
-    else if (m_f->m_data.size())
-    {
-        ASSERTL0(!m_f->m_writeBndFld, "Boundary extraction requires xml file.");
-        if (WriteFile(filename, vm))
-        {
-            v_OutputFromData(vm);
         }
     }
 }

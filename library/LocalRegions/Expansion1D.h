@@ -55,7 +55,7 @@ class Expansion1D : virtual public Expansion,
                     virtual public StdRegions::StdExpansion1D
 {
 public:
-    LOCAL_REGIONS_EXPORT Expansion1D(SpatialDomains::Geometry1DSharedPtr pGeom)
+    LOCAL_REGIONS_EXPORT Expansion1D(SpatialDomains::Geometry1D *pGeom)
         : Expansion(pGeom), StdExpansion1D()
     {
     }
@@ -70,10 +70,22 @@ public:
                                    const Array<OneD, const NekDouble> &inarray,
                                    Array<OneD, NekDouble> &outarray);
 
-    inline SpatialDomains::Geometry1DSharedPtr GetGeom1D() const;
+    inline SpatialDomains::Geometry1D *GetGeom1D() const;
 
 protected:
     DNekMatSharedPtr v_GenMatrix(const StdRegions::StdMatrixKey &mkey) override;
+
+    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
+        const int dir, const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
+    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &out_d0,
+        Array<OneD, NekDouble> &out_d1 = NullNekDouble1DArray,
+        Array<OneD, NekDouble> &out_d2 = NullNekDouble1DArray) override;
+    LOCAL_REGIONS_EXPORT void v_IProductWRTBase(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
 
     void v_AddRobinMassMatrix(const int vert,
                               const Array<OneD, const NekDouble> &primCoeffs,
@@ -94,16 +106,16 @@ protected:
 
     void v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                                 Array<OneD, int> &idmap, const int nq0,
-                                const int nq1) override;
+                                const int nq1, bool Forwards) override;
 
     void v_TraceNormLen(const int traceid, NekDouble &h, NekDouble &p) override;
 
 private:
 };
 
-inline SpatialDomains::Geometry1DSharedPtr Expansion1D ::GetGeom1D() const
+inline SpatialDomains::Geometry1D *Expansion1D ::GetGeom1D() const
 {
-    return std::dynamic_pointer_cast<SpatialDomains ::Geometry1D>(m_geom);
+    return static_cast<SpatialDomains::Geometry1D *>(m_geom);
 }
 } // namespace Nektar::LocalRegions
 

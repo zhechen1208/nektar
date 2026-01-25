@@ -1,5 +1,81 @@
 Changelog
 =========
+v5.10.0
+------
+**Library**
+- Tidy check for nonsymmetric linear system (!2259)
+- Set default quadrature of Pyr to nq, nq nq-1 for modified basis (!2297)
+- Fix memory leaks when using aligned memory (!2299)
+- Fix docker 29 breaking API change (!2298)
+- Curves and GeomFactors as unique pointers (!2191)
+- Complete support for SSE2, fix SVE compilation, and update SIMD compilation flag (!2308)
+- Fix MatrixFree switch for Prism and Pyr (!2315)
+- Fix memory leak for Helmholtz matrices with time-dependent variable coeffficients (!2321)
+- Add support for pybind11 v3.0 (!2332)
+- Add full support for nodal tri, prism, and tet (!2263)
+- Add size-templated Operator kernels to StdRegion (!2263)
+- Remove v_IProductWRTBase_SumFac and v_IProductWRTDerivBase_SumFac member functions from LocalRegion and StdRegion (!2263)
+- Tidy redundant use of orientation in FwdTransBndConstrained (!2361)
+- Added UnitTest for the LinearADR operator in Collections (!1831)
+- Add support for pybind11 v3.0 (2332)
+- fix for ReOrientTraceMap to accurately reflect eDir1FwdDir2_Dir2BwdDir1 & eDir1BwdDir2_Dir2FwdDir1 (!2362)
+- Tidy PhysDeriv in StdRegion and LocalRegion (!2367)
+- Add Flexible option for Conjugate Gradient and GMRES (!2376)
+- Tidy v_FwdTrans, v_IProductWRTBase, v_MultiplyByStdQuadratureMetric, v_StdPhysEvaluate, v_PhysEvaluate, v_StdPhysDeriv, v_PhysDeriv inheritance in StdRegion and LocalRegion (!2381)
+
+v5.9.0
+------
+**Library**
+- Fix BwdTrans and IProduct in Collection and MatrixFee for variable P (!2178)
+- Add vectorized min/max support to AVX (!2179)
+- Fix incorrect symmetry flux for interior penalty methods in DG (!1872)
+- Fix bug in ExpList (!2182)
+- Remove deprecated TimeIntegrationMethod in SolverInfo (!2061)
+- Some fix for PhysInterp1D (!2081)
+- Add 3D rotating mesh capability (!2184)
+- Use std::unordered_map instead of std::map for NekFactory (!2103)
+- Replace `std::shared_ptr` with `std::unique_ptr` inside SpatialDomains (!2112, !2222)
+- Fix output messages clobbering error info in Lagrangian filter (!2200, !2202)
+- Unified IProductWRTDerivBaseOp align vector function for all 3D shapes (!2203)
+- Added a formula for the number of modes in a tetrahedron (!2205)
+- Added boundary condition and periodic boundary reader (!2221)
+- Remove duplicate IMEX Gear time-integration variant (!2225)
+- Fix bug in Neumann boundary condition for LinearAdvectionDiffusionReactionSolve (!2231)
+- Fix MatrixFree BwdTrans Tet kernel and update collection unit tests for non-homogeneous inputs (!2251)
+- Use MPI_Comm_split instead of MPI_Cart_create and MPI_Cart_sub (!2250)
+- Fix handling of PointGeom and PointExp for Collections and Fields (!2252)
+- Tidy-up GMRES verbose output (!1804)
+- Add a copy constructor method for boundary expansions and do not call partitioner in hdf5 input mesh if run in serial (!2241)
+- Remove duplicate StdPhysDeriv overload function (!2254)
+- Add EvaluateAtPoint interface in Equation (!2255)
+- Enable GenMatrix routine for SegExp (!2260)
+- Enforce const consitency in Comm class (!2261)
+- Add GetEquation to BoundaryCondition and ImposeNeumann/RobinConditions (!2257)
+- Adjustments to `NekLinSys` classes for future multigrid capability (!1811)
+- Avoid multiple data copy in NekFFTW (!2268)
+- Add FieldConvert modules to perform force decomposition for incompressible flows (!1531)
+- Deprecate use of IO_CheckSteps in favour of CheckpointFilter (!2197)
+
+**ADRSolver**
+- Add implicit UnsteadyAdvection for continuous Galerkin (!2231)
+- Fixed performance regression after removal of eVECTOR_WRAPPER in !1848 (!2239)
+
+**CardiacEPSolver**
+- Add script for converting CellML models into Nektar++ cell model code (!2185)
+
+**NekMesh**
+- Minor Bug-fix for industrial pipeline !2057 (!2135)
+- Scaling the mesh nodes (!2115)
+- Improved Isoparametric Splitting for O-type Prisms "bl" legacy, which kept as "blold" (!1757)
+- Read Gmsh V2.2 meshes without Physical Boundaries specified. Use CAD ID tag. (!2278)
+
+**CI and Packaging**
+- Disable CWIPI on Fedora (!2199)
+- Update Annulus test to run more efficiently (!1220)
+- Add testing and packaging for Debian Trixie (!2249)
+
+**FieldConvert**
+- Added a comprange feature to just select element touching a composite surface for more efficient boundary processing (!2241)
 
 v5.8.0
 ------
@@ -47,6 +123,7 @@ v5.8.0
 - Use recursive strategy for submodule (!1997)
 - cleanup CI environment images after packaging (!1991)
 - Update Fedora test environments to Fedora 40 (!1993)
+- Fix broken Fedora packaging library dependency (!2160)
 
 **NekMesh**
 - Add high-order pyramid and prism support from gmsh (!1956)

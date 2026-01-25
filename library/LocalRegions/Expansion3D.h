@@ -56,7 +56,7 @@ class Expansion3D : virtual public Expansion,
                     virtual public StdRegions::StdExpansion3D
 {
 public:
-    LOCAL_REGIONS_EXPORT Expansion3D(SpatialDomains::Geometry3DSharedPtr pGeom)
+    LOCAL_REGIONS_EXPORT Expansion3D(SpatialDomains::Geometry3D *pGeom)
         : Expansion(pGeom), StdExpansion3D(), m_requireNeg()
     {
     }
@@ -87,11 +87,11 @@ public:
         Array<OneD, NekDouble> &facePhys, Array<OneD, NekDouble> &outarray,
         const StdRegions::VarCoeffMap &varcoeffs = StdRegions::NullVarCoeffMap);
 
-    inline SpatialDomains::Geometry3DSharedPtr GetGeom3D() const;
+    inline SpatialDomains::Geometry3D *GetGeom3D() const;
 
     LOCAL_REGIONS_EXPORT void v_ReOrientTracePhysMap(
         const StdRegions::Orientation orient, Array<OneD, int> &idmap,
-        const int nq0, const int nq1) override;
+        const int nq0, const int nq1, bool Forwards) override;
 
     LOCAL_REGIONS_EXPORT void v_NormVectorIProductWRTBase(
         const Array<OneD, const Array<OneD, NekDouble>> &Fvec,
@@ -119,6 +119,16 @@ protected:
                    Array<OneD, ExpansionSharedPtr> &FaceExp,
                    Array<OneD, Array<OneD, NekDouble>> &faceCoeffs,
                    Array<OneD, NekDouble> &out_d) override;
+    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &out_d0, Array<OneD, NekDouble> &out_d1,
+        Array<OneD, NekDouble> &out_d2) override;
+    using StdExpansion3D::v_PhysDeriv;
+
+    LOCAL_REGIONS_EXPORT void v_IProductWRTBase(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray) override;
+
     DNekMatSharedPtr v_GenMatrix(const StdRegions::StdMatrixKey &mkey) override;
     void v_AddFaceNormBoundaryInt(const int face,
                                   const ExpansionSharedPtr &FaceExp,
@@ -173,9 +183,9 @@ private:
         const StdRegions::VarCoeffMap &varcoeffs);
 };
 
-inline SpatialDomains::Geometry3DSharedPtr Expansion3D::GetGeom3D() const
+inline SpatialDomains::Geometry3D *Expansion3D::GetGeom3D() const
 {
-    return std::dynamic_pointer_cast<SpatialDomains::Geometry3D>(m_geom);
+    return static_cast<SpatialDomains::Geometry3D *>(m_geom);
 }
 } // namespace Nektar::LocalRegions
 

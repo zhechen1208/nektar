@@ -67,8 +67,7 @@ protected:
         const std::string &outfilename, bool defaultExp = false,
         const LibUtilities::FieldMetaDataMap &metadata =
             LibUtilities::NullFieldMetaDataMap) final;
-    SPATIAL_DOMAINS_EXPORT void v_ReadGeometry(
-        LibUtilities::DomainRangeShPtr rng, bool fillGraph) final;
+    SPATIAL_DOMAINS_EXPORT void v_ReadGeometry(bool fillGraph) final;
     SPATIAL_DOMAINS_EXPORT void v_PartitionMesh(
         LibUtilities::SessionReaderSharedPtr session) final;
 
@@ -77,24 +76,22 @@ private:
                       const std::unordered_set<int> &readIds);
     void ReadDomain();
     void ReadComposites();
+    void SetupCompositeRange(LibUtilities::DomainRangeShPtr &rng);
 
     template <class T>
-    void WriteGeometryMap(std::map<int, std::shared_ptr<T>> &geomMap,
-                          std::string datasetName);
+    void WriteGeometryMap(GeomMapView<T> &geomMap, std::string datasetName);
 
     template <class T, typename DataType>
-    void ReadGeometryData(std::map<int, std::shared_ptr<T>> &geomMap,
-                          std::string dataSet,
+    void ReadGeometryData(GeomMapView<T> &geomMap, std::string dataSet,
                           const std::unordered_set<int> &readIds,
                           std::vector<int> &ids,
                           std::vector<DataType> &geomData);
     template <class T, typename DataType>
-    void FillGeomMap(std::map<int, std::shared_ptr<T>> &geomMap,
-                     const CurveMap &curveMap, std::vector<int> &ids,
-                     std::vector<DataType> &geomData);
+    void FillGeomMap(GeomMapView<T> &geomMap, const CurveMap &curveMap,
+                     std::vector<int> &ids, std::vector<DataType> &geomData);
     template <class T, typename DataType>
-    void ConstructGeomObject(std::map<int, std::shared_ptr<T>> &geomMap, int id,
-                             DataType *data, CurveSharedPtr curve);
+    void ConstructGeomObject(GeomMapView<T> &geomMap, int id, DataType *data,
+                             Curve *curve);
 
     CompositeDescriptor CreateCompositeDescriptor(
         std::unordered_map<int, int> &id2row);

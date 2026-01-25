@@ -45,43 +45,47 @@ namespace Nektar::TriCollectionTests
 {
 #define NELMTS 10
 
-SpatialDomains::SegGeomSharedPtr CreateSegGeom(
-    unsigned int id, SpatialDomains::PointGeomSharedPtr v0,
-    SpatialDomains::PointGeomSharedPtr v1)
+SpatialDomains::SegGeomUniquePtr CreateSegGeom(unsigned int id,
+                                               SpatialDomains::PointGeom *v0,
+                                               SpatialDomains::PointGeom *v1)
 {
-    SpatialDomains::PointGeomSharedPtr vertices[] = {v0, v1};
-    SpatialDomains::SegGeomSharedPtr result(
-        new SpatialDomains::SegGeom(id, 3, vertices));
+    std::array<SpatialDomains::PointGeom *, 2> vertices = {v0, v1};
+    SpatialDomains::SegGeomUniquePtr result(
+        new SpatialDomains::SegGeom(id, v0->GetCoordim(), vertices));
     return result;
 }
 
-SpatialDomains::TriGeomSharedPtr CreateTri(
-    SpatialDomains::PointGeomSharedPtr v0,
-    SpatialDomains::PointGeomSharedPtr v1,
-    SpatialDomains::PointGeomSharedPtr v2)
+SpatialDomains::TriGeomUniquePtr CreateTri(
+    std::array<SpatialDomains::PointGeom *, 3> v,
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> &segVec)
 {
-    Nektar::SpatialDomains::SegGeomSharedPtr e0 = CreateSegGeom(0, v0, v1);
-    Nektar::SpatialDomains::SegGeomSharedPtr e1 = CreateSegGeom(1, v1, v2);
-    Nektar::SpatialDomains::SegGeomSharedPtr e2 = CreateSegGeom(2, v2, v0);
+    segVec = {CreateSegGeom(0, v[0], v[1]), CreateSegGeom(1, v[1], v[2]),
+              CreateSegGeom(2, v[2], v[0])};
 
-    Nektar::SpatialDomains::SegGeomSharedPtr
-        edges[Nektar::SpatialDomains::TriGeom::kNedges] = {e0, e1, e2};
+    std::array<SpatialDomains::SegGeom *, 3> tmp;
+    for (int i = 0; i < 3; ++i)
+    {
+        tmp[i] = segVec[i].get();
+    }
 
-    SpatialDomains::TriGeomSharedPtr triGeom(
-        new SpatialDomains::TriGeom(0, edges));
+    SpatialDomains::TriGeomUniquePtr triGeom(
+        new SpatialDomains::TriGeom(0, tmp));
     return triGeom;
 }
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -103,7 +107,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -116,6 +120,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_UniformP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(Exp->GetTotPoints());
 
@@ -131,14 +139,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_VariableP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -160,7 +171,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_VariableP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -173,6 +184,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_VariableP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(Exp->GetTotPoints());
 
@@ -188,14 +203,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_VariableP)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -217,7 +235,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -235,6 +253,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_VariableP_MultiElmt)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(nelmts * Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(nelmts * Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(nelmts * Exp->GetTotPoints());
 
@@ -255,14 +277,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_StdMat_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_IterPerExp_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -284,7 +309,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_IterPerExp_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -297,6 +322,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_IterPerExp_UniformP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(Exp->GetTotPoints());
 
@@ -312,14 +341,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_IterPerExp_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_IterPerExp_VariableP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -341,7 +373,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_IterPerExp_VariableP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -354,6 +386,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_IterPerExp_VariableP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(Exp->GetTotPoints());
 
@@ -369,14 +405,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_IterPerExp_VariableP)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_MatrixFree_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -400,7 +439,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_MatrixFree_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -415,6 +454,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_MatrixFree_UniformP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> physRef(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys(Exp->GetTotPoints());
 
@@ -430,14 +473,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_MatrixFree_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_MatrixFree_UniformP_OverInt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 8;
     unsigned int numModes      = 4;
@@ -461,7 +507,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_MatrixFree_UniformP_OverInt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -476,6 +522,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_MatrixFree_UniformP_OverInt)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> physRef(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys(Exp->GetTotPoints());
 
@@ -491,14 +541,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_MatrixFree_UniformP_OverInt)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -520,7 +573,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
 
@@ -538,6 +591,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_UniformP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(nelmts * Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(nelmts * Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(nelmts * Exp->GetTotPoints());
 
@@ -557,14 +614,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_UniformP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -586,7 +646,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_UniformP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
 
@@ -604,6 +664,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_UniformP_MultiElmt)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(nelmts * Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(nelmts * Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(nelmts * Exp->GetTotPoints());
 
@@ -623,14 +687,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_UniformP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_VariableP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -652,7 +719,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_VariableP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = 1;
 
@@ -670,6 +737,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_VariableP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(nelmts * Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(nelmts * Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(nelmts * Exp->GetTotPoints());
 
@@ -689,14 +760,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_VariableP)
 
 BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -718,7 +792,7 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -736,6 +810,10 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_VariableP_MultiElmt)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(nelmts * Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(nelmts * Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(nelmts * Exp->GetTotPoints());
 
@@ -755,14 +833,17 @@ BOOST_AUTO_TEST_CASE(TestTriBwdTrans_SumFac_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_StdMat_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -784,7 +865,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_StdMat_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -822,14 +903,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_StdMat_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_StdMat_VariableP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -851,7 +935,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_StdMat_VariableP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -889,14 +973,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_StdMat_VariableP)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_StdMat_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -918,7 +1005,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_StdMat_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -968,14 +1055,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_StdMat_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_SumFac_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -997,7 +1087,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_SumFac_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1035,14 +1125,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_SumFac_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_SumFac_VariableP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1064,7 +1157,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_SumFac_VariableP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1102,14 +1195,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_SumFac_VariableP)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_MatrixFree_UniformP_Undeformed)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -1132,7 +1228,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_MatrixFree_UniformP_Undeformed)
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1172,14 +1268,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_MatrixFree_UniformP_Undeformed)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_MatrixFree_UniformP_Deformed)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 2.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -1202,7 +1301,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_MatrixFree_UniformP_Deformed)
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1243,14 +1342,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_MatrixFree_UniformP_Deformed)
 BOOST_AUTO_TEST_CASE(
     TestTriIProductWRTBase_MatrixFree_UniformP_Deformed_OverInt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 2.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 8;
     unsigned int numModes      = 4;
@@ -1273,7 +1375,7 @@ BOOST_AUTO_TEST_CASE(
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1313,14 +1415,17 @@ BOOST_AUTO_TEST_CASE(
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_SumFac_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1342,7 +1447,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_SumFac_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -1392,14 +1497,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTBase_SumFac_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_IterPerExp_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1421,7 +1529,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_IterPerExp_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1458,14 +1566,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_IterPerExp_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_IterPerExp_VariableP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1487,7 +1598,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_IterPerExp_VariableP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1524,14 +1635,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_IterPerExp_VariableP)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_IterPerExp_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1553,7 +1667,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_IterPerExp_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -1603,14 +1717,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_IterPerExp_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_StdMat_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1632,7 +1749,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_StdMat_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1669,14 +1786,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_StdMat_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_StdMat_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1698,7 +1818,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_StdMat_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -1748,14 +1868,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_StdMat_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_SumFac_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1777,7 +1900,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_SumFac_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1814,14 +1937,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_SumFac_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_SumFac_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1843,7 +1969,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_SumFac_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -1892,14 +2018,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_SumFac_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_MatrixFree_UniformP_Undeformed)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 2;
@@ -1922,7 +2051,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_MatrixFree_UniformP_Undeformed)
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1962,14 +2091,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_MatrixFree_UniformP_Undeformed)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_MatrixFree_UniformP_Deformed)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 2.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 2;
@@ -1992,7 +2124,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_MatrixFree_UniformP_Deformed)
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -2032,14 +2164,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_MatrixFree_UniformP_Deformed)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_MatrixFree_UniformP_Deformed_3D)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, 1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 2.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 2;
@@ -2062,7 +2197,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_MatrixFree_UniformP_Deformed_3D)
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -2103,14 +2238,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysDeriv_MatrixFree_UniformP_Deformed_3D)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_IterPerExp_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2132,7 +2270,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_IterPerExp_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -2179,14 +2317,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_IterPerExp_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_IterPerExp_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2208,7 +2349,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_IterPerExp_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -2268,14 +2409,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_IterPerExp_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_MatrixFree_UniformP_Undeformed)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -2298,7 +2442,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_MatrixFree_UniformP_Undeformed)
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
 
@@ -2348,14 +2492,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_MatrixFree_UniformP_Undeformed)
 BOOST_AUTO_TEST_CASE(
     TestTriIProductWRTDerivBase_MatrixFree_UniformP_Undeformed_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -2378,7 +2525,7 @@ BOOST_AUTO_TEST_CASE(
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = 10;
 
@@ -2443,14 +2590,17 @@ BOOST_AUTO_TEST_CASE(
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_MatrixFree_UniformP_Deformed)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 2.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -2473,7 +2623,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_MatrixFree_UniformP_Deformed)
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
     int nelmts = NELMTS;
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
@@ -2541,14 +2691,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_MatrixFree_UniformP_Deformed)
 BOOST_AUTO_TEST_CASE(
     TestTriIProductWRTDerivBase_MatrixFree_UniformP_Deformed_MultiElmt_ThreeD)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 2.0, 1.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -2571,7 +2724,7 @@ BOOST_AUTO_TEST_CASE(
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
     int nelmts = NELMTS;
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
@@ -2648,14 +2801,17 @@ BOOST_AUTO_TEST_CASE(
 BOOST_AUTO_TEST_CASE(
     TestTriIProductWRTDerivBase_MatrixFree_UniformP_Deformed_OverInt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 2.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 8;
     unsigned int numModes      = 4;
@@ -2678,7 +2834,7 @@ BOOST_AUTO_TEST_CASE(
                                                       triPointsKeyDir2);
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
 
@@ -2727,14 +2883,17 @@ BOOST_AUTO_TEST_CASE(
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_StdMat_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2756,7 +2915,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_StdMat_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -2803,14 +2962,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_StdMat_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_StdMat_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2832,7 +2994,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_StdMat_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -2892,14 +3054,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_StdMat_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_SumFac_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2921,7 +3086,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_SumFac_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -2968,14 +3133,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_SumFac_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_SumFac_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2997,7 +3165,7 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_SumFac_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -3058,14 +3226,17 @@ BOOST_AUTO_TEST_CASE(TestTriIProductWRTDerivBase_SumFac_VariableP_MultiElmt)
 BOOST_AUTO_TEST_CASE(
     TestTriIProductWRTDerivBase_SumFac_VariableP_MultiElmt_threedim)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, 1.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -3087,7 +3258,7 @@ BOOST_AUTO_TEST_CASE(
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     int nelmts = NELMTS;
 
@@ -3154,14 +3325,17 @@ BOOST_AUTO_TEST_CASE(
 
 BOOST_AUTO_TEST_CASE(TestTriHelmholtz_IterPerExp_UniformP_ConstVarDiff)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -3186,7 +3360,7 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_IterPerExp_UniformP_ConstVarDiff)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     Nektar::StdRegions::StdTriExpSharedPtr stdExp =
         MemoryManager<Nektar::StdRegions::StdTriExp>::AllocateSharedPtr(
@@ -3219,14 +3393,9 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_IterPerExp_UniformP_ConstVarDiff)
     Array<OneD, NekDouble> coeffsRef(nelmts * nm);
     Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
 
-    for (int i = 0; i < nm; ++i)
+    for (int i = 0; i < coeffsIn.size(); ++i)
     {
-        coeffsIn[i] = 1.0;
-    }
-
-    for (int i = 1; i < nelmts; ++i)
-    {
-        Vmath::Vcopy(nm, coeffsIn, 1, tmp = coeffsIn + i * nm, 1);
+        coeffsIn[i] = i + 1.0;
     }
 
     StdRegions::StdMatrixKey mkey(StdRegions::eHelmholtz, Exp->DetShapeType(),
@@ -3251,14 +3420,17 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_IterPerExp_UniformP_ConstVarDiff)
 
 BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -3283,7 +3455,7 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     Nektar::StdRegions::StdTriExpSharedPtr stdExp =
         MemoryManager<Nektar::StdRegions::StdTriExp>::AllocateSharedPtr(
@@ -3313,14 +3485,9 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP)
     Array<OneD, NekDouble> coeffsRef(nelmts * nm);
     Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
 
-    for (int i = 0; i < nm; ++i)
+    for (int i = 0; i < coeffsIn.size(); ++i)
     {
-        coeffsIn[i] = 1.0;
-    }
-
-    for (int i = 1; i < nelmts; ++i)
-    {
-        Vmath::Vcopy(nm, coeffsIn, 1, tmp = coeffsIn + i * nm, 1);
+        coeffsIn[i] = i + 1.0;
     }
 
     StdRegions::StdMatrixKey mkey(StdRegions::eHelmholtz, Exp->DetShapeType(),
@@ -3345,14 +3512,17 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP_OverInt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 8;
     unsigned int numModes      = 4;
@@ -3377,7 +3547,7 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP_OverInt)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     Nektar::StdRegions::StdTriExpSharedPtr stdExp =
         MemoryManager<Nektar::StdRegions::StdTriExp>::AllocateSharedPtr(
@@ -3407,14 +3577,9 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP_OverInt)
     Array<OneD, NekDouble> coeffsRef(nelmts * nm);
     Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
 
-    for (int i = 0; i < nm; ++i)
+    for (int i = 0; i < coeffsIn.size(); ++i)
     {
-        coeffsIn[i] = 1.0;
-    }
-
-    for (int i = 1; i < nelmts; ++i)
-    {
-        Vmath::Vcopy(nm, coeffsIn, 1, tmp = coeffsIn + i * nm, 1);
+        coeffsIn[i] = i + 1.0;
     }
 
     StdRegions::StdMatrixKey mkey(StdRegions::eHelmholtz, Exp->DetShapeType(),
@@ -3439,14 +3604,17 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP_OverInt)
 
 BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP_ConstVarDiff)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -3471,7 +3639,7 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP_ConstVarDiff)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     Nektar::StdRegions::StdTriExpSharedPtr stdExp =
         MemoryManager<Nektar::StdRegions::StdTriExp>::AllocateSharedPtr(
@@ -3504,14 +3672,9 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP_ConstVarDiff)
     Array<OneD, NekDouble> coeffsRef(nelmts * nm);
     Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
 
-    for (int i = 0; i < nm; ++i)
+    for (int i = 0; i < coeffsIn.size(); ++i)
     {
-        coeffsIn[i] = 1.0;
-    }
-
-    for (int i = 1; i < nelmts; ++i)
-    {
-        Vmath::Vcopy(nm, coeffsIn, 1, tmp = coeffsIn + i * nm, 1);
+        coeffsIn[i] = i + 1.0;
     }
 
     StdRegions::StdMatrixKey mkey(StdRegions::eHelmholtz, Exp->DetShapeType(),
@@ -3536,14 +3699,17 @@ BOOST_AUTO_TEST_CASE(TestTriHelmholtz_MatrixFree_UniformP_ConstVarDiff)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysInterp1D_NoCollection_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -3568,7 +3734,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysInterp1D_NoCollection_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -3617,14 +3783,17 @@ BOOST_AUTO_TEST_CASE(TestTriPhysInterp1D_NoCollection_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTriPhysInterp1D_MatrixFree_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
 
-    SpatialDomains::TriGeomSharedPtr triGeom = CreateTri(v0, v1, v2);
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -3649,7 +3818,7 @@ BOOST_AUTO_TEST_CASE(TestTriPhysInterp1D_MatrixFree_UniformP)
 
     Nektar::LocalRegions::TriExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, triGeom);
+            basisKeyDir1, basisKeyDir2, triGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -3693,6 +3862,437 @@ BOOST_AUTO_TEST_CASE(TestTriPhysInterp1D_MatrixFree_UniformP)
         phys1[i]        = (fabs(phys1[i]) < 1e-14) ? 0.0 : phys1[i];
         exact           = (fabs(exact) < 1e-14) ? 0.0 : exact;
         BOOST_CHECK_CLOSE(phys1[i], exact, epsilon);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(
+    TestTriLinearAdvectionDiffusionReaction_IterPerExp_UniformP)
+{
+    SpatialDomains::PointGeomUniquePtr v0(
+        new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
+    SpatialDomains::PointGeomUniquePtr v1(
+        new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
+    SpatialDomains::PointGeomUniquePtr v2(
+        new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
+
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
+
+    unsigned int numQuadPoints = 5;
+    unsigned int numModes      = 4;
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir1 =
+        Nektar::LibUtilities::eGaussLobattoLegendre;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir1(numQuadPoints,
+                                                           triPointsTypeDir1);
+    Nektar::LibUtilities::BasisType basisTypeDir1 =
+        Nektar::LibUtilities::eModified_A;
+    const Nektar::LibUtilities::BasisKey basisKeyDir1(basisTypeDir1, numModes,
+                                                      triPointsKeyDir1);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir2 =
+        Nektar::LibUtilities::eGaussRadauMAlpha1Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir2(numQuadPoints - 1,
+                                                           triPointsTypeDir2);
+    Nektar::LibUtilities::BasisType basisTypeDir2 =
+        Nektar::LibUtilities::eModified_B;
+    const Nektar::LibUtilities::BasisKey basisKeyDir2(basisTypeDir2, numModes,
+                                                      triPointsKeyDir2);
+
+    Nektar::LocalRegions::TriExpSharedPtr Exp =
+        MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir2, triGeom.get());
+
+    Nektar::StdRegions::StdTriExpSharedPtr stdExp =
+        MemoryManager<Nektar::StdRegions::StdTriExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir1);
+
+    int nelmts = 10;
+
+    std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        CollExp.push_back(Exp);
+    }
+
+    LibUtilities::SessionReaderSharedPtr dummySession;
+    Collections::CollectionOptimisation colOpt(dummySession, 2,
+                                               Collections::eIterPerExp);
+    Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
+    Collections::Collection c(CollExp, impTypes);
+    StdRegions::ConstFactorMap factors;
+    factors[StdRegions::eFactorLambda] = 1.5;
+
+    c.Initialise(Collections::eLinearAdvectionDiffusionReaction, factors);
+
+    // Add advection velocities via varcoeffs
+    int npoints = Exp->GetTotPoints() * nelmts;
+    StdRegions::VarCoeffMap varcoeffs;
+    StdRegions::VarCoeffType varcoefftypes[] = {StdRegions::eVarCoeffVelX,
+                                                StdRegions::eVarCoeffVelY};
+    for (int i = 0; i < Exp->GetShapeDimension(); i++)
+    {
+        varcoeffs[varcoefftypes[i]] = Array<OneD, NekDouble>(npoints, 1.0);
+    }
+    c.UpdateVarcoeffs(Collections::eLinearAdvectionDiffusionReaction,
+                      varcoeffs);
+
+    const int nm = Exp->GetNcoeffs();
+    Array<OneD, NekDouble> coeffsIn(nelmts * nm);
+    Array<OneD, NekDouble> coeffsRef(nelmts * nm);
+    Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
+
+    for (int i = 0; i < coeffsIn.size(); ++i)
+    {
+        coeffsIn[i] = i + 1.0;
+    }
+
+    StdRegions::StdMatrixKey mkey(StdRegions::eLinearAdvectionDiffusionReaction,
+                                  Exp->DetShapeType(), *Exp, factors,
+                                  varcoeffs);
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        // Standard routines
+        Exp->GeneralMatrixOp(coeffsIn + i * nm, tmp = coeffsRef + i * nm, mkey);
+    }
+
+    c.ApplyOperator(Collections::eLinearAdvectionDiffusionReaction, coeffsIn,
+                    coeffs);
+
+    double epsilon = 1.0e-8;
+    for (int i = 0; i < coeffsRef.size(); ++i)
+    {
+        coeffsRef[i] = (std::abs(coeffsRef[i]) < 1e-14) ? 0.0 : coeffsRef[i];
+        coeffs[i]    = (std::abs(coeffs[i]) < 1e-14) ? 0.0 : coeffs[i];
+        BOOST_CHECK_CLOSE(coeffsRef[i], coeffs[i], epsilon);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(
+    TestTriLinearAdvectionDiffusionReaction_MatrixFree_UniformP)
+{
+    SpatialDomains::PointGeomUniquePtr v0(
+        new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
+    SpatialDomains::PointGeomUniquePtr v1(
+        new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
+    SpatialDomains::PointGeomUniquePtr v2(
+        new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
+
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
+
+    unsigned int numQuadPoints = 5;
+    unsigned int numModes      = 4;
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir1 =
+        Nektar::LibUtilities::eGaussLobattoLegendre;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir1(numQuadPoints,
+                                                           triPointsTypeDir1);
+    Nektar::LibUtilities::BasisType basisTypeDir1 =
+        Nektar::LibUtilities::eModified_A;
+    const Nektar::LibUtilities::BasisKey basisKeyDir1(basisTypeDir1, numModes,
+                                                      triPointsKeyDir1);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir2 =
+        Nektar::LibUtilities::eGaussRadauMAlpha1Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir2(numQuadPoints - 1,
+                                                           triPointsTypeDir2);
+    Nektar::LibUtilities::BasisType basisTypeDir2 =
+        Nektar::LibUtilities::eModified_B;
+    const Nektar::LibUtilities::BasisKey basisKeyDir2(basisTypeDir2, numModes,
+                                                      triPointsKeyDir2);
+
+    Nektar::LocalRegions::TriExpSharedPtr Exp =
+        MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir2, triGeom.get());
+
+    Nektar::StdRegions::StdTriExpSharedPtr stdExp =
+        MemoryManager<Nektar::StdRegions::StdTriExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir1);
+
+    int nelmts = 10;
+
+    std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        CollExp.push_back(Exp);
+    }
+
+    LibUtilities::SessionReaderSharedPtr dummySession;
+    Collections::CollectionOptimisation colOpt(dummySession, 2,
+                                               Collections::eMatrixFree);
+    Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
+    Collections::Collection c(CollExp, impTypes);
+    StdRegions::ConstFactorMap factors;
+    factors[StdRegions::eFactorLambda] = 1.5;
+
+    c.Initialise(Collections::eLinearAdvectionDiffusionReaction, factors);
+
+    // Add advection velocities via varcoeffs
+    int npoints = Exp->GetTotPoints() * nelmts;
+    StdRegions::VarCoeffMap varcoeffs;
+    StdRegions::VarCoeffType varcoefftypes[] = {StdRegions::eVarCoeffVelX,
+                                                StdRegions::eVarCoeffVelY};
+    for (int i = 0; i < Exp->GetShapeDimension(); i++)
+    {
+        varcoeffs[varcoefftypes[i]] = Array<OneD, NekDouble>(npoints, 1.0);
+    }
+    c.UpdateVarcoeffs(Collections::eLinearAdvectionDiffusionReaction,
+                      varcoeffs);
+
+    const int nm = Exp->GetNcoeffs();
+    Array<OneD, NekDouble> coeffsIn(nelmts * nm);
+    Array<OneD, NekDouble> coeffsRef(nelmts * nm);
+    Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
+
+    for (int i = 0; i < coeffsIn.size(); ++i)
+    {
+        coeffsIn[i] = i + 1.0;
+    }
+
+    StdRegions::StdMatrixKey mkey(StdRegions::eLinearAdvectionDiffusionReaction,
+                                  Exp->DetShapeType(), *Exp, factors,
+                                  varcoeffs);
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        // Standard routines
+        Exp->GeneralMatrixOp(coeffsIn + i * nm, tmp = coeffsRef + i * nm, mkey);
+    }
+
+    c.ApplyOperator(Collections::eLinearAdvectionDiffusionReaction, coeffsIn,
+                    coeffs);
+
+    double epsilon = 1.0e-8;
+    for (int i = 0; i < coeffsRef.size(); ++i)
+    {
+        coeffsRef[i] = (std::abs(coeffsRef[i]) < 1e-14) ? 0.0 : coeffsRef[i];
+        coeffs[i]    = (std::abs(coeffs[i]) < 1e-14) ? 0.0 : coeffs[i];
+        BOOST_CHECK_CLOSE(coeffsRef[i], coeffs[i], epsilon);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(
+    TestTriLinearAdvectionDiffusionReaction_MatrixFree_UniformP_OverInt)
+{
+    SpatialDomains::PointGeomUniquePtr v0(
+        new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
+    SpatialDomains::PointGeomUniquePtr v1(
+        new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
+    SpatialDomains::PointGeomUniquePtr v2(
+        new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
+
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
+
+    unsigned int numQuadPoints = 8;
+    unsigned int numModes      = 4;
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir1 =
+        Nektar::LibUtilities::eGaussLobattoLegendre;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir1(numQuadPoints,
+                                                           triPointsTypeDir1);
+    Nektar::LibUtilities::BasisType basisTypeDir1 =
+        Nektar::LibUtilities::eModified_A;
+    const Nektar::LibUtilities::BasisKey basisKeyDir1(basisTypeDir1, numModes,
+                                                      triPointsKeyDir1);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir2 =
+        Nektar::LibUtilities::eGaussRadauMAlpha1Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir2(numQuadPoints - 1,
+                                                           triPointsTypeDir2);
+    Nektar::LibUtilities::BasisType basisTypeDir2 =
+        Nektar::LibUtilities::eModified_B;
+    const Nektar::LibUtilities::BasisKey basisKeyDir2(basisTypeDir2, numModes,
+                                                      triPointsKeyDir2);
+
+    Nektar::LocalRegions::TriExpSharedPtr Exp =
+        MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir2, triGeom.get());
+
+    Nektar::StdRegions::StdTriExpSharedPtr stdExp =
+        MemoryManager<Nektar::StdRegions::StdTriExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir1);
+
+    int nelmts = 10;
+
+    std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        CollExp.push_back(Exp);
+    }
+
+    LibUtilities::SessionReaderSharedPtr dummySession;
+    Collections::CollectionOptimisation colOpt(dummySession, 2,
+                                               Collections::eMatrixFree);
+    Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
+    Collections::Collection c(CollExp, impTypes);
+    StdRegions::ConstFactorMap factors;
+    factors[StdRegions::eFactorLambda] = 1.5;
+
+    c.Initialise(Collections::eLinearAdvectionDiffusionReaction, factors);
+
+    // Add advection velocities via varcoeffs
+    int npoints = Exp->GetTotPoints() * nelmts;
+    StdRegions::VarCoeffMap varcoeffs;
+    StdRegions::VarCoeffType varcoefftypes[] = {StdRegions::eVarCoeffVelX,
+                                                StdRegions::eVarCoeffVelY};
+    for (int i = 0; i < Exp->GetShapeDimension(); i++)
+    {
+        varcoeffs[varcoefftypes[i]] = Array<OneD, NekDouble>(npoints, 1.0);
+    }
+    c.UpdateVarcoeffs(Collections::eLinearAdvectionDiffusionReaction,
+                      varcoeffs);
+
+    const int nm = Exp->GetNcoeffs();
+    Array<OneD, NekDouble> coeffsIn(nelmts * nm);
+    Array<OneD, NekDouble> coeffsRef(nelmts * nm);
+    Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
+
+    for (int i = 0; i < coeffsIn.size(); ++i)
+    {
+        coeffsIn[i] = i + 1.0;
+    }
+
+    StdRegions::StdMatrixKey mkey(StdRegions::eLinearAdvectionDiffusionReaction,
+                                  Exp->DetShapeType(), *Exp, factors,
+                                  varcoeffs);
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        // Standard routines
+        Exp->GeneralMatrixOp(coeffsIn + i * nm, tmp = coeffsRef + i * nm, mkey);
+    }
+
+    c.ApplyOperator(Collections::eLinearAdvectionDiffusionReaction, coeffsIn,
+                    coeffs);
+
+    double epsilon = 1.0e-8;
+    for (int i = 0; i < coeffsRef.size(); ++i)
+    {
+        coeffsRef[i] = (std::abs(coeffsRef[i]) < 1e-14) ? 0.0 : coeffsRef[i];
+        coeffs[i]    = (std::abs(coeffs[i]) < 1e-14) ? 0.0 : coeffs[i];
+        BOOST_CHECK_CLOSE(coeffsRef[i], coeffs[i], epsilon);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(
+    TestTriLinearAdvectionDiffusionReaction_MatrixFree_UniformP_ConstVarDiff)
+{
+    SpatialDomains::PointGeomUniquePtr v0(
+        new SpatialDomains::PointGeom(2u, 0u, -1.5, -1.5, 0.0));
+    SpatialDomains::PointGeomUniquePtr v1(
+        new SpatialDomains::PointGeom(2u, 1u, 1.0, -1.0, 0.0));
+    SpatialDomains::PointGeomUniquePtr v2(
+        new SpatialDomains::PointGeom(2u, 2u, -1.0, 1.0, 0.0));
+
+    std::array<SpatialDomains::SegGeomUniquePtr, 3> segVec;
+    std::array<SpatialDomains::PointGeom *, 3> v = {v0.get(), v1.get(),
+                                                    v2.get()};
+    SpatialDomains::TriGeomUniquePtr triGeom     = CreateTri(v, segVec);
+
+    unsigned int numQuadPoints = 5;
+    unsigned int numModes      = 4;
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir1 =
+        Nektar::LibUtilities::eGaussLobattoLegendre;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir1(numQuadPoints,
+                                                           triPointsTypeDir1);
+    Nektar::LibUtilities::BasisType basisTypeDir1 =
+        Nektar::LibUtilities::eModified_A;
+    const Nektar::LibUtilities::BasisKey basisKeyDir1(basisTypeDir1, numModes,
+                                                      triPointsKeyDir1);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir2 =
+        Nektar::LibUtilities::eGaussRadauMAlpha1Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir2(numQuadPoints - 1,
+                                                           triPointsTypeDir2);
+    Nektar::LibUtilities::BasisType basisTypeDir2 =
+        Nektar::LibUtilities::eModified_B;
+    const Nektar::LibUtilities::BasisKey basisKeyDir2(basisTypeDir2, numModes,
+                                                      triPointsKeyDir2);
+
+    Nektar::LocalRegions::TriExpSharedPtr Exp =
+        MemoryManager<Nektar::LocalRegions::TriExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir2, triGeom.get());
+
+    Nektar::StdRegions::StdTriExpSharedPtr stdExp =
+        MemoryManager<Nektar::StdRegions::StdTriExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir1);
+
+    int nelmts = 10;
+
+    std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        CollExp.push_back(Exp);
+    }
+
+    LibUtilities::SessionReaderSharedPtr dummySession;
+    Collections::CollectionOptimisation colOpt(dummySession, 2,
+                                               Collections::eMatrixFree);
+    Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
+    Collections::Collection c(CollExp, impTypes);
+    StdRegions::ConstFactorMap factors;
+    factors[StdRegions::eFactorLambda]   = 1.5;
+    factors[StdRegions::eFactorCoeffD00] = 1.25;
+    factors[StdRegions::eFactorCoeffD01] = 0.25;
+    factors[StdRegions::eFactorCoeffD11] = 1.25;
+
+    c.Initialise(Collections::eLinearAdvectionDiffusionReaction, factors);
+
+    // Add advection velocities via varcoeffs
+    int npoints = Exp->GetTotPoints() * nelmts;
+    StdRegions::VarCoeffMap varcoeffs;
+    StdRegions::VarCoeffType varcoefftypes[] = {StdRegions::eVarCoeffVelX,
+                                                StdRegions::eVarCoeffVelY};
+    for (int i = 0; i < Exp->GetShapeDimension(); i++)
+    {
+        varcoeffs[varcoefftypes[i]] = Array<OneD, NekDouble>(npoints, 1.0);
+    }
+    c.UpdateVarcoeffs(Collections::eLinearAdvectionDiffusionReaction,
+                      varcoeffs);
+
+    const int nm = Exp->GetNcoeffs();
+    Array<OneD, NekDouble> coeffsIn(nelmts * nm);
+    Array<OneD, NekDouble> coeffsRef(nelmts * nm);
+    Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
+
+    for (int i = 0; i < coeffsIn.size(); ++i)
+    {
+        coeffsIn[i] = i + 1.0;
+    }
+
+    StdRegions::StdMatrixKey mkey(StdRegions::eLinearAdvectionDiffusionReaction,
+                                  Exp->DetShapeType(), *Exp, factors,
+                                  varcoeffs);
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        // Standard routines
+        Exp->GeneralMatrixOp(coeffsIn + i * nm, tmp = coeffsRef + i * nm, mkey);
+    }
+
+    c.ApplyOperator(Collections::eLinearAdvectionDiffusionReaction, coeffsIn,
+                    coeffs);
+
+    double epsilon = 1.0e-8;
+    for (int i = 0; i < coeffsRef.size(); ++i)
+    {
+        coeffsRef[i] = (std::abs(coeffsRef[i]) < 1e-14) ? 0.0 : coeffsRef[i];
+        coeffs[i]    = (std::abs(coeffs[i]) < 1e-14) ? 0.0 : coeffs[i];
+        BOOST_CHECK_CLOSE(coeffsRef[i], coeffs[i], epsilon);
     }
 }
 

@@ -58,22 +58,11 @@ protected:
     //-----------------------------
     // Differentiation Methods
     //-----------------------------
-    STD_REGIONS_EXPORT void v_PhysDeriv(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &out_d0,
-        Array<OneD, NekDouble> &out_d1 = NullNekDouble1DArray,
-        Array<OneD, NekDouble> &out_d2 = NullNekDouble1DArray) override;
-    STD_REGIONS_EXPORT void v_PhysDeriv(
-        const int dir, const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
     STD_REGIONS_EXPORT void v_StdPhysDeriv(
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &out_d0,
         Array<OneD, NekDouble> &out_d1 = NullNekDouble1DArray,
         Array<OneD, NekDouble> &out_d2 = NullNekDouble1DArray) override;
-    STD_REGIONS_EXPORT void v_StdPhysDeriv(
-        const int dir, const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
 
     //-----------------------------
     // Transforms
@@ -81,34 +70,19 @@ protected:
     STD_REGIONS_EXPORT void v_BwdTrans(
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
-    STD_REGIONS_EXPORT void v_BwdTrans_SumFac(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
     STD_REGIONS_EXPORT void v_FwdTransBndConstrained(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-    STD_REGIONS_EXPORT void v_FwdTrans(
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
 
     //----------------------------
     // Inner product functions
     //----------------------------
-    STD_REGIONS_EXPORT void v_IProductWRTBase(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-    STD_REGIONS_EXPORT void v_IProductWRTBase(
-        const Array<OneD, const NekDouble> &base,
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray, int coll_check) override;
-    STD_REGIONS_EXPORT void v_IProductWRTBase_SumFac(
+    STD_REGIONS_EXPORT void v_IProductWRTBaseKernel(
+        const Array<OneD, const NekDouble> &base0,
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray,
-        bool multiplybyweights = true) override;
+        const Array<OneD, const NekDouble> &jac, const bool Deformed) override;
     STD_REGIONS_EXPORT void v_IProductWRTDerivBase(
-        const int dir, const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-    STD_REGIONS_EXPORT void v_IProductWRTDerivBase_SumFac(
         const int dir, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
 
@@ -146,9 +120,6 @@ protected:
     STD_REGIONS_EXPORT void v_ExponentialFilter(
         Array<OneD, NekDouble> &array, const NekDouble alpha,
         const NekDouble exponent, const NekDouble cutoff) override;
-    STD_REGIONS_EXPORT void v_MultiplyByStdQuadratureMetric(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
     STD_REGIONS_EXPORT void v_FillMode(
         const int mode, Array<OneD, NekDouble> &outarray) override;
     STD_REGIONS_EXPORT void v_GetCoords(

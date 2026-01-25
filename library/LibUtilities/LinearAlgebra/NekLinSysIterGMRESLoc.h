@@ -100,6 +100,10 @@ protected:
                       const Array<OneD, const NekDouble> &pInput,
                       Array<OneD, NekDouble> &pOutput, const int nDir) override;
 
+    void v_DoIterate(const int nGlobal, const Array<OneD, NekDouble> &rhs,
+                     Array<OneD, NekDouble> &x, const int nDir, NekDouble &err,
+                     int &iter) override;
+
 private:
     /// Actual iterative solve-GMRES
     int DoGMRES(const int pNumRows, const Array<OneD, const NekDouble> &pInput,
@@ -143,6 +147,9 @@ private:
     Array<OneD, Array<OneD, NekDouble>> m_Upper;
     // Total search directions
     Array<OneD, Array<OneD, NekDouble>> m_V_total;
+    Array<OneD, Array<OneD, NekDouble>> m_Z_total;
+
+    bool m_flexible;
 };
 } // namespace Nektar::LibUtilities
 

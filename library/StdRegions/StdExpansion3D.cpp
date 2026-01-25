@@ -34,8 +34,12 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#include <LibUtilities/Foundations/Interp.h>
 #include <StdRegions/StdExpansion3D.h>
+
+#include <LibUtilities/BasicUtils/NekInline.hpp>
+#include <LibUtilities/Foundations/Interp.h>
+#include <StdRegions/Operators/SwitchLevel1.h>
+#include <StdRegions/Operators/SwitchLevel2.h>
 
 #ifdef max
 #undef max
@@ -43,6 +47,9 @@
 
 namespace Nektar::StdRegions
 {
+// Declaretion of scalar routine
+using vec_t = tinysimd::scalarT<double>;
+#include <StdRegions/Operators/PhysDerivSumFacStdKernels.hpp>
 
 StdExpansion3D::StdExpansion3D(
     [[maybe_unused]] int numcoeffs,
@@ -52,71 +59,17 @@ StdExpansion3D::StdExpansion3D(
 {
 }
 
-void StdExpansion3D::PhysTensorDeriv(
-    const Array<OneD, const NekDouble> &inarray, Array<OneD, NekDouble> &out_dx,
-    Array<OneD, NekDouble> &out_dy, Array<OneD, NekDouble> &out_dz)
-{
-    const int nquad0 = m_base[0]->GetNumPoints();
-    const int nquad1 = m_base[1]->GetNumPoints();
-    const int nquad2 = m_base[2]->GetNumPoints();
-
-    Array<OneD, NekDouble> wsp(nquad0 * nquad1 * nquad2);
-
-    // copy inarray to wsp in case inarray is used as outarray
-    Vmath::Vcopy(nquad0 * nquad1 * nquad2, &inarray[0], 1, &wsp[0], 1);
-
-    if (out_dx.size() > 0)
-    {
-        NekDouble *D0 = &((m_base[0]->GetD())->GetPtr())[0];
-
-        Blas::Dgemm('N', 'N', nquad0, nquad1 * nquad2, nquad0, 1.0, D0, nquad0,
-                    &wsp[0], nquad0, 0.0, &out_dx[0], nquad0);
-    }
-
-    if (out_dy.size() > 0)
-    {
-        NekDouble *D1 = &((m_base[1]->GetD())->GetPtr())[0];
-        for (int j = 0; j < nquad2; ++j)
-        {
-            Blas::Dgemm('N', 'T', nquad0, nquad1, nquad1, 1.0,
-                        &wsp[j * nquad0 * nquad1], nquad0, D1, nquad1, 0.0,
-                        &out_dy[j * nquad0 * nquad1], nquad0);
-        }
-    }
-
-    if (out_dz.size() > 0)
-    {
-        NekDouble *D2 = &((m_base[2]->GetD())->GetPtr())[0];
-
-        Blas::Dgemm('N', 'T', nquad0 * nquad1, nquad2, nquad2, 1.0, &wsp[0],
-                    nquad0 * nquad1, D2, nquad2, 0.0, &out_dz[0],
-                    nquad0 * nquad1);
-    }
-}
-
-void StdExpansion3D::BwdTrans_SumFacKernel(
+void StdExpansion3D::IProductWRTBaseKernel(
     const Array<OneD, const NekDouble> &base0,
     const Array<OneD, const NekDouble> &base1,
     const Array<OneD, const NekDouble> &base2,
     const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-    bool doCheckCollDir0, bool doCheckCollDir1, bool doCheckCollDir2)
+    Array<OneD, NekDouble> &outarray, const Array<OneD, NekDouble> &jac,
+    const bool Deformed, [[maybe_unused]] bool CollDir0,
+    [[maybe_unused]] bool CollDir1, [[maybe_unused]] bool CollDir2)
 {
-    v_BwdTrans_SumFacKernel(base0, base1, base2, inarray, outarray, wsp,
-                            doCheckCollDir0, doCheckCollDir1, doCheckCollDir2);
-}
-
-void StdExpansion3D::IProductWRTBase_SumFacKernel(
-    const Array<OneD, const NekDouble> &base0,
-    const Array<OneD, const NekDouble> &base1,
-    const Array<OneD, const NekDouble> &base2,
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-    bool doCheckCollDir0, bool doCheckCollDir1, bool doCheckCollDir2)
-{
-    v_IProductWRTBase_SumFacKernel(base0, base1, base2, inarray, outarray, wsp,
-                                   doCheckCollDir0, doCheckCollDir1,
-                                   doCheckCollDir2);
+    v_IProductWRTBaseKernel(base0, base1, base2, inarray, outarray, jac,
+                            Deformed, CollDir0, CollDir1, CollDir2);
 }
 
 void StdExpansion3D::v_GenStdMatBwdDeriv(const int dir, DNekMatSharedPtr &mat)
@@ -127,73 +80,161 @@ void StdExpansion3D::v_GenStdMatBwdDeriv(const int dir, DNekMatSharedPtr &mat)
     const int nq1 = m_base[1]->GetNumPoints();
     const int nq2 = m_base[2]->GetNumPoints();
     const int nq  = nq0 * nq1 * nq2;
-    const int nm0 = m_base[0]->GetNumModes();
-    const int nm1 = m_base[1]->GetNumModes();
 
-    Array<OneD, NekDouble> alloc(4 * nq + m_ncoeffs + nm0 * nq2 * (nq1 + nm1),
-                                 0.0);
-    Array<OneD, NekDouble> tmp1(alloc);           // Quad metric
-    Array<OneD, NekDouble> tmp2(alloc + nq);      // Dir1 metric
-    Array<OneD, NekDouble> tmp3(alloc + 2 * nq);  // Dir2 metric
-    Array<OneD, NekDouble> tmp4(alloc + 3 * nq);  // Dir3 metric
-    Array<OneD, NekDouble> tmp5(alloc + 4 * nq);  // iprod tmp
-    Array<OneD, NekDouble> wsp(tmp5 + m_ncoeffs); // Wsp
-    switch (dir)
+    const bool CollDir0 = m_base[0]->Collocation();
+    const bool CollDir1 = m_base[1]->Collocation();
+    const bool CollDir2 = m_base[2]->Collocation();
+
+    Array<OneD, NekDouble> in(nq, 0.0);
+    Array<OneD, NekDouble> out(m_ncoeffs);
+    Array<OneD, NekDouble> one(1, 1.0);
+
+    for (int i = 0; i < nq; i++)
     {
-        case 0:
-            for (int i = 0; i < nq; i++)
-            {
-                tmp2[i] = 1.0;
-                IProductWRTBase_SumFacKernel(
-                    m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
-                    m_base[2]->GetBdata(), tmp2, tmp5, wsp, false, true, true);
+        int l = i % nq0;
+        int m = (i / nq0) % nq1;
+        int n = i / (nq0 * nq1);
 
-                tmp2[i] = 0.0;
+        // initialise with inverse of weights t
+        in[i] = 1.0 / (m_weights[0][l] * m_weights[1][m] * m_weights[2][n]);
 
-                for (int j = 0; j < m_ncoeffs; j++)
-                {
-                    (*mat)(j, i) = tmp5[j];
-                }
-            }
-            break;
-        case 1:
-            for (int i = 0; i < nq; i++)
-            {
-                tmp2[i] = 1.0;
-                IProductWRTBase_SumFacKernel(
-                    m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
-                    m_base[2]->GetBdata(), tmp2, tmp5, wsp, true, false, true);
+        // do standard iproduct
+        if (dir == 0)
+        {
+            v_IProductWRTBaseKernel(m_base[0]->GetDbdata(),
+                                    m_base[1]->GetBdata(),
+                                    m_base[2]->GetBdata(), in, out, one, false,
+                                    false, CollDir1, CollDir2);
+        }
+        else if (dir == 1)
+        {
+            v_IProductWRTBaseKernel(m_base[0]->GetBdata(),
+                                    m_base[1]->GetDbdata(),
+                                    m_base[2]->GetBdata(), in, out, one, false,
+                                    CollDir0, false, CollDir2);
+        }
+        else // dir == 2
+        {
+            v_IProductWRTBaseKernel(m_base[0]->GetBdata(),
+                                    m_base[1]->GetBdata(),
+                                    m_base[2]->GetDbdata(), in, out, one, false,
+                                    CollDir0, CollDir1, false);
+        }
+        in[i] = 0.0;
 
-                tmp2[i] = 0.0;
-
-                for (int j = 0; j < m_ncoeffs; j++)
-                {
-                    (*mat)(j, i) = tmp5[j];
-                }
-            }
-            break;
-        case 2:
-            for (int i = 0; i < nq; i++)
-            {
-                tmp2[i] = 1.0;
-                IProductWRTBase_SumFacKernel(
-                    m_base[0]->GetBdata(), m_base[1]->GetBdata(),
-                    m_base[2]->GetDbdata(), tmp2, tmp5, wsp, true, true, false);
-                tmp2[i] = 0.0;
-
-                for (int j = 0; j < m_ncoeffs; j++)
-                {
-                    (*mat)(j, i) = tmp5[j];
-                }
-            }
-            break;
-        default:
-            NEKERROR(ErrorUtil::efatal, "Not a 2D expansion.");
-            break;
+        for (int j = 0; j < m_ncoeffs; j++)
+        {
+            (*mat)(j, i) = out[j];
+        }
     }
 }
 
-NekDouble StdExpansion3D::v_PhysEvaluate(
+void StdExpansion3D::PhysTensorDeriv(
+    const Array<OneD, const NekDouble> &inarray, Array<OneD, NekDouble> &out_d0,
+    Array<OneD, NekDouble> &out_d1, Array<OneD, NekDouble> &out_d2)
+{
+    const int nquad0 = m_base[0]->GetNumPoints();
+    const int nquad1 = m_base[1]->GetNumPoints();
+    const int nquad2 = m_base[2]->GetNumPoints();
+
+    bool Deriv0         = (out_d0.size() > 0);
+    bool Deriv1         = (out_d1.size() > 0);
+    bool Deriv2         = (out_d2.size() > 0);
+    const NekDouble *D0 = m_base[0]->GetD()->GetRawPtr();
+    const NekDouble *D1 = m_base[1]->GetD()->GetRawPtr();
+    const NekDouble *D2 = m_base[2]->GetD()->GetRawPtr();
+
+    Array<OneD, const NekDouble> intmp;
+    // copy inarray data if inarray and outarray are the same.
+    if ((inarray.data() == out_d0.data()) ||
+        (inarray.data() == out_d1.data()) || (inarray.data() == out_d2.data()))
+    {
+        Array<OneD, NekDouble> wsp(nquad0 * nquad1 * nquad2);
+        CopyArray(inarray, wsp);
+        intmp = wsp;
+    }
+    else
+    {
+        intmp = inarray;
+    }
+
+    // Switch statment using boost_pp and macros. This unfolls into a
+    // nested switch statement which runs from SMIN to SMAX for quadratrure
+    // order. If you want to see it unwrapped compile in verbose mode and add
+    // --preprocess to the c++ command. Default case
+#undef PHYSDERIV_DEF
+#define PHYSDERIV_DEF                                                          \
+    PhysDerivTensor3DKernel(nquad0, nquad1, nquad2,                            \
+                            (const vec_t *)intmp.data(), (const vec_t *)D0,    \
+                            (const vec_t *)D1, (const vec_t *)D2,              \
+                            (vec_t *)out_d0.data(), (vec_t *)out_d1.data(),    \
+                            (vec_t *)out_d2.data(), Deriv0, Deriv1, Deriv2)
+
+    // Loop case over quarature points
+#undef PHYSDERIV_Q
+#define PHYSDERIV_Q(r, i)                                                      \
+    case NQ1(i):                                                               \
+        PhysDerivTensor3DKernel(                                               \
+            NQ1(i), NQ1(i), NQ1(i), (const vec_t *)intmp.data(),               \
+            (const vec_t *)D0, (const vec_t *)D1, (const vec_t *)D2,           \
+            (vec_t *)out_d0.data(), (vec_t *)out_d1.data(),                    \
+            (vec_t *)out_d2.data(), Deriv0, Deriv1, Deriv2);                   \
+        break;
+
+    // templated cases on  standard quadrature
+    // usage where quad order goes from SMIN to SMAX
+    if ((nquad0 == nquad1) && (nquad1 == nquad2))
+    {
+        switch (nquad0)
+        {
+            BOOST_PP_FOR((SMIN, SMAX), STDLEV1TEST, STDLEV1UPDATE, PHYSDERIV_Q);
+            default:
+                PHYSDERIV_DEF;
+                break;
+        }
+    }
+    else
+    {
+        PHYSDERIV_DEF;
+    }
+}
+
+void StdExpansion3D::v_PhysDeriv(const int dir,
+                                 const Array<OneD, const NekDouble> &inarray,
+                                 Array<OneD, NekDouble> &outarray)
+{
+    switch (dir)
+    {
+        case 0:
+        {
+            v_PhysDeriv(inarray, outarray, NullNekDouble1DArray,
+                        NullNekDouble1DArray);
+            break;
+        }
+
+        case 1:
+        {
+            v_PhysDeriv(inarray, NullNekDouble1DArray, outarray,
+                        NullNekDouble1DArray);
+            break;
+        }
+
+        case 2:
+        {
+            v_PhysDeriv(inarray, NullNekDouble1DArray, NullNekDouble1DArray,
+                        outarray);
+            break;
+        }
+
+        default:
+        {
+            ASSERTL1(false, "input dir is out of range");
+        }
+        break;
+    }
+}
+
+NekDouble StdExpansion3D::v_StdPhysEvaluate(
     const Array<OneD, const NekDouble> &coords,
     const Array<OneD, const NekDouble> &physvals)
 {
@@ -230,6 +271,60 @@ NekDouble StdExpansion3D::v_PhysEvaluate(
     return StdExpansion::BaryEvaluate<2>(eta[2], &wsp2[0]);
 }
 
+/**
+ * \f$
+ * \begin{array}{rcl}
+ * I_{pqr} = (\phi_{pqr}, u)_{\delta} & = &
+ * \sum_{i=0}^{nq_0} \sum_{j=0}^{nq_1} \sum_{k=0}^{nq_2}
+ * \psi_{p}^{a}(\xi_{1i}) \psi_{q}^{a}(\xi_{2j}) \psi_{r}^{a}(\xi_{3k})
+ * w_i w_j w_k u(\xi_{1,i} \xi_{2,j} \xi_{3,k})
+ *
+ * J_{i,j,k}\\ & = & \sum_{i=0}^{nq_0} \psi_p^a(\xi_{1,i})
+ *                   \sum_{j=0}^{nq_1} \psi_{q}^a(\xi_{2,j})
+ *                   \sum_{k=0}^{nq_2} \psi_{r}^a
+ *                   u(\xi_{1i},\xi_{2j},\xi_{3k}) J_{i,j,k}
+ * \end{array} \f$ \n
+ * where
+ * \f$ \phi_{pqr} (\xi_1 , \xi_2 , \xi_3)
+ *  = \psi_p^a( \xi_1) \psi_{q}^a(\xi_2) \psi_{r}^a(\xi_3) \f$ \n
+ * which can be implemented as \n
+ * \f$f_{r} (\xi_{3k})
+ *  = \sum_{k=0}^{nq_3} \psi_{r}^a u(\xi_{1i},\xi_{2j}, \xi_{3k})
+ * J_{i,j,k} = {\bf B_3 U}   \f$ \n
+ * \f$ g_{q} (\xi_{3k})
+ *  = \sum_{j=0}^{nq_1} \psi_{q}^a(\xi_{2j}) f_{r}(\xi_{3k})
+ *  = {\bf B_2 F}  \f$ \n
+ * \f$ (\phi_{pqr}, u)_{\delta}
+ *  = \sum_{k=0}^{nq_0} \psi_{p}^a (\xi_{3k})  g_{q} (\xi_{3k})
+ *  = {\bf B_1 G} \f$
+ *
+ * @param   inarray     Physical space function definition
+ * @param   outarray    Inner product with respect to basis
+ *
+ *
+ * This is a wrapper function around \a IProductWRTBaseKernel()
+ */
+void StdExpansion3D::v_IProductWRTBase(
+    const Array<OneD, const NekDouble> &inarray,
+    Array<OneD, NekDouble> &outarray)
+{
+    const bool CollDir0 = m_base[0]->Collocation();
+    const bool CollDir1 = m_base[1]->Collocation();
+    const bool CollDir2 = m_base[2]->Collocation();
+
+    if (CollDir0 && CollDir1 && CollDir2)
+    {
+        MultiplyByStdQuadratureMetric(inarray, outarray);
+    }
+    else
+    {
+        const Array<OneD, const NekDouble> one(1, 1.0);
+        v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
+                                m_base[2]->GetBdata(), inarray, outarray, one,
+                                false, CollDir0, CollDir1, CollDir2);
+    }
+}
+
 NekDouble StdExpansion3D::v_PhysEvaluateInterp(
     const Array<OneD, DNekMatSharedPtr> &I,
     const Array<OneD, const NekDouble> &physvals)
@@ -261,9 +356,32 @@ NekDouble StdExpansion3D::v_PhysEvaluateInterp(
 
     // Interpolate in third coordinate direction
     interpolatingNodes = &I[2]->GetPtr()[0];
-    value = Blas::Ddot(Qz, interpolatingNodes, 1, &sumFactorization_r[0], 1);
+    value = Vmath::Dot(Qz, interpolatingNodes, 1, &sumFactorization_r[0], 1);
 
     return value;
+}
+
+void StdExpansion3D::v_MultiplyByStdQuadratureMetric(
+    const Array<OneD, const NekDouble> &inarray,
+    Array<OneD, NekDouble> &outarray)
+{
+    int nquad0 = m_base[0]->GetNumPoints();
+    int nquad1 = m_base[1]->GetNumPoints();
+    int nquad2 = m_base[2]->GetNumPoints();
+
+    int cnt = 0;
+    for (int i = 0; i < nquad2; ++i)
+    {
+        NekDouble w2 = m_weights[2][i];
+        for (int j = 0; j < nquad1; ++j)
+        {
+            NekDouble w1w2 = m_weights[1][j] * w2;
+            for (int k = 0; k < nquad0; ++k, ++cnt)
+            {
+                outarray[cnt] = inarray[cnt] * m_weights[0][k] * w1w2;
+            }
+        }
+    }
 }
 
 /**
@@ -283,10 +401,6 @@ void StdExpansion3D::v_LaplacianMatrixOp_MatFree(
         // coefficients associated to the Laplacian operator
         int nqtot = GetTotPoints();
 
-        const Array<OneD, const NekDouble> &base0 = m_base[0]->GetBdata();
-        const Array<OneD, const NekDouble> &base1 = m_base[1]->GetBdata();
-        const Array<OneD, const NekDouble> &base2 = m_base[2]->GetBdata();
-
         // Allocate temporary storage
         Array<OneD, NekDouble> wsp0(7 * nqtot);
         Array<OneD, NekDouble> wsp1(wsp0 + nqtot);
@@ -298,8 +412,7 @@ void StdExpansion3D::v_LaplacianMatrixOp_MatFree(
             // wsp0 = u       = B   * u_hat
             // wsp1 = du_dxi1 = D_xi1 * wsp0 = D_xi1 * u
             // wsp2 = du_dxi2 = D_xi2 * wsp0 = D_xi2 * u
-            BwdTrans_SumFacKernel(base0, base1, base2, inarray, wsp0, wsp1,
-                                  true, true, true);
+            BwdTrans(inarray, wsp0);
             LaplacianMatrixOp_MatFree_Kernel(wsp0, outarray, wsp1);
         }
         else
@@ -335,9 +448,6 @@ void StdExpansion3D::v_HelmholtzMatrixOp_MatFree(
 
         NekDouble lambda = mkey.GetConstFactor(StdRegions::eFactorLambda);
 
-        const Array<OneD, const NekDouble> &base0 = m_base[0]->GetBdata();
-        const Array<OneD, const NekDouble> &base1 = m_base[1]->GetBdata();
-        const Array<OneD, const NekDouble> &base2 = m_base[2]->GetBdata();
         Array<OneD, NekDouble> wsp0(8 * wspsize);
         Array<OneD, NekDouble> wsp1(wsp0 + 1 * wspsize);
         Array<OneD, NekDouble> wsp2(wsp0 + 2 * wspsize);
@@ -350,11 +460,8 @@ void StdExpansion3D::v_HelmholtzMatrixOp_MatFree(
             // wsp0     = B   * u_hat = u
             // wsp1     = W   * wsp0
             // outarray = B^T * wsp1  = B^T * W * B * u_hat = M * u_hat
-            BwdTrans_SumFacKernel(base0, base1, base2, inarray, wsp0, wsp2,
-                                  true, true, true);
-            MultiplyByQuadratureMetric(wsp0, wsp1);
-            IProductWRTBase_SumFacKernel(base0, base1, base2, wsp1, outarray,
-                                         wsp2, true, true, true);
+            BwdTrans(inarray, wsp0);
+            IProductWRTBase(wsp0, outarray);
             LaplacianMatrixOp_MatFree_Kernel(wsp0, wsp1, wsp2);
         }
         else
@@ -430,24 +537,42 @@ void StdExpansion3D::v_GetTraceToElementMap(const int tid,
 
 LibUtilities::BasisKey EvaluateQuadFaceBasisKey(
     [[maybe_unused]] const int facedir,
-    const LibUtilities::BasisType faceDirBasisType, const int numpoints,
-    const int nummodes)
+    const LibUtilities::BasisSharedPtr &faceDirBasis)
 {
+    auto faceDirBasisType = faceDirBasis->GetBasisType();
+    auto pointsType       = faceDirBasis->GetPointsType();
+    auto nummodes         = faceDirBasis->GetNumModes();
+    auto numpoints        = faceDirBasis->GetNumPoints();
 
     switch (faceDirBasisType)
     {
         case LibUtilities::eModified_A:
-        {
-            const LibUtilities::PointsKey pkey(
-                numpoints, LibUtilities::eGaussLobattoLegendre);
-            return LibUtilities::BasisKey(LibUtilities::eModified_A, nummodes,
-                                          pkey);
-        }
         case LibUtilities::eModified_B:
         case LibUtilities::eModified_C:
         {
-            const LibUtilities::PointsKey pkey(
-                numpoints + 1, LibUtilities::eGaussLobattoLegendre);
+            LibUtilities::PointsType pType;
+            switch (pointsType)
+            {
+                case LibUtilities::eGaussRadauMLegendre:
+                case LibUtilities::eGaussRadauMAlpha2Beta0:
+                case LibUtilities::eGaussRadauMAlpha1Beta0:
+                {
+                    numpoints = numpoints + 1;
+                    pType     = LibUtilities::eGaussLobattoLegendre;
+                }
+                break;
+                case LibUtilities::eGaussLegendreWithM:
+                {
+                    numpoints = numpoints + 1;
+                    pType     = LibUtilities::eGaussLegendreWithMP;
+                }
+                break;
+                default: // do not change points
+                {
+                    pType = faceDirBasis->GetPointsType();
+                }
+            }
+            const LibUtilities::PointsKey pkey(numpoints, pType);
             return LibUtilities::BasisKey(LibUtilities::eModified_A, nummodes,
                                           pkey);
         }
@@ -459,17 +584,33 @@ LibUtilities::BasisKey EvaluateQuadFaceBasisKey(
                                           pkey);
         }
         case LibUtilities::eOrtho_A:
-        {
-            const LibUtilities::PointsKey pkey(
-                numpoints, LibUtilities::eGaussLobattoLegendre);
-            return LibUtilities::BasisKey(LibUtilities::eOrtho_A, nummodes,
-                                          pkey);
-        }
         case LibUtilities::eOrtho_B:
         case LibUtilities::eOrtho_C:
         {
-            const LibUtilities::PointsKey pkey(
-                numpoints + 1, LibUtilities::eGaussLobattoLegendre);
+            LibUtilities::PointsType pType;
+            switch (pointsType)
+            {
+                case LibUtilities::eGaussRadauMLegendre:
+                case LibUtilities::eGaussRadauMAlpha2Beta0:
+                case LibUtilities::eGaussRadauMAlpha1Beta0:
+                {
+                    numpoints = numpoints + 1;
+                    pType     = LibUtilities::eGaussLobattoLegendre;
+                }
+                break;
+                case LibUtilities::eGaussLegendreWithM:
+                {
+                    numpoints = numpoints + 1;
+                    pType     = LibUtilities::eGaussLegendreWithMP;
+                }
+                break;
+                default: // do not change points
+                {
+                    pType = faceDirBasis->GetPointsType();
+                    break;
+                }
+            }
+            const LibUtilities::PointsKey pkey(numpoints, pType);
             return LibUtilities::BasisKey(LibUtilities::eOrtho_A, nummodes,
                                           pkey);
         }
@@ -485,56 +626,94 @@ LibUtilities::BasisKey EvaluateQuadFaceBasisKey(
 }
 
 LibUtilities::BasisKey EvaluateTriFaceBasisKey(
-    const int facedir, const LibUtilities::BasisType faceDirBasisType,
-    const int numpoints, const int nummodes, bool UseGLL)
+    const int facedir, const LibUtilities::BasisSharedPtr &faceDirBasis,
+    bool UseGLL)
 {
+    auto faceDirBasisType = faceDirBasis->GetBasisType();
+    auto pointsType       = faceDirBasis->GetPointsType();
+    auto nummodes         = faceDirBasis->GetNumModes();
+    auto numpoints        = faceDirBasis->GetNumPoints();
+
     switch (faceDirBasisType)
     {
         case LibUtilities::eModified_A:
-        {
-            const LibUtilities::PointsKey pkey(
-                numpoints, LibUtilities::eGaussLobattoLegendre);
-            return LibUtilities::BasisKey(LibUtilities::eModified_A, nummodes,
-                                          pkey);
-        }
         case LibUtilities::eModified_B:
         case LibUtilities::eModified_C:
         case LibUtilities::eModifiedPyr_C:
         {
-            switch (facedir)
+            LibUtilities::BasisType bType = LibUtilities::eNoBasisType;
+            LibUtilities::PointsKey pkey  = LibUtilities::NullPointsKey;
+            switch (facedir) // determine the basis type
             {
                 case 0:
                 {
-                    const LibUtilities::PointsKey pkey(
-                        numpoints + 1, LibUtilities::eGaussLobattoLegendre);
-                    return LibUtilities::BasisKey(LibUtilities::eModified_A,
-                                                  nummodes, pkey);
-                }
-                case 1:
-                {
-                    LibUtilities::PointsKey pkey;
+                    bType = LibUtilities::eModified_A;
 
-                    if (UseGLL)
+                    switch (pointsType) // determine the points type
                     {
-                        pkey = LibUtilities::PointsKey(
-                            numpoints + 1, LibUtilities::eGaussLobattoLegendre);
+                        case LibUtilities::eGaussRadauMLegendre:
+                        case LibUtilities::eGaussRadauMAlpha2Beta0:
+                        case LibUtilities::eGaussRadauMAlpha1Beta0:
+                        {
+                            pkey = LibUtilities::PointsKey(
+                                numpoints + 1,
+                                LibUtilities::eGaussLobattoLegendre);
+                        }
+                        break;
+                        case LibUtilities::eGaussLegendreWithM:
+                        {
+                            pkey = LibUtilities::PointsKey(
+                                numpoints + 1,
+                                LibUtilities::eGaussLegendreWithMP);
+                        }
+                        break;
+                        default: // For other points type, just return the
+                                 // points key
+                        {
+                            pkey = faceDirBasis->GetPointsKey();
+                        }
                     }
-                    else
-                    {
-                        pkey = LibUtilities::PointsKey(
-                            numpoints, LibUtilities::eGaussRadauMAlpha1Beta0);
-                    }
-                    return LibUtilities::BasisKey(LibUtilities::eModified_B,
-                                                  nummodes, pkey);
                 }
+                break;
+                case 1: // this never appears together with Modified_A
+                {
+                    bType = LibUtilities::eModified_B;
+
+                    switch (pointsType) // determine the points type
+                    {
+                        case LibUtilities::eGaussRadauMLegendre:
+                        case LibUtilities::eGaussRadauMAlpha2Beta0:
+                        case LibUtilities::eGaussRadauMAlpha1Beta0:
+                        {
+                            if (UseGLL) //  force to use GLL
+                            {
+                                pkey = LibUtilities::PointsKey(
+                                    numpoints + 1,
+                                    LibUtilities::eGaussLobattoLegendre);
+                            }
+                            else
+                            {
+                                pkey = LibUtilities::PointsKey(
+                                    numpoints,
+                                    LibUtilities::eGaussRadauMAlpha1Beta0);
+                            }
+                        }
+                        break;
+                        default: // For other points type, just return the
+                                 // points key
+                        {
+                            pkey = faceDirBasis->GetPointsKey();
+                        }
+                    }
+                }
+                break;
                 default:
                 {
-
                     NEKERROR(ErrorUtil::efatal, "invalid value to flag");
                     break;
                 }
             }
-            break;
+            return LibUtilities::BasisKey(bType, nummodes, pkey);
         }
 
         case LibUtilities::eGLL_Lagrange:
@@ -548,6 +727,7 @@ LibUtilities::BasisKey EvaluateTriFaceBasisKey(
                     return LibUtilities::BasisKey(LibUtilities::eOrtho_A,
                                                   nummodes, pkey);
                 }
+                break;
                 case 1:
                 {
                     const LibUtilities::PointsKey pkey(
@@ -555,6 +735,7 @@ LibUtilities::BasisKey EvaluateTriFaceBasisKey(
                     return LibUtilities::BasisKey(LibUtilities::eOrtho_B,
                                                   nummodes, pkey);
                 }
+                break;
                 default:
                 {
                     NEKERROR(ErrorUtil::efatal, "invalid value to flag");
@@ -569,29 +750,69 @@ LibUtilities::BasisKey EvaluateTriFaceBasisKey(
         case LibUtilities::eOrtho_C:
         case LibUtilities::eOrthoPyr_C:
         {
-            switch (facedir)
+            LibUtilities::BasisType bType = LibUtilities::eNoBasisType;
+            LibUtilities::PointsKey pkey  = LibUtilities::NullPointsKey;
+            switch (facedir) // determine the basis type
             {
                 case 0:
                 {
-                    const LibUtilities::PointsKey pkey(
-                        numpoints, LibUtilities::eGaussLobattoLegendre);
-                    return LibUtilities::BasisKey(LibUtilities::eOrtho_A,
-                                                  nummodes, pkey);
+                    bType = LibUtilities::eOrtho_A;
+
+                    switch (pointsType) // determine the points type
+                    {
+                        case LibUtilities::eGaussRadauMLegendre:
+                        case LibUtilities::eGaussRadauMAlpha2Beta0:
+                        case LibUtilities::eGaussRadauMAlpha1Beta0:
+                        {
+                            pkey = LibUtilities::PointsKey(
+                                numpoints + 1,
+                                LibUtilities::eGaussLobattoLegendre);
+                        }
+                        break;
+                        case LibUtilities::eGaussLegendreWithM:
+                        {
+                            pkey = LibUtilities::PointsKey(
+                                numpoints + 1,
+                                LibUtilities::eGaussLegendreWithMP);
+                        }
+                        break;
+                        default: // For other points type, just return the
+                                 // points key
+                        {
+                            pkey = faceDirBasis->GetPointsKey();
+                        }
+                    }
                 }
-                case 1:
+                break;
+                case 1: // this never appears together with Ortho_A
                 {
-                    const LibUtilities::PointsKey pkey(
-                        numpoints, LibUtilities::eGaussRadauMAlpha1Beta0);
-                    return LibUtilities::BasisKey(LibUtilities::eOrtho_B,
-                                                  nummodes, pkey);
+                    bType = LibUtilities::eOrtho_B;
+
+                    switch (pointsType) // determine the points type
+                    {
+                        case LibUtilities::eGaussRadauMLegendre:
+                        case LibUtilities::eGaussRadauMAlpha2Beta0:
+                        {
+                            pkey = LibUtilities::PointsKey(
+                                numpoints,
+                                LibUtilities::eGaussRadauMAlpha1Beta0);
+                        }
+                        break;
+                        default: // For other points type, just return the
+                                 // points key
+                        {
+                            pkey = faceDirBasis->GetPointsKey();
+                        }
+                    }
                 }
+                break;
                 default:
                 {
                     NEKERROR(ErrorUtil::efatal, "invalid value to flag");
                     break;
                 }
             }
-            break;
+            return LibUtilities::BasisKey(bType, nummodes, pkey);
         }
         default:
         {

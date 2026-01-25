@@ -34,8 +34,12 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#include <LibUtilities/Foundations/Interp.h>
 #include <StdRegions/StdExpansion2D.h>
+
+#include <LibUtilities/BasicUtils/NekInline.hpp>
+#include <LibUtilities/Foundations/Interp.h>
+#include <StdRegions/Operators/SwitchLevel1.h>
+#include <StdRegions/Operators/SwitchLevel2.h>
 
 #ifdef max
 #undef max
@@ -43,6 +47,9 @@
 
 namespace Nektar::StdRegions
 {
+// Declaretion of scalar routine
+using vec_t = tinysimd::scalarT<double>;
+#include <StdRegions/Operators/PhysDerivSumFacStdKernels.hpp>
 
 StdExpansion2D::StdExpansion2D(
     [[maybe_unused]] int numcoeffs,
@@ -54,53 +61,102 @@ StdExpansion2D::StdExpansion2D(
 //----------------------------
 // Differentiation Methods
 //----------------------------
+/**
+ *   Calculate the derivative along the tenosr directions. This function was
+ *  originally in StdEpxansion2D but due to the boost_pp switch statement is
+ *  currently shape dependent
+ */
 void StdExpansion2D::PhysTensorDeriv(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray_d0, Array<OneD, NekDouble> &outarray_d1)
 {
-    int nquad0 = m_base[0]->GetNumPoints();
-    int nquad1 = m_base[1]->GetNumPoints();
+    int nquad0          = m_base[0]->GetNumPoints();
+    int nquad1          = m_base[1]->GetNumPoints();
+    bool Deriv0         = (outarray_d0.size() > 0);
+    bool Deriv1         = (outarray_d1.size() > 0);
+    const NekDouble *D0 = m_base[0]->GetD()->GetRawPtr();
+    const NekDouble *D1 = m_base[1]->GetD()->GetRawPtr();
 
-    if (outarray_d0.size() > 0) // calculate du/dx_0
+    Array<OneD, const NekDouble> intmp;
+    // copy inarray data if inarray and outarray are the same.
+    if ((inarray.data() == outarray_d0.data()) ||
+        (inarray.data() == outarray_d1.data()))
     {
-        DNekMatSharedPtr D0 = m_base[0]->GetD();
-        if (inarray.data() == outarray_d0.data())
-        {
-            Array<OneD, NekDouble> wsp(nquad0 * nquad1);
-            Vmath::Vcopy(nquad0 * nquad1, inarray.data(), 1, wsp.data(), 1);
-            Blas::Dgemm('N', 'N', nquad0, nquad1, nquad0, 1.0,
-                        &(D0->GetPtr())[0], nquad0, &wsp[0], nquad0, 0.0,
-                        &outarray_d0[0], nquad0);
-        }
-        else
-        {
-            Blas::Dgemm('N', 'N', nquad0, nquad1, nquad0, 1.0,
-                        &(D0->GetPtr())[0], nquad0, &inarray[0], nquad0, 0.0,
-                        &outarray_d0[0], nquad0);
-        }
+        Array<OneD, NekDouble> wsp(nquad0 * nquad1);
+        CopyArray(inarray, wsp);
+        intmp = wsp;
+    }
+    else
+    {
+        intmp = inarray;
     }
 
-    if (outarray_d1.size() > 0) // calculate du/dx_1
+    // Switch statment using boost_pp and macros. This unfolls into a
+    // nested switch statement which runs from SMIN to SMAX for quadratrure
+    // order. If you want to see it unwrapped compile in verbose mode and add
+    // --preprocess to the c++ command. Default case
+#undef PHYSDERIV_DEF
+#define PHYSDERIV_DEF                                                          \
+    PhysDerivTensor2DKernel(nquad0, nquad1, (const vec_t *)intmp.data(),       \
+                            (const vec_t *)D0, (const vec_t *)D1,              \
+                            (vec_t *)outarray_d0.data(),                       \
+                            (vec_t *)outarray_d1.data(), Deriv0, Deriv1)
+
+    // Loop case over quarature points
+#undef PHYSDERIV_Q
+#define PHYSDERIV_Q(r, i)                                                      \
+    case NQ1(i):                                                               \
+        PhysDerivTensor2DKernel(NQ1(i), NQ1(i), (const vec_t *)intmp.data(),   \
+                                (const vec_t *)D0, (const vec_t *)D1,          \
+                                (vec_t *)outarray_d0.data(),                   \
+                                (vec_t *)outarray_d1.data(), Deriv0, Deriv1);  \
+        break;
+
+    // templated cases on  standard quadrature
+    // usage where quad order goes from SMIN to SMAX
+    if (nquad0 == nquad1)
     {
-        DNekMatSharedPtr D1 = m_base[1]->GetD();
-        if (inarray.data() == outarray_d1.data())
+        switch (nquad0)
         {
-            Array<OneD, NekDouble> wsp(nquad0 * nquad1);
-            Vmath::Vcopy(nquad0 * nquad1, inarray.data(), 1, wsp.data(), 1);
-            Blas::Dgemm('N', 'T', nquad0, nquad1, nquad1, 1.0, &wsp[0], nquad0,
-                        &(D1->GetPtr())[0], nquad1, 0.0, &outarray_d1[0],
-                        nquad0);
+            BOOST_PP_FOR((SMIN, SMAX), STDLEV1TEST, STDLEV1UPDATE, PHYSDERIV_Q);
+            default:
+                PHYSDERIV_DEF;
+                break;
         }
-        else
+    }
+    else
+    {
+        PHYSDERIV_DEF;
+    }
+}
+
+void StdExpansion2D::v_PhysDeriv(const int dir,
+                                 const Array<OneD, const NekDouble> &inarray,
+                                 Array<OneD, NekDouble> &outarray)
+{
+    switch (dir)
+    {
+        case 0:
         {
-            Blas::Dgemm('N', 'T', nquad0, nquad1, nquad1, 1.0, &inarray[0],
-                        nquad0, &(D1->GetPtr())[0], nquad1, 0.0,
-                        &outarray_d1[0], nquad0);
+            v_PhysDeriv(inarray, outarray, NullNekDouble1DArray,
+                        NullNekDouble1DArray);
+            break;
+        }
+        case 1:
+        {
+            v_PhysDeriv(inarray, NullNekDouble1DArray, outarray,
+                        NullNekDouble1DArray);
+            break;
+        }
+        default:
+        {
+            ASSERTL1(false, "input dir is out of range");
+            break;
         }
     }
 }
 
-NekDouble StdExpansion2D::v_PhysEvaluate(
+NekDouble StdExpansion2D::v_StdPhysEvaluate(
     const Array<OneD, const NekDouble> &coords,
     const Array<OneD, const NekDouble> &physvals)
 {
@@ -138,13 +194,60 @@ NekDouble StdExpansion2D::v_PhysEvaluateInterp(
     for (i = 0; i < nq1; ++i)
     {
         wsp1[i] =
-            Blas::Ddot(nq0, &(I[0]->GetPtr())[0], 1, &physvals[i * nq0], 1);
+            Vmath::Dot(nq0, &(I[0]->GetPtr())[0], 1, &physvals[i * nq0], 1);
     }
 
     // interpolate in second coordinate direction
-    val = Blas::Ddot(nq1, I[1]->GetPtr(), 1, wsp1, 1);
+    val = Vmath::Dot(nq1, I[1]->GetPtr(), 1, wsp1, 1);
 
     return val;
+}
+
+/** \brief Calculate the inner product of inarray with respect to
+ *  the basis B=base0*base1 and put into outarray
+ *
+ *  \f$
+ *  \begin{array}{rcl}
+ *  I_{pq} = (\phi_p \phi_q, u) & = & \sum_{i=0}^{nq_0}
+ *  \sum_{j=0}^{nq_1}
+ *  \phi_p(\xi_{0,i}) \phi_q(\xi_{1,j}) w^0_i w^1_j u(\xi_{0,i}
+ *  \xi_{1,j}) \\
+ *  & = & \sum_{i=0}^{nq_0} \phi_p(\xi_{0,i})
+ *  \sum_{j=0}^{nq_1} \phi_q(\xi_{1,j}) \tilde{u}_{i,j}
+ *  \end{array}
+ *  \f$
+ *
+ *  where
+ *
+ *  \f$  \tilde{u}_{i,j} = w^0_i w^1_j u(\xi_{0,i},\xi_{1,j}) \f$
+ *
+ *  which can be implemented as
+ *
+ *  \f$  f_{qi} = \sum_{j=0}^{nq_1} \phi_q(\xi_{1,j})
+ *  \tilde{u}_{i,j} = {\bf B_1 U}  \f$
+ *  \f$  I_{pq} = \sum_{i=0}^{nq_0} \phi_p(\xi_{0,i}) f_{qi} =
+ *  {\bf B_0 F}  \f$
+ *
+ * This is a wrapper function around \a IProductWRTBaseKernel()
+ */
+void StdExpansion2D::v_IProductWRTBase(
+    const Array<OneD, const NekDouble> &inarray,
+    Array<OneD, NekDouble> &outarray)
+{
+    const bool CollDir0 = m_base[0]->Collocation();
+    const bool CollDir1 = m_base[1]->Collocation();
+
+    if (CollDir0 && CollDir1)
+    {
+        v_MultiplyByStdQuadratureMetric(inarray, outarray);
+    }
+    else
+    {
+        const Array<OneD, const NekDouble> one(1, 1.0);
+        v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
+                                inarray, outarray, one, false, CollDir0,
+                                CollDir1);
+    }
 }
 
 //////////////////////////////
@@ -178,76 +281,73 @@ NekDouble StdExpansion2D::Integral(const Array<OneD, const NekDouble> &inarray,
     return Int;
 }
 
-void StdExpansion2D::BwdTrans_SumFacKernel(
+void StdExpansion2D::IProductWRTBaseKernel(
     const Array<OneD, const NekDouble> &base0,
     const Array<OneD, const NekDouble> &base1,
     const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-    bool doCheckCollDir0, bool doCheckCollDir1)
+    Array<OneD, NekDouble> &outarray, const Array<OneD, NekDouble> &jac,
+    const bool Deformed, const bool CollDir0, const bool CollDir1)
 {
-    v_BwdTrans_SumFacKernel(base0, base1, inarray, outarray, wsp,
-                            doCheckCollDir0, doCheckCollDir1);
-}
-
-void StdExpansion2D::IProductWRTBase_SumFacKernel(
-    const Array<OneD, const NekDouble> &base0,
-    const Array<OneD, const NekDouble> &base1,
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp,
-    bool doCheckCollDir0, bool doCheckCollDir1)
-{
-    v_IProductWRTBase_SumFacKernel(base0, base1, inarray, outarray, wsp,
-                                   doCheckCollDir0, doCheckCollDir1);
+    v_IProductWRTBaseKernel(base0, base1, inarray, outarray, jac, Deformed,
+                            CollDir0, CollDir1);
 }
 
 void StdExpansion2D::v_GenStdMatBwdDeriv(const int dir, DNekMatSharedPtr &mat)
 {
     ASSERTL1((dir == 0) || (dir == 1), "Invalid direction.");
 
-    int nquad0  = m_base[0]->GetNumPoints();
-    int nquad1  = m_base[1]->GetNumPoints();
-    int nqtot   = nquad0 * nquad1;
-    int nmodes0 = m_base[0]->GetNumModes();
+    const int nq0 = m_base[0]->GetNumPoints();
+    const int nq1 = m_base[1]->GetNumPoints();
+    const int nq  = nq0 * nq1;
 
-    Array<OneD, NekDouble> tmp1(2 * nqtot + m_ncoeffs + nmodes0 * nquad1, 0.0);
-    Array<OneD, NekDouble> tmp3(tmp1 + 2 * nqtot);
-    Array<OneD, NekDouble> tmp4(tmp1 + 2 * nqtot + m_ncoeffs);
+    Array<OneD, NekDouble> in(nq, 0.0);
+    Array<OneD, NekDouble> out(m_ncoeffs);
+    Array<OneD, NekDouble> one(1, 1.0);
 
-    switch (dir)
+    for (int i = 0; i < nq; i++)
     {
-        case 0:
-            for (int i = 0; i < nqtot; i++)
-            {
-                tmp1[i] = 1.0;
-                IProductWRTBase_SumFacKernel(m_base[0]->GetDbdata(),
-                                             m_base[1]->GetBdata(), tmp1, tmp3,
-                                             tmp4, false, true);
-                tmp1[i] = 0.0;
+        int l = i % nq0;
+        int m = (i / nq0);
 
-                for (int j = 0; j < m_ncoeffs; j++)
-                {
-                    (*mat)(j, i) = tmp3[j];
-                }
-            }
-            break;
-        case 1:
-            for (int i = 0; i < nqtot; i++)
-            {
-                tmp1[i] = 1.0;
-                IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(),
-                                             m_base[1]->GetDbdata(), tmp1, tmp3,
-                                             tmp4, true, false);
-                tmp1[i] = 0.0;
+        // initialise with inverse of weights t
+        in[i] = 1.0 / (m_weights[0][l] * m_weights[1][m]);
 
-                for (int j = 0; j < m_ncoeffs; j++)
-                {
-                    (*mat)(j, i) = tmp3[j];
-                }
-            }
-            break;
-        default:
-            NEKERROR(ErrorUtil::efatal, "Not a 2D expansion.");
-            break;
+        // do standard iproduct
+        if (dir == 0)
+        {
+            v_IProductWRTBaseKernel(m_base[0]->GetDbdata(),
+                                    m_base[1]->GetBdata(), in, out, one, false,
+                                    false, m_base[1]->Collocation());
+        }
+        else if (dir == 1)
+        {
+            v_IProductWRTBaseKernel(m_base[0]->GetBdata(),
+                                    m_base[1]->GetDbdata(), in, out, one, false,
+                                    m_base[0]->Collocation(), false);
+        }
+        in[i] = 0.0;
+
+        for (int j = 0; j < m_ncoeffs; j++)
+        {
+            (*mat)(j, i) = out[j];
+        }
+    }
+}
+
+void StdExpansion2D::v_MultiplyByStdQuadratureMetric(
+    const Array<OneD, const NekDouble> &inarray,
+    Array<OneD, NekDouble> &outarray)
+{
+    int nquad0 = m_base[0]->GetNumPoints();
+    int nquad1 = m_base[1]->GetNumPoints();
+
+    int cnt = 0;
+    for (int i = 0; i < nquad1; ++i)
+    {
+        for (int j = 0; j < nquad0; ++j, ++cnt)
+        {
+            outarray[cnt] = inarray[cnt] * m_weights[0][j] * m_weights[1][i];
+        }
     }
 }
 
@@ -271,9 +371,6 @@ void StdExpansion2D::v_LaplacianMatrixOp_MatFree(
         int wspsize =
             max(max(max(nqtot, m_ncoeffs), nquad1 * nmodes0), nquad0 * nmodes1);
 
-        const Array<OneD, const NekDouble> &base0 = m_base[0]->GetBdata();
-        const Array<OneD, const NekDouble> &base1 = m_base[1]->GetBdata();
-
         // Allocate temporary storage
         Array<OneD, NekDouble> wsp0(4 * wspsize);    // size wspsize
         Array<OneD, NekDouble> wsp1(wsp0 + wspsize); // size 3*wspsize
@@ -284,8 +381,7 @@ void StdExpansion2D::v_LaplacianMatrixOp_MatFree(
             // wsp0 = u       = B   * u_hat
             // wsp1 = du_dxi1 = D_xi1 * wsp0 = D_xi1 * u
             // wsp2 = du_dxi2 = D_xi2 * wsp0 = D_xi2 * u
-            BwdTrans_SumFacKernel(base0, base1, inarray, wsp0, wsp1, true,
-                                  true);
+            BwdTrans(inarray, wsp0);
             LaplacianMatrixOp_MatFree_Kernel(wsp0, outarray, wsp1);
         }
         else
@@ -319,9 +415,6 @@ void StdExpansion2D::v_HelmholtzMatrixOp_MatFree(
             max(max(max(nqtot, m_ncoeffs), nquad1 * nmodes0), nquad0 * nmodes1);
         NekDouble lambda = mkey.GetConstFactor(StdRegions::eFactorLambda);
 
-        const Array<OneD, const NekDouble> &base0 = m_base[0]->GetBdata();
-        const Array<OneD, const NekDouble> &base1 = m_base[1]->GetBdata();
-
         // Allocate temporary storage
         Array<OneD, NekDouble> wsp0(5 * wspsize);        // size wspsize
         Array<OneD, NekDouble> wsp1(wsp0 + wspsize);     // size wspsize
@@ -334,12 +427,8 @@ void StdExpansion2D::v_HelmholtzMatrixOp_MatFree(
             // wsp0     = B   * u_hat = u
             // wsp1     = W   * wsp0
             // outarray = B^T * wsp1  = B^T * W * B * u_hat = M * u_hat
-            BwdTrans_SumFacKernel(base0, base1, inarray, wsp0, wsp2, true,
-                                  true);
-            MultiplyByQuadratureMetric(wsp0, wsp1);
-            IProductWRTBase_SumFacKernel(base0, base1, wsp1, outarray, wsp2,
-                                         true, true);
-
+            BwdTrans(inarray, wsp0);
+            IProductWRTBase(wsp0, outarray);
             LaplacianMatrixOp_MatFree_Kernel(wsp0, wsp1, wsp2);
         }
         else

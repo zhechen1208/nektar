@@ -53,9 +53,9 @@ public:
      * @brief Constructor using BasisKey class for quadrature
      * points and order definition
      */
-    LOCAL_REGIONS_EXPORT TriExp(
-        const LibUtilities::BasisKey &Ba, const LibUtilities::BasisKey &Bb,
-        const SpatialDomains::Geometry2DSharedPtr &geom);
+    LOCAL_REGIONS_EXPORT TriExp(const LibUtilities::BasisKey &Ba,
+                                const LibUtilities::BasisKey &Bb,
+                                SpatialDomains::Geometry2D *geom);
 
     LOCAL_REGIONS_EXPORT TriExp(const TriExp &T);
 
@@ -71,13 +71,6 @@ protected:
     //----------------------------
     // Differentiation Methods
     //----------------------------
-    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &out_d0, Array<OneD, NekDouble> &out_d1,
-        Array<OneD, NekDouble> &out_d2 = NullNekDouble1DArray) override;
-    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
-        const int dir, const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
     LOCAL_REGIONS_EXPORT void v_PhysDirectionalDeriv(
         const Array<OneD, const NekDouble> &inarray,
         const Array<OneD, const NekDouble> &direction,
@@ -86,9 +79,6 @@ protected:
     //---------------------------------------
     // Transforms
     //---------------------------------------
-    LOCAL_REGIONS_EXPORT void v_FwdTrans(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
     LOCAL_REGIONS_EXPORT void v_FwdTransBndConstrained(
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
@@ -96,17 +86,7 @@ protected:
     //---------------------------------------
     // Inner product functions
     //---------------------------------------
-    LOCAL_REGIONS_EXPORT void v_IProductWRTBase(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
     LOCAL_REGIONS_EXPORT void v_IProductWRTDerivBase(
-        const int dir, const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-    LOCAL_REGIONS_EXPORT void v_IProductWRTBase_SumFac(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray,
-        bool multiplybyweights = true) override;
-    LOCAL_REGIONS_EXPORT void v_IProductWRTDerivBase_SumFac(
         const int dir, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
     LOCAL_REGIONS_EXPORT void v_AlignVectorToCollapsedDir(
@@ -116,18 +96,11 @@ protected:
         const Array<OneD, const NekDouble> &direction,
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
-
-    LOCAL_REGIONS_EXPORT void v_IProductWRTDirectionalDerivBase_SumFac(
-        const Array<OneD, const NekDouble> &direction,
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-
     LOCAL_REGIONS_EXPORT void v_NormVectorIProductWRTBase(
         const Array<OneD, const NekDouble> &Fx,
         const Array<OneD, const NekDouble> &Fy,
         const Array<OneD, const NekDouble> &Fz,
         Array<OneD, NekDouble> &outarray) override;
-
     LOCAL_REGIONS_EXPORT void v_NormVectorIProductWRTBase(
         const Array<OneD, const Array<OneD, NekDouble>> &Fvec,
         Array<OneD, NekDouble> &outarray) override;
@@ -147,12 +120,6 @@ protected:
     LOCAL_REGIONS_EXPORT void v_GetCoords(
         Array<OneD, NekDouble> &coords_1, Array<OneD, NekDouble> &coords_2,
         Array<OneD, NekDouble> &coords_3) override;
-    LOCAL_REGIONS_EXPORT NekDouble
-    v_StdPhysEvaluate(const Array<OneD, const NekDouble> &Lcoord,
-                      const Array<OneD, const NekDouble> &physvals) override;
-    LOCAL_REGIONS_EXPORT NekDouble
-    v_PhysEvaluate(const Array<OneD, const NekDouble> &coord,
-                   const Array<OneD, const NekDouble> &physvals) override;
     LOCAL_REGIONS_EXPORT NekDouble
     v_PhysEvalFirstDeriv(const Array<OneD, NekDouble> &coord,
                          const Array<OneD, const NekDouble> &inarray,

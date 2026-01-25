@@ -50,18 +50,19 @@ public:
     STD_REGIONS_EXPORT StdExpansion0D(const StdExpansion0D &T) = default;
     STD_REGIONS_EXPORT ~StdExpansion0D() override              = default;
 
-    STD_REGIONS_EXPORT void PhysTensorDeriv(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray);
-
 protected:
     STD_REGIONS_EXPORT NekDouble
-    v_PhysEvaluate(const Array<OneD, const NekDouble> &coords,
-                   const Array<OneD, const NekDouble> &physvals) override;
+    v_StdPhysEvaluate(const Array<OneD, const NekDouble> &coords,
+                      const Array<OneD, const NekDouble> &physvals) override;
 
     int v_GetShapeDimension() const final
     {
-        return 1;
+        return 0;
+    }
+
+    bool v_IsCollocatedBasis() const final
+    {
+        return ((m_base[0]->Collocation()));
     }
 
     int v_GetNtraces() const final

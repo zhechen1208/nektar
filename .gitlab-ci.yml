@@ -57,10 +57,11 @@ include:
 .build-env-template: &build-env-template
   <<: *execution-conditions
   stage: build-env
-  image: docker:19.03.6
+  image: docker:28.5.0-dind
   timeout: 1h
   variables:
     REMOVE_UCX: 0
+    PIP_FLAGS: ""
   script:
     - OS_DISTRO=$(echo $CI_JOB_NAME | cut -d- -f 1)
     - OS_VERSION=$(echo $CI_JOB_NAME | cut -d- -f 2)
@@ -69,13 +70,13 @@ include:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - export IMAGE=$CI_REGISTRY_IMAGE:env-${OS_DISTRO}-${OS_VERSION}-${BUILD_TYPE}
     - docker pull $IMAGE || true
-    - docker build --pull --build-arg REMOVE_UCX=${REMOVE_UCX} -t $IMAGE .
+    - docker build --pull --build-arg REMOVE_UCX=${REMOVE_UCX} --build-arg PIP_FLAGS=${PIP_FLAGS} -t $IMAGE .
     - docker push $IMAGE
 
 .build-and-test-template: &build-and-test-template
   <<: *execution-conditions
   stage: build-and-test
-  image: docker:19.03.6
+  image: docker:28.5.0-dind
   variables:
     GIT_STRATEGY: clone
   script:
@@ -100,7 +101,9 @@ include:
       -e "BUILD_CC=$BUILD_CC"
       -e "BUILD_CXX=$BUILD_CXX"
       -e "BUILD_FC=$BUILD_FC"
+      -e "DISABLE_CWIPI=$DISABLE_CWIPI"
       -e "DISABLE_MCA=$DISABLE_MCA"
+      -e "ENABLE_ALIGN_MEM=$ENABLE_ALIGN_MEM"
       -e "DO_COVERAGE=$DO_COVERAGE"
       -e "NUM_CPUS=$NUM_CPUS"
       -e "CCACHE_DIR=$CCACHE_DIR"
@@ -235,36 +238,82 @@ include:
   <<: *build-env-debian-template-default
   stage: build-env-full
 
+debian-trixie-default-build-env:
+  <<: *build-env-debian-template-default
+
+debian-trixie-full-build-env:
+  <<: *build-env-debian-template-full
+  needs: ["debian-trixie-default-build-env"]
+  variables:
+    PIP_FLAGS: "--break-system-packages"
+
 debian-bookworm-default-build-env:
   <<: *build-env-debian-template-default
 
 debian-bookworm-full-build-env:
   <<: *build-env-debian-template-full
+  variables:
+    PIP_FLAGS: "--break-system-packages"
   needs: ["debian-bookworm-default-build-env"]
 
-debian-bullseye-default-build-env:
-  <<: *build-env-debian-template-default
-
-debian-bullseye-full-build-env:
-  <<: *build-env-debian-template-full
-  variables:
-    REMOVE_UCX: 1
-  needs: ["debian-bullseye-default-build-env"]
-
-debian-bullseye-performance-build-env:
+debian-bookworm-performance-build-env:
   <<: *build-env-debian-template-performance
   tags:
     - perf
+
+debian-trixie-default-build-and-test:
+  <<: *build-and-test-template
+  needs: ["debian-trixie-default-build-env"]
+
+debian-trixie-full-build-and-test:
+  <<: *build-and-test-template
+  needs: ["debian-trixie-full-build-env"]
+  variables:
+    DISABLE_CWIPI: true
+    GIT_SUBMODULE_STRATEGY: recursive
+
+debian-trixie-full-avx2-build-and-test:
+  <<: *build-and-test-template
+  needs: ["debian-trixie-full-build-env"]
+  variables:
+    BUILD_SIMD: avx2
+    DISABLE_CWIPI: true
+  tags:
+    - avx2
+
+debian-trixie-full-avx512-build-and-test:
+  <<: *build-and-test-template
+  needs: ["debian-trixie-full-build-env"]
+  variables:
+    BUILD_SIMD: avx512
+    DISABLE_CWIPI: true
+  tags:
+    - avx512
+
+debian-trixie-full-clang19-build-and-test:
+  <<: *build-and-test-template
+  needs: ["debian-trixie-full-build-env"]
+  variables:
+    BUILD_CC: clang-19
+    BUILD_CXX: clang++-19
+    DISABLE_CWIPI: true
 
 debian-bookworm-default-build-and-test:
   <<: *build-and-test-template
   needs: ["debian-bookworm-default-build-env"]
 
+debian-bookworm-performance-build-and-test:
+  <<: *build-and-test-template
+  stage: build-and-test
+  needs: ["debian-bookworm-performance-build-env"]
+  tags:
+    - perf
+  timeout: 1h
+  allow_failure: true
+
 debian-bookworm-full-build-and-test:
   <<: *build-and-test-template
   needs: ["debian-bookworm-full-build-env"]
-  variables:
-    GIT_SUBMODULE_STRATEGY: recursive
 
 debian-bookworm-full-avx2-build-and-test:
   <<: *build-and-test-template
@@ -282,47 +331,36 @@ debian-bookworm-full-avx512-build-and-test:
   tags:
     - avx512
 
-debian-bookworm-full-clang15-build-and-test:
+debian-bookworm-full-avx512-align-mem-build-and-test:
   <<: *build-and-test-template
   needs: ["debian-bookworm-full-build-env"]
   variables:
-    BUILD_CC: clang-15
-    BUILD_CXX: clang++-15
-
-debian-bullseye-default-build-and-test:
-  <<: *build-and-test-template
-  needs: ["debian-bullseye-default-build-env"]
-
-debian-bullseye-performance-build-and-test:
-  <<: *build-and-test-template
-  stage: build-and-test
-  needs: ["debian-bullseye-performance-build-env"]
-  tags:
-    - perf
-  timeout: 1h
-  allow_failure: true
-
-debian-bullseye-full-build-and-test:
-  <<: *build-and-test-template
-  needs: ["debian-bullseye-full-build-env"]
-
-debian-bullseye-full-avx2-build-and-test:
-  <<: *build-and-test-template
-  needs: ["debian-bullseye-full-build-env"]
-  variables:
-    BUILD_SIMD: avx2
-  tags:
-    - avx2
-
-debian-bullseye-full-avx512-build-and-test:
-  <<: *build-and-test-template
-  needs: ["debian-bullseye-full-build-env"]
-  variables:
     BUILD_SIMD: avx512
+    ENABLE_ALIGN_MEM: true
   tags:
     - avx512
 
 # COMPILER WARNINGS
+debian-trixie-default-warnings:
+  <<: *compiler-warning-template
+  needs: ["debian-trixie-default-build-and-test"]
+
+debian-trixie-full-warnings:
+  <<: *compiler-warning-template
+  needs: ["debian-trixie-full-build-and-test"]
+
+debian-trixie-full-avx2-warnings:
+  <<: *compiler-warning-template
+  needs: ["debian-trixie-full-avx2-build-and-test"]
+
+debian-trixie-full-avx512-warnings:
+  <<: *compiler-warning-template
+  needs: ["debian-trixie-full-avx512-build-and-test"]
+
+debian-trixie-full-clang19-warnings:
+  <<: *compiler-warning-template
+  needs: ["debian-trixie-full-clang19-build-and-test"]
+
 debian-bookworm-default-warnings:
   <<: *compiler-warning-template
   needs: ["debian-bookworm-default-build-and-test"]
@@ -339,67 +377,53 @@ debian-bookworm-full-avx512-warnings:
   <<: *compiler-warning-template
   needs: ["debian-bookworm-full-avx512-build-and-test"]
 
-debian-bookworm-full-clang15-warnings:
+debian-bookworm-full-avx512-align-mem-warnings:
   <<: *compiler-warning-template
-  needs: ["debian-bookworm-full-clang15-build-and-test"]
+  needs: ["debian-bookworm-full-avx512-align-mem-build-and-test"]
 
-debian-bullseye-default-warnings:
+debian-bookworm-performance-warnings:
   <<: *compiler-warning-template
-  needs: ["debian-bullseye-default-build-and-test"]
-
-debian-bullseye-full-warnings:
-  <<: *compiler-warning-template
-  needs: ["debian-bullseye-full-build-and-test"]
-
-debian-bullseye-full-avx2-warnings:
-  <<: *compiler-warning-template
-  needs: ["debian-bullseye-full-avx2-build-and-test"]
-
-debian-bullseye-full-avx512-warnings:
-  <<: *compiler-warning-template
-  needs: ["debian-bullseye-full-avx512-build-and-test"]
-
-debian-bullseye-performance-warnings:
-  <<: *compiler-warning-template
-  needs: ["debian-bullseye-performance-build-and-test"]
+  needs: ["debian-bookworm-performance-build-and-test"]
 
 # CODE FORMATTING
-debian-bullseye-clang-format:
+debian-bookworm-clang-format:
   <<: *clang-format-template
   needs: []
 
 ## CLANG-TIDY
-debian-bullseye-clang-tidy:
+debian-bookworm-clang-tidy:
   <<: *clang-tidy-template
-  image: $CI_REGISTRY_IMAGE:env-debian-bullseye-full
-  needs: ["debian-bullseye-full-build-env"]
+  image: $CI_REGISTRY_IMAGE:env-debian-bookworm-full
+  needs: ["debian-bookworm-full-build-env"]
 
-debian-bullseye-header-format:
+debian-bookworm-header-format:
   <<: *header-format-template
   needs: []
 
-debian-bullseye-xml-format:
+debian-bookworm-xml-format:
   <<: *xml-format-template
   needs: []
 
 # DOCUMENTATION
-debian-bookworm-documentation-build-env:
+debian-trixie-documentation-build-env:
   <<: *execution-conditions
-  image: docker:19.03.6
+  image: docker:28.5.0-dind
   stage: build-env-full
   script:
+    - OS_DISTRO=$(echo $CI_JOB_NAME | cut -d- -f 1)
+    - OS_VERSION=$(echo $CI_JOB_NAME | cut -d- -f 2)
     - export IMAGE=$CI_REGISTRY_IMAGE:env-documentation
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - sed -e "s %%BASE_IMAGE%% $CI_REGISTRY_IMAGE g" docker/nektar-env/Dockerfile_debian_documentation > Dockerfile
+    - sed -e "s %%OS_DISTRO%% $OS_DISTRO g" -e "s %%OS_VERSION%% $OS_VERSION g" -e "s %%REGISTRY%% $CI_REGISTRY_IMAGE g" docker/nektar-env/Dockerfile_${OS_DISTRO}_documentation > Dockerfile
     - docker pull $IMAGE || true
     - docker build --pull -t $IMAGE .
     - docker push $IMAGE
-  needs: ["debian-bookworm-default-build-env"]
+  needs: ["debian-trixie-default-build-env"]
 
 .build-documentation-template: &build-documentation-template
   <<: *build-and-test-template
   image: $CI_REGISTRY_IMAGE:env-documentation
-  needs: ["debian-bookworm-documentation-build-env"]
+  needs: ["debian-trixie-documentation-build-env"]
 
 user-guide-build:
   <<: *build-documentation-template
@@ -451,6 +475,8 @@ ubuntu-noble-default-build-env:
 ubuntu-noble-full-build-env:
   <<: *build-env-ubuntu-template-full
   needs: ["ubuntu-noble-default-build-env"]
+  variables:
+    PIP_FLAGS: "--break-system-packages"
 
 ubuntu-jammy-default-build-env:
   <<: *build-env-ubuntu-template-default
@@ -472,7 +498,7 @@ ubuntu-jammy-default-build-and-test:
 
 ubuntu-jammy-full-build-and-test:
   <<: *build-and-test-template
-  needs: ["ubuntu-focal-full-build-env"]
+  needs: ["ubuntu-jammy-full-build-env"]
 
 ubuntu-focal-default-build-and-test:
   <<: *build-and-test-template
@@ -608,6 +634,8 @@ fedora-40-default-build-and-test:
 fedora-40-full-build-and-test:
   <<: *build-and-test-template
   needs: ["fedora-40-full-build-env"]
+  variables:
+    DISABLE_CWIPI: true
 
 #fedora-41-default-build-and-test:
 #  <<: *build-and-test-template
@@ -782,8 +810,8 @@ win10-mpi-default-build-and-test:
 # Images are tagged with both :latest and the short SHA commit, so that the
 # correct image version can be grabbed from the container registry.
 .dockerhub_build_template: &dockerhub_build_template
-  image: docker:stable
   <<: *execution-conditions
+  image: docker:28.5.0-dind
   script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
     - IMAGE=$CI_REGISTRY_IMAGE/${image_name}
@@ -797,8 +825,8 @@ win10-mpi-default-build-and-test:
 # Docker Hub test template, which runs an image from the gitlab container
 # registry on a particular SHA commit.
 .dockerhub-test-template: &dockerhub_test_template
-  image: ${CI_REGISTRY_IMAGE}/${image_name}:$CI_COMMIT_SHORT_SHA
   <<: *execution-conditions
+  image: ${CI_REGISTRY_IMAGE}/${image_name}:$CI_COMMIT_SHORT_SHA
   stage: package-test
   script:
     - mpirun -n 3 IncNavierStokesSolver $CI_PROJECT_DIR/solvers/IncNavierStokesSolver/Tests/ChanFlow_m3_par.xml
@@ -817,7 +845,7 @@ win10-mpi-default-build-and-test:
 # runners can be difficult if they are tagged multiple times, so we also perform
 # a quick rmi to make sure we only keep the images from the registry.
 .dockerhub-deploy-template: &dockerhub_deploy_template
-  image: docker:stable
+  image: docker:28.5.0-dind
   stage: package-deploy
   only:
     refs:
@@ -840,7 +868,8 @@ win10-mpi-default-build-and-test:
 
 # This cleans up the local temporary image if not deploying
 .dockerhub-cleanup-template: &dockerhub_cleanup_template
-  image: docker:stable
+  <<: *execution-conditions
+  image: docker:28.5.0-dind
   stage: cleanup
 #  except:
 #    refs:

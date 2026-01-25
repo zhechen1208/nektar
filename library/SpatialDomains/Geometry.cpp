@@ -41,16 +41,12 @@
 namespace Nektar::SpatialDomains
 {
 
-// static class property
-GeomFactorsVector Geometry::m_regGeomFactorsManager;
-
 /**
  * @brief Default constructor.
  */
 Geometry::Geometry()
-    : m_coordim(0), m_geomFactorsState(eNotFilled), m_state(eNotFilled),
-      m_setupState(false), m_shapeType(LibUtilities::eNoShapeType),
-      m_globalID(-1), m_straightEdge(0)
+    : m_coordim(0), m_state(eNotFilled), m_setupState(false),
+      m_shapeType(LibUtilities::eNoShapeType), m_globalID(-1), m_straightEdge(0)
 {
 }
 
@@ -58,42 +54,17 @@ Geometry::Geometry()
  * @brief Constructor when supplied a coordinate dimension.
  */
 Geometry::Geometry(const int coordim)
-    : m_coordim(coordim), m_geomFactorsState(eNotFilled), m_state(eNotFilled),
-      m_setupState(false), m_shapeType(LibUtilities::eNoShapeType),
-      m_globalID(-1), m_straightEdge(0)
+    : m_coordim(coordim), m_state(eNotFilled), m_setupState(false),
+      m_shapeType(LibUtilities::eNoShapeType), m_globalID(-1), m_straightEdge(0)
 {
 }
 
-/**
- * @brief Check to see if a geometric factor has already been created that
- * contains the same regular information.
- *
- * The principle behind this is that many regular (i.e. constant Jacobian)
- * elements have identicial geometric factors. Memory may therefore be reduced
- * by storing only the unique factors.
- *
- * @param geomFactor  The GeomFactor to check.
- *
- * @return Either the cached GeomFactor or @p geomFactor.
- *
- * @todo Currently this method is disabled since the lookup is very expensive.
- */
-GeomFactorsSharedPtr Geometry::ValidateRegGeomFactor(
-    GeomFactorsSharedPtr geomFactor)
-{
-    GeomFactorsSharedPtr returnval = geomFactor;
-
-    return returnval;
-}
-
-bool SortByGlobalId(const std::shared_ptr<Geometry> &lhs,
-                    const std::shared_ptr<Geometry> &rhs)
+bool SortByGlobalId(const Geometry *&lhs, const Geometry *&rhs)
 {
     return lhs->GetGlobalID() < rhs->GetGlobalID();
 }
 
-bool GlobalIdEquality(const std::shared_ptr<Geometry> &lhs,
-                      const std::shared_ptr<Geometry> &rhs)
+bool GlobalIdEquality(const Geometry *&lhs, const Geometry *&rhs)
 {
     return lhs->GetGlobalID() == rhs->GetGlobalID();
 }
@@ -101,7 +72,7 @@ bool GlobalIdEquality(const std::shared_ptr<Geometry> &lhs,
 /**
  * @brief Get the ID of vertex @p i of this object.
  */
-int Geometry::GetVid(int i) const
+int Geometry::v_GetVid(int i) const
 {
     return GetVertex(i)->GetGlobalID();
 }
@@ -123,23 +94,33 @@ int Geometry::GetFid(int i) const
 }
 
 /**
- * @copydoc Geometry::GetEdge()
+ * @copydoc Geometry::GetVertex()
  */
-Geometry1DSharedPtr Geometry::v_GetEdge([[maybe_unused]] int i) const
+PointGeom *Geometry::v_GetVertex([[maybe_unused]] int i) const
 {
     NEKERROR(ErrorUtil::efatal,
              "This function is only valid for shape type geometries");
-    return Geometry1DSharedPtr();
+    return nullptr;
+}
+
+/**
+ * @copydoc Geometry::GetEdge()
+ */
+Geometry1D *Geometry::v_GetEdge([[maybe_unused]] int i) const
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This function is only valid for shape type geometries");
+    return nullptr;
 }
 
 /**
  * @copydoc Geometry::GetFace()
  */
-Geometry2DSharedPtr Geometry::v_GetFace([[maybe_unused]] int i) const
+Geometry2D *Geometry::v_GetFace([[maybe_unused]] int i) const
 {
     NEKERROR(ErrorUtil::efatal,
              "This function is only valid for shape type geometries");
-    return Geometry2DSharedPtr();
+    return nullptr;
 }
 
 /**
@@ -200,6 +181,27 @@ int Geometry::v_GetShapeDim() const
     return 0;
 }
 
+/**
+ * Calculates the GeomType (deformed, regular etc).
+ */
+GeomType Geometry::v_CalcGeomType()
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This function is only valid for shape type geometries");
+    return eNoGeomType;
+}
+
+/**
+ * @copydoc Geometry::GenGeomFactors()
+ */
+GeomFactorsUniquePtr Geometry::v_GenGeomFactors(
+    [[maybe_unused]] LibUtilities::PointsKeyVector &keyTgt)
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This function is only valid for shape type geometries");
+    return GeomFactorsUniquePtr();
+}
+
 int Geometry::v_AllLeftCheck(
     [[maybe_unused]] const Array<OneD, const NekDouble> &gloCoord)
 {
@@ -248,7 +250,7 @@ bool Geometry::v_ContainsPoint(const Array<OneD, const NekDouble> &gloCoord,
         m_xmap->LocCoordToLocCollapsed(locCoord, eta);
         if (ClampLocCoords(eta, tol))
         {
-            if (GetMetricInfo()->GetGtype() == eRegular)
+            if (CalcGeomType() == eRegular)
             {
                 dist = std::numeric_limits<double>::max();
             }
@@ -364,13 +366,8 @@ void Geometry::v_FillGeom()
 void Geometry::v_Reset([[maybe_unused]] CurveMap &curvedEdges,
                        [[maybe_unused]] CurveMap &curvedFaces)
 {
-
     // Reset state
-    m_state            = eNotFilled;
-    m_geomFactorsState = eNotFilled;
-
-    // Junk geometric factors
-    m_geomFactors = GeomFactorsSharedPtr();
+    m_state = eNotFilled;
 }
 
 void Geometry::v_Setup()
@@ -399,7 +396,7 @@ std::array<NekDouble, 6> Geometry::GetBoundingBox()
     Array<OneD, NekDouble> min(3), max(3);
 
     // Always get vertexes min/max
-    PointGeomSharedPtr p = GetVertex(0);
+    PointGeom *p = GetVertex(0);
     Array<OneD, NekDouble> x(3, 0.0);
     p->GetCoords(x[0], x[1], x[2]);
     for (int j = 0; j < 3; ++j)
@@ -419,7 +416,7 @@ std::array<NekDouble, 6> Geometry::GetBoundingBox()
     }
     // If element is deformed loop over quadrature points
     NekDouble marginFactor = NekConstants::kGeomFactorsTol;
-    if (GetGeomFactors()->GetGtype() != eRegular)
+    if (CalcGeomType() != eRegular)
     {
         marginFactor = 0.1;
         const int nq = GetXmap()->GetTotPoints();
@@ -468,9 +465,8 @@ void Geometry::ClearBoundingBox()
 }
 
 /**
- * @brief A fast and robust check if a given global coord is
- * outside of a deformed element. For regular elements, this
- * check is unnecessary
+ * @brief A fast and robust check if a given global coord is outside of a
+ * deformed element. For regular elements, this check is unnecessary.
  *
  * @param coords   Input Cartesian global coordinates
  *
@@ -487,7 +483,7 @@ int Geometry::PreliminaryCheck(const Array<OneD, const NekDouble> &gloCoord)
     }
 
     // regular element check
-    if (GetMetricInfo()->GetGtype() == eRegular)
+    if (CalcGeomType() == eRegular)
     {
         return 0;
     }
@@ -497,8 +493,7 @@ int Geometry::PreliminaryCheck(const Array<OneD, const NekDouble> &gloCoord)
 }
 
 /**
- * @brief Check if given global coord is within the BoundingBox
- * of the element.
+ * @brief Check if given global coord is within the BoundingBox of the element.
  *
  * @param coords   Input Cartesian global coordinates
  *

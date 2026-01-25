@@ -53,7 +53,7 @@ public:
     LOCAL_REGIONS_EXPORT PyrExp(const LibUtilities::BasisKey &Ba,
                                 const LibUtilities::BasisKey &Bb,
                                 const LibUtilities::BasisKey &Bc,
-                                const SpatialDomains::PyrGeomSharedPtr &geom);
+                                SpatialDomains::Geometry3D *geom);
 
     LOCAL_REGIONS_EXPORT PyrExp(const PyrExp &T);
 
@@ -66,38 +66,12 @@ protected:
     LOCAL_REGIONS_EXPORT NekDouble
     v_Integral(const Array<OneD, const NekDouble> &inarray) override;
 
-    //----------------------------
-    // Differentiation Methods
-    //----------------------------
-    LOCAL_REGIONS_EXPORT void v_PhysDeriv(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &out_d0, Array<OneD, NekDouble> &out_d1,
-        Array<OneD, NekDouble> &out_d2) override;
-
-    //---------------------------------------
-    // Transforms
-    //---------------------------------------
-    LOCAL_REGIONS_EXPORT void v_FwdTrans(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-
     //---------------------------------------
     // Inner product functions
     //---------------------------------------
-    LOCAL_REGIONS_EXPORT void v_IProductWRTBase(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-    LOCAL_REGIONS_EXPORT void v_IProductWRTBase_SumFac(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray,
-        bool multiplybyweights = true) override;
     LOCAL_REGIONS_EXPORT void v_IProductWRTDerivBase(
         const int dir, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
-    LOCAL_REGIONS_EXPORT void v_IProductWRTDerivBase_SumFac(
-        const int dir, const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override;
-
     LOCAL_REGIONS_EXPORT void v_AlignVectorToCollapsedDir(
         const int dir, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, Array<OneD, NekDouble>> &outarray) override;
@@ -123,14 +97,6 @@ protected:
         const NekDouble *data, const std::vector<unsigned int> &nummodes,
         const int mode_offset, NekDouble *coeffs,
         std::vector<LibUtilities::BasisType> &fromType) override;
-
-    LOCAL_REGIONS_EXPORT NekDouble
-    v_StdPhysEvaluate(const Array<OneD, const NekDouble> &Lcoord,
-                      const Array<OneD, const NekDouble> &physvals) override;
-
-    LOCAL_REGIONS_EXPORT NekDouble
-    v_PhysEvaluate(const Array<OneD, const NekDouble> &coord,
-                   const Array<OneD, const NekDouble> &physvals) override;
 
     LOCAL_REGIONS_EXPORT NekDouble
     v_PhysEvalFirstDeriv(const Array<OneD, NekDouble> &coord,

@@ -366,6 +366,7 @@ where it exists. The table below indicates support currently implemented.
     \midrule
     CGNS & \texttt{cgns} & \cmark & Based on the output currently provide by ANSA. Have support for high order elements supported. Requires NEKTAR\_USE\_CGNS option to be activated in cmake which then requires cgns library 4.4 to be  available or compiled \\
     Gmsh & \texttt{msh} & \cmark & Only reads nodes, elements and physical groups (which are mapped to composites). File format versions 2.x and 4.x currently supported.\\
+    Gmsh & \texttt{msh:msh:identifyComposite} & \cmark & Same, but uses the CAD IDs to identify boundary composites. Use if no Physical Surfaces/Volume defined in Gmsh.  \\
     Nektar & \texttt{rea} & \cmark & Reads elements, fluid boundary conditions. Most curve types are unsupported: high-order information must be defined in an accompanying .hsf file. \\
     Nektar++ & \texttt{xml} & \cmark & Fully supported. \\
     PLY & \texttt{ply} & \xmark & Reads only the ASCII format.. \\
@@ -660,7 +661,7 @@ the surface elements producing leading edge closer to the underlying geometry:
   \end{center}
 \end{figure}
 
-\subsection{Periodic boundary condition alignment}
+\subsection{Periodic boundary condition alignment}\label{s:utilities:nekmesh:sub:peralign}
 
 When using periodic boundary conditions, the order of the elements within the
 boundary composite determines which element edges are periodic with the
@@ -742,7 +743,9 @@ x_k = x_{k-1} + ar^k, \quad a = \frac{2(1-r)}{1 - r^{n+1}}
 \]
 in the standard segment $[-1,1]$. These are then projected into the coarse
 elements to construct a sequence of increasingly refined elements, as depicted
-in figure~\ref{fig:util:mc:split}.
+in figure~\ref{fig:util:mc:split}. A new improved implementation of the module
+was introduced for prisms as part of "bl:" in v5.9. The legacy one, supporting
+also O-type hex meshes, can be used by calling "blold:".
 
 \begin{figure}
   \begin{center}
@@ -781,7 +784,8 @@ of 2 and 7 integration points per element use the following command:
   You can also use an expression in terms of coordinates $(x,y,z)$ for $r$ to
   make the ratio spatially varying; e.g. \inltt{r=sin(x)}. In this case the
   function should be sufficiently smooth to prevent the elements
-  self-intersecting.
+  self-intersecting. For this functionality, use the legacy 
+  implementation "blold:".
 \end{notebox}
 
 \subsection{High-order cylinder generation}
@@ -940,6 +944,19 @@ NekMesh -m revolve:layers=n:angle=full 2D.xml 3D.xml
 The angle must be between $0$ and $2\pi$.
 The 2D mesh must not cross or touch the $y$ axis i.e. $x>0$ for all points.
 By default the mesh is revolved through the full $2\pi$.
+
+\subsection{3D mesh scaling}
+This module scales a 3D mesh in the $x$, $y$ and $z$ directions. It also works on
+high-order meshes scaling the edge and face nodes. The module requires three parameters:
+
+\begin{lstlisting}[style=BashInputStyle]
+  NekMesh -m scale:scaleX=1.0:scaleY=2.0:scaleZ=2.0 mesh.xml mesh_scaled.xml
+\end{lstlisting}
+
+where \texttt{scaleX}, \texttt{scaleY} and \texttt{scaleZ} are the scaling
+parameters in the $x$, $y$ and $z$ directions respectively. If not selected,
+the scale parameters will be assumed 1.0 by default. 
+
 
 \subsection{Variational Optimisation}
 \label{sec:varopti}

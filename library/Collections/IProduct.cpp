@@ -462,8 +462,7 @@ void PyrIProduct(bool sortTopVertex, int numElmt, int nquad0, int nquad1,
         // increment mode in case order1!=order2
         for (int j = nmodes1; j < nmodes2; ++j)
         {
-            int ijmax = max(i, j);
-            mode += nmodes2 - ijmax;
+            mode += nmodes2 - j;
         }
     }
 
@@ -475,16 +474,16 @@ void PyrIProduct(bool sortTopVertex, int numElmt, int nquad0, int nquad1,
         {
             // add in (1+c)/2 (1+b)/2 component
             output[1 + n * totmodes] +=
-                Blas::Ddot(nquad2, base2.data() + nquad2, 1,
+                Vmath::Dot(nquad2, base2.data() + nquad2, 1,
                            &wsp[nquad2 * numElmt + n * nquad2], 1);
 
             // add in (1+c)/2 (1-b)/2 (1+a)/2 component
             output[1 + n * totmodes] +=
-                Blas::Ddot(nquad2, base2.data() + nquad2, 1,
+                Vmath::Dot(nquad2, base2.data() + nquad2, 1,
                            &wsp[nquad2 * nmodes1 * numElmt + n * nquad2], 1);
 
             // add in (1+c)/2 (1+b)/2 (1+a)/2 component
-            output[1 + n * totmodes] += Blas::Ddot(
+            output[1 + n * totmodes] += Vmath::Dot(
                 nquad2, base2.data() + nquad2, 1,
                 &wsp[nquad2 * (nmodes1 + 1) * numElmt + n * nquad2], 1);
         }
@@ -574,12 +573,12 @@ void TetIProduct(bool sortTopEdge, int numElmt, int nquad0, int nquad1,
         {
             // add in (1+c)/2 (1+b)/2 component
             output[1 + n * totmodes] +=
-                Blas::Ddot(nquad2, base2.data() + nquad2, 1,
+                Vmath::Dot(nquad2, base2.data() + nquad2, 1,
                            &wsp[nquad2 * numElmt + n * nquad2], 1);
 
             // add in (1+c)/2 (1-b)/2 (1+a)/2 component
             output[1 + n * totmodes] +=
-                Blas::Ddot(nquad2, base2.data() + nquad2, 1,
+                Vmath::Dot(nquad2, base2.data() + nquad2, 1,
                            &wsp[nquad2 * nmodes1 * numElmt + n * nquad2], 1);
         }
     }

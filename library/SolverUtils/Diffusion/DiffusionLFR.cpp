@@ -202,9 +202,8 @@ void DiffusionLFR::SetupMetrics(
                 jac               = pFields[0]
                           ->GetExp(n)
                           ->as<LocalRegions::Expansion1D>()
-                          ->GetGeom1D()
-                          ->GetMetricInfo()
-                          ->GetJac(ptsKeys);
+                          ->GetGeomFactors()
+                          ->GetJac();
                 for (i = 0; i < nLocalSolutionPts; ++i)
                 {
                     m_jac[i + phys_offset] = jac[0];
@@ -253,21 +252,18 @@ void DiffusionLFR::SetupMetrics(
                 jac = pFields[0]
                           ->GetExp(n)
                           ->as<LocalRegions::Expansion2D>()
-                          ->GetGeom2D()
-                          ->GetMetricInfo()
-                          ->GetJac(ptsKeys);
+                          ->GetGeomFactors()
+                          ->GetJac();
                 gmat = pFields[0]
                            ->GetExp(n)
                            ->as<LocalRegions::Expansion2D>()
-                           ->GetGeom2D()
-                           ->GetMetricInfo()
-                           ->GetDerivFactors(ptsKeys);
+                           ->GetGeomFactors()
+                           ->GetDerivFactors();
 
                 if (pFields[0]
                         ->GetExp(n)
                         ->as<LocalRegions::Expansion2D>()
-                        ->GetGeom2D()
-                        ->GetMetricInfo()
+                        ->GetGeomFactors()
                         ->GetGtype() == SpatialDomains::eDeformed)
                 {
                     for (i = 0; i < nLocalSolutionPts; ++i)
@@ -1012,11 +1008,12 @@ void DiffusionLFR::v_Diffuse(
                         phys_offset = fields[0]->GetPhys_Offset(n);
 
                         fields[i]->GetExp(n)->StdPhysDeriv(
-                            0, auxArray1 = u1_hat + phys_offset,
+                            auxArray1 = u1_hat + phys_offset,
                             auxArray2 = m_tmp1[i][j] + phys_offset);
 
                         fields[i]->GetExp(n)->StdPhysDeriv(
-                            1, auxArray1 = u2_hat + phys_offset,
+                            auxArray1 = u2_hat + phys_offset,
+                            NullNekDouble1DArray,
                             auxArray2 = m_tmp2[i][j] + phys_offset);
                     }
 
@@ -1102,11 +1099,11 @@ void DiffusionLFR::v_Diffuse(
                     phys_offset = fields[0]->GetPhys_Offset(n);
 
                     fields[0]->GetExp(n)->StdPhysDeriv(
-                        0, auxArray1 = f_hat + phys_offset,
+                        auxArray1 = f_hat + phys_offset,
                         auxArray2 = m_DD1[i][0] + phys_offset);
 
                     fields[0]->GetExp(n)->StdPhysDeriv(
-                        1, auxArray1 = g_hat + phys_offset,
+                        auxArray1 = g_hat + phys_offset, NullNekDouble1DArray,
                         auxArray2 = m_DD1[i][1] + phys_offset);
                 }
 
@@ -1519,9 +1516,8 @@ void DiffusionLFR::DerCFlux_1D(
         jac               = fields[0]
                   ->GetExp(n)
                   ->as<LocalRegions::Expansion1D>()
-                  ->GetGeom1D()
-                  ->GetMetricInfo()
-                  ->GetJac(ptsKeys);
+                  ->GetGeomFactors()
+                  ->GetJac();
 
         JumpL[n] = JumpL[n] * jac[0];
         JumpR[n] = JumpR[n] * jac[0];
@@ -1588,9 +1584,8 @@ void DiffusionLFR::DerCFlux_2D(
         jac = fields[0]
                   ->GetExp(n)
                   ->as<LocalRegions::Expansion2D>()
-                  ->GetGeom2D()
-                  ->GetMetricInfo()
-                  ->GetJac(ptsKeys);
+                  ->GetGeomFactors()
+                  ->GetJac();
 
         base   = fields[0]->GetExp(n)->GetBase();
         nquad0 = base[0]->GetNumPoints();
@@ -1638,8 +1633,7 @@ void DiffusionLFR::DerCFlux_2D(
             if (fields[0]
                     ->GetExp(n)
                     ->as<LocalRegions::Expansion2D>()
-                    ->GetGeom2D()
-                    ->GetMetricInfo()
+                    ->GetGeomFactors()
                     ->GetGtype() == SpatialDomains::eDeformed)
             {
                 // Extract the Jacobians along edge 'e'

@@ -41,66 +41,67 @@
 
 namespace Nektar::TetCollectionTests
 {
-SpatialDomains::SegGeomSharedPtr CreateSegGeom(
-    unsigned int id, SpatialDomains::PointGeomSharedPtr v0,
-    SpatialDomains::PointGeomSharedPtr v1)
+SpatialDomains::SegGeomUniquePtr CreateSegGeom(unsigned int id,
+                                               SpatialDomains::PointGeom *v0,
+                                               SpatialDomains::PointGeom *v1)
 {
-    SpatialDomains::PointGeomSharedPtr vertices[] = {v0, v1};
-    SpatialDomains::SegGeomSharedPtr result(
+    std::array<SpatialDomains::PointGeom *, 2> vertices = {v0, v1};
+    SpatialDomains::SegGeomUniquePtr result(
         new SpatialDomains::SegGeom(id, 3, vertices));
     return result;
 }
 
-SpatialDomains::TetGeomSharedPtr CreateTet(
-    SpatialDomains::PointGeomSharedPtr v0,
-    SpatialDomains::PointGeomSharedPtr v1,
-    SpatialDomains::PointGeomSharedPtr v2,
-    SpatialDomains::PointGeomSharedPtr v3)
+SpatialDomains::TetGeomUniquePtr CreateTet(
+    std::array<SpatialDomains::PointGeom *, 4> v,
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> &segVec,
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> &faceVec)
 {
-    Nektar::SpatialDomains::SegGeomSharedPtr e0 = CreateSegGeom(0, v0, v1);
-    Nektar::SpatialDomains::SegGeomSharedPtr e1 = CreateSegGeom(1, v1, v2);
-    Nektar::SpatialDomains::SegGeomSharedPtr e2 = CreateSegGeom(2, v2, v0);
-    Nektar::SpatialDomains::SegGeomSharedPtr e3 = CreateSegGeom(3, v0, v3);
-    Nektar::SpatialDomains::SegGeomSharedPtr e4 = CreateSegGeom(4, v1, v3);
-    Nektar::SpatialDomains::SegGeomSharedPtr e5 = CreateSegGeom(5, v2, v3);
+    std::array<std::array<int, 2>, 6> edgeVerts = {
+        {{{0, 1}}, {{1, 2}}, {{0, 2}}, {{0, 3}}, {{1, 3}}, {{2, 3}}}};
+    std::array<std::array<int, 3>, 4> faceEdges = {
+        {{{0, 1, 2}}, {{0, 4, 3}}, {{1, 5, 4}}, {{2, 5, 3}}}};
 
-    Nektar::SpatialDomains::SegGeomSharedPtr
-        edgesF0[Nektar::SpatialDomains::TriGeom::kNedges] = {e0, e1, e2};
-    Nektar::SpatialDomains::SegGeomSharedPtr
-        edgesF1[Nektar::SpatialDomains::TriGeom::kNedges] = {e0, e3, e4};
-    Nektar::SpatialDomains::SegGeomSharedPtr
-        edgesF2[Nektar::SpatialDomains::TriGeom::kNedges] = {e1, e4, e5};
-    Nektar::SpatialDomains::SegGeomSharedPtr
-        edgesF3[Nektar::SpatialDomains::TriGeom::kNedges] = {e2, e3, e5};
+    // Create segments from vertices
+    for (int i = 0; i < 6; ++i)
+    {
+        segVec[i] = CreateSegGeom(i, v[edgeVerts[i][0]], v[edgeVerts[i][1]]);
+    }
 
-    Nektar::SpatialDomains::TriGeomSharedPtr face0(
-        new SpatialDomains::TriGeom(0, edgesF0));
-    Nektar::SpatialDomains::TriGeomSharedPtr face1(
-        new SpatialDomains::TriGeom(1, edgesF1));
-    Nektar::SpatialDomains::TriGeomSharedPtr face2(
-        new SpatialDomains::TriGeom(2, edgesF2));
-    Nektar::SpatialDomains::TriGeomSharedPtr face3(
-        new SpatialDomains::TriGeom(3, edgesF3));
+    // Create faces from edges
+    std::array<SpatialDomains::TriGeom *, 4> faces;
+    for (int i = 0; i < 4; ++i)
+    {
+        std::array<SpatialDomains::SegGeom *, 3> face;
+        for (int j = 0; j < 3; ++j)
+        {
+            face[j] = segVec[faceEdges[i][j]].get();
+        }
+        faceVec[i] = SpatialDomains::TriGeomUniquePtr(
+            new SpatialDomains::TriGeom(i, face));
+        faces[i] = faceVec[i].get();
+    }
 
-    Nektar::SpatialDomains::TriGeomSharedPtr tfaces[] = {face0, face1, face2,
-                                                         face3};
-    SpatialDomains::TetGeomSharedPtr tetGeom(
-        new SpatialDomains::TetGeom(0, tfaces));
+    SpatialDomains::TetGeomUniquePtr tetGeom(
+        new SpatialDomains::TetGeom(0, faces));
     return tetGeom;
 }
 
 BOOST_AUTO_TEST_CASE(TestTetBwdTrans_IterPerExp_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -131,7 +132,7 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_IterPerExp_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -144,6 +145,10 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_IterPerExp_UniformP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1; // make values distinct
+    }
     Array<OneD, NekDouble> phys1(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(Exp->GetTotPoints());
 
@@ -159,16 +164,20 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_IterPerExp_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetBwdTrans_IterPerExp_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.5, -1.5, -1.5));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -199,7 +208,7 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_IterPerExp_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 10;
 
@@ -217,6 +226,10 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_IterPerExp_VariableP_MultiElmt)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(nelmts * Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(nelmts * Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(nelmts * Exp->GetTotPoints());
 
@@ -237,16 +250,20 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_IterPerExp_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_IterPerExp_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -277,7 +294,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_IterPerExp_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -315,16 +332,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_IterPerExp_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_IterPerExp_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -357,7 +378,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_IterPerExp_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 10;
 
@@ -409,16 +430,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_IterPerExp_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetBwdTrans_StdMat_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -449,7 +474,7 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_StdMat_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -462,6 +487,10 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_StdMat_UniformP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1; // make values distinct
+    }
     Array<OneD, NekDouble> phys1(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(Exp->GetTotPoints());
 
@@ -477,16 +506,20 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_StdMat_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetBwdTrans_StdMat_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.5, -1.5, -1.5));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -517,7 +550,7 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_StdMat_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 10;
 
@@ -535,6 +568,10 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_StdMat_VariableP_MultiElmt)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(nelmts * Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(nelmts * Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(nelmts * Exp->GetTotPoints());
 
@@ -555,16 +592,20 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_StdMat_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -595,7 +636,7 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -608,6 +649,10 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_UniformP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1; // make values distinct
+    }
     Array<OneD, NekDouble> phys1(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(Exp->GetTotPoints());
 
@@ -623,16 +668,20 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.5, -1.5, -1.5));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -663,7 +712,7 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 10;
 
@@ -681,6 +730,10 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_MultiElmt)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(nelmts * Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(nelmts * Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(nelmts * Exp->GetTotPoints());
 
@@ -701,16 +754,20 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_MultiElmt_VariableP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.5, -1.5, -1.5));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -741,7 +798,7 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_MultiElmt_VariableP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 1;
 
@@ -759,6 +816,10 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_MultiElmt_VariableP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(nelmts * Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1;
+    }
     Array<OneD, NekDouble> phys1(nelmts * Exp->GetTotPoints());
     Array<OneD, NekDouble> phys2(nelmts * Exp->GetTotPoints());
 
@@ -779,16 +840,20 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_SumFac_MultiElmt_VariableP)
 
 BOOST_AUTO_TEST_CASE(TestTetBwdTrans_MatrixFree_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -822,7 +887,7 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_MatrixFree_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -837,6 +902,10 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_MatrixFree_UniformP)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1; // make values distinct
+    }
     Array<OneD, NekDouble> physRef(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys(Exp->GetTotPoints());
 
@@ -852,16 +921,20 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_MatrixFree_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetBwdTrans_MatrixFree_UniformP_OverInt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 8;
     unsigned int numModes      = 4;
@@ -895,7 +968,7 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_MatrixFree_UniformP_OverInt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -910,6 +983,10 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_MatrixFree_UniformP_OverInt)
     c.Initialise(Collections::eBwdTrans);
 
     Array<OneD, NekDouble> coeffs(Exp->GetNcoeffs(), 1.0), tmp;
+    for (int i = 0; i < coeffs.size(); ++i)
+    {
+        coeffs[i] = i + 1; // make values distinct
+    }
     Array<OneD, NekDouble> physRef(Exp->GetTotPoints());
     Array<OneD, NekDouble> phys(Exp->GetTotPoints());
 
@@ -925,16 +1002,20 @@ BOOST_AUTO_TEST_CASE(TestTetBwdTrans_MatrixFree_UniformP_OverInt)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_StdMat_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -965,7 +1046,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_StdMat_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1003,16 +1084,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_StdMat_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_StdMat_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1043,7 +1128,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_StdMat_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 10;
 
@@ -1095,16 +1180,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_StdMat_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_SumFac_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1135,7 +1224,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_SumFac_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1173,16 +1262,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_SumFac_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_SumFac_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1215,7 +1308,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_SumFac_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 10;
 
@@ -1267,16 +1360,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_SumFac_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_MatrixFree_UniformP_Undeformed)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -1310,7 +1407,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_MatrixFree_UniformP_Undeformed)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1350,16 +1447,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_MatrixFree_UniformP_Undeformed)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_MatrixFree_UniformP_Deformed)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -2.0, -3.0, -4.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -1393,7 +1494,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_MatrixFree_UniformP_Deformed)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1434,16 +1535,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTBase_MatrixFree_UniformP_Deformed)
 BOOST_AUTO_TEST_CASE(
     TestTetIProductWRTBase_MatrixFree_UniformP_Deformed_OverInt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -2.0, -3.0, -4.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 8;
     unsigned int numModes      = 4;
@@ -1477,7 +1582,7 @@ BOOST_AUTO_TEST_CASE(
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1517,16 +1622,20 @@ BOOST_AUTO_TEST_CASE(
 
 BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_IterPerExp_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1557,7 +1666,7 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_IterPerExp_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1595,16 +1704,20 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_IterPerExp_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_IterPerExp_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1635,7 +1748,7 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_IterPerExp_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 10;
 
@@ -1687,16 +1800,20 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_IterPerExp_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_StdMat_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1727,7 +1844,7 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_StdMat_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1765,16 +1882,20 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_StdMat_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_StdMat_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1805,7 +1926,7 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_StdMat_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 10;
 
@@ -1857,16 +1978,20 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_StdMat_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_SumFac_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1897,7 +2022,7 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_SumFac_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -1935,16 +2060,20 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_SumFac_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_SumFac_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -1975,7 +2104,7 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_SumFac_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 10;
 
@@ -2027,16 +2156,20 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_SumFac_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_MatrixFree_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -2070,7 +2203,7 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_MatrixFree_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -2110,16 +2243,20 @@ BOOST_AUTO_TEST_CASE(TestTetPhysDeriv_MatrixFree_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_IterPerExp_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2150,7 +2287,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_IterPerExp_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -2202,16 +2339,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_IterPerExp_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_IterPerExp_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2244,7 +2385,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_IterPerExp_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 1;
 
@@ -2312,16 +2453,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_IterPerExp_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_StdMat_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2352,7 +2497,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_StdMat_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -2404,16 +2549,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_StdMat_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_StdMat_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2446,7 +2595,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_StdMat_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 1;
 
@@ -2514,16 +2663,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_StdMat_VariableP_MultiElmt)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_SumFac_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2554,7 +2707,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_SumFac_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -2606,16 +2759,20 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_SumFac_UniformP)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_SumFac_VariableP_MultiElmt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     Nektar::LibUtilities::PointsType triPointsTypeDir1 =
         Nektar::LibUtilities::eGaussLobattoLegendre;
@@ -2648,7 +2805,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_SumFac_VariableP_MultiElmt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     int nelmts = 1;
 
@@ -2714,18 +2871,22 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_SumFac_VariableP_MultiElmt)
     }
 }
 
-BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_IterPerExp_UniformP_ConstVarDiff)
+BOOST_AUTO_TEST_CASE(TestTetHelmholtz_IterPerExp_UniformP_ConstVarDiff)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -2759,7 +2920,7 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_IterPerExp_UniformP_ConstVarDiff)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     Nektar::StdRegions::StdTetExpSharedPtr stdExp =
         MemoryManager<Nektar::StdRegions::StdTetExp>::AllocateSharedPtr(
@@ -2779,7 +2940,7 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_IterPerExp_UniformP_ConstVarDiff)
     Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
     Collections::Collection c(CollExp, impTypes);
     StdRegions::ConstFactorMap factors;
-    factors[StdRegions::eFactorLambda]   = 0.0;
+    factors[StdRegions::eFactorLambda]   = 1.5;
     factors[StdRegions::eFactorCoeffD00] = 1.25;
     factors[StdRegions::eFactorCoeffD01] = 0.25;
     factors[StdRegions::eFactorCoeffD11] = 1.25;
@@ -2794,14 +2955,9 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_IterPerExp_UniformP_ConstVarDiff)
     Array<OneD, NekDouble> coeffsRef(nelmts * nm);
     Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
 
-    for (int i = 0; i < nm; ++i)
+    for (int i = 0; i < coeffsIn.size(); ++i)
     {
-        coeffsIn[i] = 1.0;
-    }
-
-    for (int i = 1; i < nelmts; ++i)
-    {
-        Vmath::Vcopy(nm, coeffsIn, 1, tmp = coeffsIn + i * nm, 1);
+        coeffsIn[i] = i + 1.0;
     }
 
     StdRegions::StdMatrixKey mkey(StdRegions::eHelmholtz, Exp->DetShapeType(),
@@ -2824,18 +2980,22 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_IterPerExp_UniformP_ConstVarDiff)
     }
 }
 
-BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP)
+BOOST_AUTO_TEST_CASE(TestTetHelmholtz_MatrixFree_UniformP)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -2869,7 +3029,7 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     Nektar::StdRegions::StdTetExpSharedPtr stdExp =
         MemoryManager<Nektar::StdRegions::StdTetExp>::AllocateSharedPtr(
@@ -2889,7 +3049,7 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP)
     Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
     Collections::Collection c(CollExp, impTypes);
     StdRegions::ConstFactorMap factors;
-    factors[StdRegions::eFactorLambda] = 0.0;
+    factors[StdRegions::eFactorLambda] = 1.5;
 
     c.Initialise(Collections::eHelmholtz, factors);
 
@@ -2898,14 +3058,9 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP)
     Array<OneD, NekDouble> coeffsRef(nelmts * nm);
     Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
 
-    for (int i = 0; i < nm; ++i)
+    for (int i = 0; i < coeffsIn.size(); ++i)
     {
-        coeffsIn[i] = 1.0;
-    }
-
-    for (int i = 1; i < nelmts; ++i)
-    {
-        Vmath::Vcopy(nm, coeffsIn, 1, tmp = coeffsIn + i * nm, 1);
+        coeffsIn[i] = i + 1.0;
     }
 
     StdRegions::StdMatrixKey mkey(StdRegions::eHelmholtz, Exp->DetShapeType(),
@@ -2928,18 +3083,22 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP)
     }
 }
 
-BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_Deformed_OverInt)
+BOOST_AUTO_TEST_CASE(TestTetHelmholtz_MatrixFree_Deformed_OverInt)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -2.0, -3.0, -4.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 8;
     unsigned int numModes      = 4;
@@ -2973,7 +3132,7 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_Deformed_OverInt)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     Nektar::StdRegions::StdTetExpSharedPtr stdExp =
         MemoryManager<Nektar::StdRegions::StdTetExp>::AllocateSharedPtr(
@@ -2993,7 +3152,7 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_Deformed_OverInt)
     Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
     Collections::Collection c(CollExp, impTypes);
     StdRegions::ConstFactorMap factors;
-    factors[StdRegions::eFactorLambda] = 0.0;
+    factors[StdRegions::eFactorLambda] = 1.5;
 
     c.Initialise(Collections::eHelmholtz, factors);
 
@@ -3002,14 +3161,9 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_Deformed_OverInt)
     Array<OneD, NekDouble> coeffsRef(nelmts * nm);
     Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
 
-    for (int i = 0; i < nm; ++i)
+    for (int i = 0; i < coeffsIn.size(); ++i)
     {
-        coeffsIn[i] = 1.0;
-    }
-
-    for (int i = 1; i < nelmts; ++i)
-    {
-        Vmath::Vcopy(nm, coeffsIn, 1, tmp = coeffsIn + i * nm, 1);
+        coeffsIn[i] = i + 1.0;
     }
 
     StdRegions::StdMatrixKey mkey(StdRegions::eHelmholtz, Exp->DetShapeType(),
@@ -3034,16 +3188,20 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_Deformed_OverInt)
 
 BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_MatrixFree_UniformP_Undeformed)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -2.0, -3.0, -4.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -3077,7 +3235,7 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_MatrixFree_UniformP_Undeformed)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -3129,18 +3287,22 @@ BOOST_AUTO_TEST_CASE(TestTetIProductWRTDerivBase_MatrixFree_UniformP_Undeformed)
     }
 }
 
-BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP_ConstVarDiff)
+BOOST_AUTO_TEST_CASE(TestTetHelmholtz_MatrixFree_UniformP_ConstVarDiff)
 {
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -3174,7 +3336,7 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP_ConstVarDiff)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     Nektar::StdRegions::StdTetExpSharedPtr stdExp =
         MemoryManager<Nektar::StdRegions::StdTetExp>::AllocateSharedPtr(
@@ -3194,7 +3356,7 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP_ConstVarDiff)
     Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
     Collections::Collection c(CollExp, impTypes);
     StdRegions::ConstFactorMap factors;
-    factors[StdRegions::eFactorLambda]   = 0.0;
+    factors[StdRegions::eFactorLambda]   = 1.5;
     factors[StdRegions::eFactorCoeffD00] = 1.25;
     factors[StdRegions::eFactorCoeffD01] = 0.25;
     factors[StdRegions::eFactorCoeffD11] = 1.25;
@@ -3209,14 +3371,9 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP_ConstVarDiff)
     Array<OneD, NekDouble> coeffsRef(nelmts * nm);
     Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
 
-    for (int i = 0; i < nm; ++i)
+    for (int i = 0; i < coeffsIn.size(); ++i)
     {
-        coeffsIn[i] = 1.0;
-    }
-
-    for (int i = 1; i < nelmts; ++i)
-    {
-        Vmath::Vcopy(nm, coeffsIn, 1, tmp = coeffsIn + i * nm, 1);
+        coeffsIn[i] = i + 1.0;
     }
 
     StdRegions::StdMatrixKey mkey(StdRegions::eHelmholtz, Exp->DetShapeType(),
@@ -3242,16 +3399,20 @@ BOOST_AUTO_TEST_CASE(TestTetmHelmholtz_MatrixFree_UniformP_ConstVarDiff)
 BOOST_AUTO_TEST_CASE(TestTetPhysInterp1D_NoCollections_UniformP)
 {
 
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -3285,7 +3446,7 @@ BOOST_AUTO_TEST_CASE(TestTetPhysInterp1D_NoCollections_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -3337,16 +3498,20 @@ BOOST_AUTO_TEST_CASE(TestTetPhysInterp1D_NoCollections_UniformP)
 BOOST_AUTO_TEST_CASE(TestTetPhysInterp1D_MatrixFree_UniformP)
 {
 
-    SpatialDomains::PointGeomSharedPtr v0(
+    SpatialDomains::PointGeomUniquePtr v0(
         new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v1(
+    SpatialDomains::PointGeomUniquePtr v1(
         new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v2(
+    SpatialDomains::PointGeomUniquePtr v2(
         new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
-    SpatialDomains::PointGeomSharedPtr v3(
+    SpatialDomains::PointGeomUniquePtr v3(
         new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
 
-    SpatialDomains::TetGeomSharedPtr tetGeom = CreateTet(v0, v1, v2, v3);
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
 
     unsigned int numQuadPoints = 5;
     unsigned int numModes      = 4;
@@ -3380,7 +3545,7 @@ BOOST_AUTO_TEST_CASE(TestTetPhysInterp1D_MatrixFree_UniformP)
 
     Nektar::LocalRegions::TetExpSharedPtr Exp =
         MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
-            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom);
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
 
     std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
     CollExp.push_back(Exp);
@@ -3428,4 +3593,364 @@ BOOST_AUTO_TEST_CASE(TestTetPhysInterp1D_MatrixFree_UniformP)
         BOOST_CHECK_CLOSE(phys1[i], exact, epsilon);
     }
 }
+
+BOOST_AUTO_TEST_CASE(
+    TestTetLinearAdvectionDiffusionReaction_IterPerExp_UniformP)
+{
+    SpatialDomains::PointGeomUniquePtr v0(
+        new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
+    SpatialDomains::PointGeomUniquePtr v1(
+        new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
+    SpatialDomains::PointGeomUniquePtr v2(
+        new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
+    SpatialDomains::PointGeomUniquePtr v3(
+        new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
+
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
+
+    unsigned int numQuadPoints = 5;
+    unsigned int numModes      = 4;
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir1 =
+        Nektar::LibUtilities::eGaussLobattoLegendre;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir1(numQuadPoints,
+                                                           triPointsTypeDir1);
+    Nektar::LibUtilities::BasisType basisTypeDir1 =
+        Nektar::LibUtilities::eModified_A;
+    const Nektar::LibUtilities::BasisKey basisKeyDir1(basisTypeDir1, numModes,
+                                                      triPointsKeyDir1);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir2 =
+        Nektar::LibUtilities::eGaussRadauMAlpha1Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir2(numQuadPoints - 1,
+                                                           triPointsTypeDir2);
+    Nektar::LibUtilities::BasisType basisTypeDir2 =
+        Nektar::LibUtilities::eModified_B;
+    const Nektar::LibUtilities::BasisKey basisKeyDir2(basisTypeDir2, numModes,
+                                                      triPointsKeyDir2);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir3 =
+        Nektar::LibUtilities::eGaussRadauMAlpha2Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir3(numQuadPoints - 1,
+                                                           triPointsTypeDir3);
+    Nektar::LibUtilities::BasisType basisTypeDir3 =
+        Nektar::LibUtilities::eModified_C;
+    const Nektar::LibUtilities::BasisKey basisKeyDir3(basisTypeDir3, numModes,
+                                                      triPointsKeyDir3);
+
+    Nektar::LocalRegions::TetExpSharedPtr Exp =
+        MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
+
+    Nektar::StdRegions::StdTetExpSharedPtr stdExp =
+        MemoryManager<Nektar::StdRegions::StdTetExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir1, basisKeyDir1);
+
+    int nelmts = 10;
+
+    std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
+    for (int i = 0; i < nelmts; ++i)
+    {
+        CollExp.push_back(Exp);
+    }
+
+    LibUtilities::SessionReaderSharedPtr dummySession;
+    Collections::CollectionOptimisation colOpt(dummySession, 2,
+                                               Collections::eIterPerExp);
+    Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
+    Collections::Collection c(CollExp, impTypes);
+    StdRegions::ConstFactorMap factors;
+    factors[StdRegions::eFactorLambda] = 1.5;
+
+    c.Initialise(Collections::eLinearAdvectionDiffusionReaction, factors);
+
+    // Add advection velocities via varcoeffs
+    int npoints = Exp->GetTotPoints() * nelmts;
+    StdRegions::VarCoeffMap varcoeffs;
+    StdRegions::VarCoeffType varcoefftypes[] = {StdRegions::eVarCoeffVelX,
+                                                StdRegions::eVarCoeffVelY,
+                                                StdRegions::eVarCoeffVelZ};
+    for (int i = 0; i < Exp->GetShapeDimension(); i++)
+    {
+        varcoeffs[varcoefftypes[i]] = Array<OneD, NekDouble>(npoints, 1.0);
+    }
+    c.UpdateVarcoeffs(Collections::eLinearAdvectionDiffusionReaction,
+                      varcoeffs);
+
+    const int nm = Exp->GetNcoeffs();
+    Array<OneD, NekDouble> coeffsIn(nelmts * nm);
+    Array<OneD, NekDouble> coeffsRef(nelmts * nm);
+    Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
+
+    for (int i = 0; i < coeffsIn.size(); ++i)
+    {
+        coeffsIn[i] = i + 1.0;
+    }
+
+    StdRegions::StdMatrixKey mkey(StdRegions::eLinearAdvectionDiffusionReaction,
+                                  Exp->DetShapeType(), *Exp, factors,
+                                  varcoeffs);
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        // Standard routines
+        Exp->GeneralMatrixOp(coeffsIn + i * nm, tmp = coeffsRef + i * nm, mkey);
+    }
+
+    c.ApplyOperator(Collections::eLinearAdvectionDiffusionReaction, coeffsIn,
+                    coeffs);
+
+    double epsilon = 1.0e-8;
+    for (int i = 0; i < coeffsRef.size(); ++i)
+    {
+        coeffsRef[i] = (std::abs(coeffsRef[i]) < 1e-14) ? 0.0 : coeffsRef[i];
+        coeffs[i]    = (std::abs(coeffs[i]) < 1e-14) ? 0.0 : coeffs[i];
+        BOOST_CHECK_CLOSE(coeffsRef[i], coeffs[i], epsilon);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(
+    TestTetLinearAdvectionDiffusionReaction_MatrixFree_UniformP)
+{
+    SpatialDomains::PointGeomUniquePtr v0(
+        new SpatialDomains::PointGeom(3u, 0u, -1.0, -1.0, -1.0));
+    SpatialDomains::PointGeomUniquePtr v1(
+        new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
+    SpatialDomains::PointGeomUniquePtr v2(
+        new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
+    SpatialDomains::PointGeomUniquePtr v3(
+        new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
+
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
+
+    unsigned int numQuadPoints = 5;
+    unsigned int numModes      = 4;
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir1 =
+        Nektar::LibUtilities::eGaussLobattoLegendre;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir1(numQuadPoints,
+                                                           triPointsTypeDir1);
+    Nektar::LibUtilities::BasisType basisTypeDir1 =
+        Nektar::LibUtilities::eModified_A;
+    const Nektar::LibUtilities::BasisKey basisKeyDir1(basisTypeDir1, numModes,
+                                                      triPointsKeyDir1);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir2 =
+        Nektar::LibUtilities::eGaussRadauMAlpha1Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir2(numQuadPoints - 1,
+                                                           triPointsTypeDir2);
+    Nektar::LibUtilities::BasisType basisTypeDir2 =
+        Nektar::LibUtilities::eModified_B;
+    const Nektar::LibUtilities::BasisKey basisKeyDir2(basisTypeDir2, numModes,
+                                                      triPointsKeyDir2);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir3 =
+        Nektar::LibUtilities::eGaussRadauMAlpha2Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir3(numQuadPoints - 1,
+                                                           triPointsTypeDir3);
+    Nektar::LibUtilities::BasisType basisTypeDir3 =
+        Nektar::LibUtilities::eModified_C;
+    const Nektar::LibUtilities::BasisKey basisKeyDir3(basisTypeDir3, numModes,
+                                                      triPointsKeyDir3);
+
+    Nektar::LocalRegions::TetExpSharedPtr Exp =
+        MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
+
+    Nektar::StdRegions::StdTetExpSharedPtr stdExp =
+        MemoryManager<Nektar::StdRegions::StdTetExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir1, basisKeyDir1);
+
+    int nelmts = 10;
+
+    std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
+    for (int i = 0; i < nelmts; ++i)
+    {
+        CollExp.push_back(Exp);
+    }
+
+    LibUtilities::SessionReaderSharedPtr dummySession;
+    Collections::CollectionOptimisation colOpt(dummySession, 2,
+                                               Collections::eMatrixFree);
+    Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
+    Collections::Collection c(CollExp, impTypes);
+    StdRegions::ConstFactorMap factors;
+    factors[StdRegions::eFactorLambda] = 1.5;
+
+    c.Initialise(Collections::eLinearAdvectionDiffusionReaction, factors);
+
+    // Add advection velocities via varcoeffs
+    int npoints = Exp->GetTotPoints() * nelmts;
+    StdRegions::VarCoeffMap varcoeffs;
+    StdRegions::VarCoeffType varcoefftypes[] = {StdRegions::eVarCoeffVelX,
+                                                StdRegions::eVarCoeffVelY,
+                                                StdRegions::eVarCoeffVelZ};
+    for (int i = 0; i < Exp->GetShapeDimension(); i++)
+    {
+        varcoeffs[varcoefftypes[i]] = Array<OneD, NekDouble>(npoints, 1.0);
+    }
+    c.UpdateVarcoeffs(Collections::eLinearAdvectionDiffusionReaction,
+                      varcoeffs);
+
+    const int nm = Exp->GetNcoeffs();
+    Array<OneD, NekDouble> coeffsIn(nelmts * nm);
+    Array<OneD, NekDouble> coeffsRef(nelmts * nm);
+    Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
+
+    for (int i = 0; i < coeffsIn.size(); ++i)
+    {
+        coeffsIn[i] = i + 1.0;
+    }
+
+    StdRegions::StdMatrixKey mkey(StdRegions::eLinearAdvectionDiffusionReaction,
+                                  Exp->DetShapeType(), *Exp, factors,
+                                  varcoeffs);
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        // Standard routines
+        Exp->GeneralMatrixOp(coeffsIn + i * nm, tmp = coeffsRef + i * nm, mkey);
+    }
+
+    c.ApplyOperator(Collections::eLinearAdvectionDiffusionReaction, coeffsIn,
+                    coeffs);
+
+    double epsilon = 1.0e-8;
+    for (int i = 0; i < coeffsRef.size(); ++i)
+    {
+        coeffsRef[i] = (std::abs(coeffsRef[i]) < 1e-14) ? 0.0 : coeffsRef[i];
+        coeffs[i]    = (std::abs(coeffs[i]) < 1e-14) ? 0.0 : coeffs[i];
+        BOOST_CHECK_CLOSE(coeffsRef[i], coeffs[i], epsilon);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(
+    TestTetLinearAdvectionDiffusionReaction_MatrixFree_Deformed_OverInt)
+{
+    SpatialDomains::PointGeomUniquePtr v0(
+        new SpatialDomains::PointGeom(3u, 0u, -2.0, -3.0, -4.0));
+    SpatialDomains::PointGeomUniquePtr v1(
+        new SpatialDomains::PointGeom(3u, 1u, 1.0, -1.0, -1.0));
+    SpatialDomains::PointGeomUniquePtr v2(
+        new SpatialDomains::PointGeom(3u, 2u, -1.0, 1.0, -1.0));
+    SpatialDomains::PointGeomUniquePtr v3(
+        new SpatialDomains::PointGeom(3u, 3u, -1.0, -1.0, 1.0));
+
+    std::array<SpatialDomains::PointGeom *, 4> v = {v0.get(), v1.get(),
+                                                    v2.get(), v3.get()};
+    std::array<SpatialDomains::SegGeomUniquePtr, 6> segVec;
+    std::array<SpatialDomains::TriGeomUniquePtr, 4> faceVec;
+    SpatialDomains::TetGeomUniquePtr tetGeom = CreateTet(v, segVec, faceVec);
+
+    unsigned int numQuadPoints = 8;
+    unsigned int numModes      = 4;
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir1 =
+        Nektar::LibUtilities::eGaussLobattoLegendre;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir1(numQuadPoints,
+                                                           triPointsTypeDir1);
+    Nektar::LibUtilities::BasisType basisTypeDir1 =
+        Nektar::LibUtilities::eModified_A;
+    const Nektar::LibUtilities::BasisKey basisKeyDir1(basisTypeDir1, numModes,
+                                                      triPointsKeyDir1);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir2 =
+        Nektar::LibUtilities::eGaussRadauMAlpha1Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir2(numQuadPoints - 1,
+                                                           triPointsTypeDir2);
+    Nektar::LibUtilities::BasisType basisTypeDir2 =
+        Nektar::LibUtilities::eModified_B;
+    const Nektar::LibUtilities::BasisKey basisKeyDir2(basisTypeDir2, numModes,
+                                                      triPointsKeyDir2);
+
+    Nektar::LibUtilities::PointsType triPointsTypeDir3 =
+        Nektar::LibUtilities::eGaussRadauMAlpha2Beta0;
+    const Nektar::LibUtilities::PointsKey triPointsKeyDir3(numQuadPoints - 1,
+                                                           triPointsTypeDir3);
+    Nektar::LibUtilities::BasisType basisTypeDir3 =
+        Nektar::LibUtilities::eModified_C;
+    const Nektar::LibUtilities::BasisKey basisKeyDir3(basisTypeDir3, numModes,
+                                                      triPointsKeyDir3);
+
+    Nektar::LocalRegions::TetExpSharedPtr Exp =
+        MemoryManager<Nektar::LocalRegions::TetExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir2, basisKeyDir3, tetGeom.get());
+
+    Nektar::StdRegions::StdTetExpSharedPtr stdExp =
+        MemoryManager<Nektar::StdRegions::StdTetExp>::AllocateSharedPtr(
+            basisKeyDir1, basisKeyDir1, basisKeyDir1);
+
+    int nelmts = 10;
+
+    std::vector<StdRegions::StdExpansionSharedPtr> CollExp;
+    for (int i = 0; i < nelmts; ++i)
+    {
+        CollExp.push_back(Exp);
+    }
+
+    LibUtilities::SessionReaderSharedPtr dummySession;
+    Collections::CollectionOptimisation colOpt(dummySession, 2,
+                                               Collections::eMatrixFree);
+    Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(stdExp);
+    Collections::Collection c(CollExp, impTypes);
+    StdRegions::ConstFactorMap factors;
+    factors[StdRegions::eFactorLambda] = 1.5;
+
+    c.Initialise(Collections::eLinearAdvectionDiffusionReaction, factors);
+
+    // Add advection velocities via varcoeffs
+    int npoints = Exp->GetTotPoints() * nelmts;
+    StdRegions::VarCoeffMap varcoeffs;
+    StdRegions::VarCoeffType varcoefftypes[] = {StdRegions::eVarCoeffVelX,
+                                                StdRegions::eVarCoeffVelY,
+                                                StdRegions::eVarCoeffVelZ};
+    for (int i = 0; i < Exp->GetShapeDimension(); i++)
+    {
+        varcoeffs[varcoefftypes[i]] = Array<OneD, NekDouble>(npoints, 1.0);
+    }
+    c.UpdateVarcoeffs(Collections::eLinearAdvectionDiffusionReaction,
+                      varcoeffs);
+
+    const int nm = Exp->GetNcoeffs();
+    Array<OneD, NekDouble> coeffsIn(nelmts * nm);
+    Array<OneD, NekDouble> coeffsRef(nelmts * nm);
+    Array<OneD, NekDouble> coeffs(nelmts * nm), tmp;
+
+    for (int i = 0; i < coeffsIn.size(); ++i)
+    {
+        coeffsIn[i] = i + 1.0;
+    }
+
+    StdRegions::StdMatrixKey mkey(StdRegions::eLinearAdvectionDiffusionReaction,
+                                  Exp->DetShapeType(), *Exp, factors,
+                                  varcoeffs);
+
+    for (int i = 0; i < nelmts; ++i)
+    {
+        // Standard routines
+        Exp->GeneralMatrixOp(coeffsIn + i * nm, tmp = coeffsRef + i * nm, mkey);
+    }
+
+    c.ApplyOperator(Collections::eLinearAdvectionDiffusionReaction, coeffsIn,
+                    coeffs);
+
+    double epsilon = 1.0e-8;
+    for (int i = 0; i < coeffsRef.size(); ++i)
+    {
+        coeffsRef[i] = (std::abs(coeffsRef[i]) < 1e-14) ? 0.0 : coeffsRef[i];
+        coeffs[i]    = (std::abs(coeffs[i]) < 1e-14) ? 0.0 : coeffs[i];
+        BOOST_CHECK_CLOSE(coeffsRef[i], coeffs[i], epsilon);
+        std::cout << "i = " << i << "\tdiff = " << coeffsRef[i] - coeffs[i]
+                  << std::endl;
+    }
+}
+
 } // namespace Nektar::TetCollectionTests

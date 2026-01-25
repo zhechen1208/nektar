@@ -57,18 +57,16 @@ namespace Nektar::LocalRegions
 HexExp::HexExp(const LibUtilities::BasisKey &Ba,
                const LibUtilities::BasisKey &Bb,
                const LibUtilities::BasisKey &Bc,
-               const SpatialDomains::HexGeomSharedPtr &geom)
+               SpatialDomains::Geometry3D *geom)
     : StdExpansion(Ba.GetNumModes() * Bb.GetNumModes() * Bc.GetNumModes(), 3,
                    Ba, Bb, Bc),
       StdExpansion3D(Ba.GetNumModes() * Bb.GetNumModes() * Bc.GetNumModes(), Ba,
                      Bb, Bc),
       StdHexExp(Ba, Bb, Bc), Expansion(geom), Expansion3D(geom),
       m_matrixManager(
-          std::bind(&Expansion3D::CreateMatrix, this, std::placeholders::_1),
-          std::string("HexExpMatrix")),
+          std::bind(&Expansion3D::CreateMatrix, this, std::placeholders::_1)),
       m_staticCondMatrixManager(std::bind(&Expansion::CreateStaticCondMatrix,
-                                          this, std::placeholders::_1),
-                                std::string("HexExpStaticCondMatrix"))
+                                          this, std::placeholders::_1))
 {
 }
 
@@ -103,13 +101,13 @@ NekDouble HexExp::v_Integral(const Array<OneD, const NekDouble> &inarray)
     int nquad0                       = m_base[0]->GetNumPoints();
     int nquad1                       = m_base[1]->GetNumPoints();
     int nquad2                       = m_base[2]->GetNumPoints();
-    Array<OneD, const NekDouble> jac = m_metricinfo->GetJac(GetPointsKeys());
+    Array<OneD, const NekDouble> jac = m_geomFactors->GetJac();
     NekDouble returnVal;
     Array<OneD, NekDouble> tmp(nquad0 * nquad1 * nquad2);
 
     // multiply inarray with Jacobian
 
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
         Vmath::Vmul(nquad0 * nquad1 * nquad2, &jac[0], 1,
                     (NekDouble *)&inarray[0], 1, &tmp[0], 1);
@@ -126,132 +124,6 @@ NekDouble HexExp::v_Integral(const Array<OneD, const NekDouble> &inarray)
     return returnVal;
 }
 
-//-----------------------------
-// Differentiation Methods
-//-----------------------------
-/**
- * \brief Calculate the derivative of the physical points
- *
- * For Hexahedral region can use the Tensor_Deriv function defined
- * under StdExpansion.
- * @param   inarray     Input array
- * @param   out_d0      Derivative of \a inarray in first direction.
- * @param   out_d1      Derivative of \a inarray in second direction.
- * @param   out_d2      Derivative of \a inarray in third direction.
- */
-void HexExp::v_PhysDeriv(const Array<OneD, const NekDouble> &inarray,
-                         Array<OneD, NekDouble> &out_d0,
-                         Array<OneD, NekDouble> &out_d1,
-                         Array<OneD, NekDouble> &out_d2)
-{
-    int nquad0 = m_base[0]->GetNumPoints();
-    int nquad1 = m_base[1]->GetNumPoints();
-    int nquad2 = m_base[2]->GetNumPoints();
-    int ntot   = nquad0 * nquad1 * nquad2;
-
-    Array<TwoD, const NekDouble> df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
-    Array<OneD, NekDouble> Diff0 = Array<OneD, NekDouble>(ntot);
-    Array<OneD, NekDouble> Diff1 = Array<OneD, NekDouble>(ntot);
-    Array<OneD, NekDouble> Diff2 = Array<OneD, NekDouble>(ntot);
-
-    StdHexExp::v_PhysDeriv(inarray, Diff0, Diff1, Diff2);
-
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
-    {
-        if (out_d0.size())
-        {
-            Vmath::Vmul(ntot, &df[0][0], 1, &Diff0[0], 1, &out_d0[0], 1);
-            Vmath::Vvtvp(ntot, &df[1][0], 1, &Diff1[0], 1, &out_d0[0], 1,
-                         &out_d0[0], 1);
-            Vmath::Vvtvp(ntot, &df[2][0], 1, &Diff2[0], 1, &out_d0[0], 1,
-                         &out_d0[0], 1);
-        }
-
-        if (out_d1.size())
-        {
-            Vmath::Vmul(ntot, &df[3][0], 1, &Diff0[0], 1, &out_d1[0], 1);
-            Vmath::Vvtvp(ntot, &df[4][0], 1, &Diff1[0], 1, &out_d1[0], 1,
-                         &out_d1[0], 1);
-            Vmath::Vvtvp(ntot, &df[5][0], 1, &Diff2[0], 1, &out_d1[0], 1,
-                         &out_d1[0], 1);
-        }
-
-        if (out_d2.size())
-        {
-            Vmath::Vmul(ntot, &df[6][0], 1, &Diff0[0], 1, &out_d2[0], 1);
-            Vmath::Vvtvp(ntot, &df[7][0], 1, &Diff1[0], 1, &out_d2[0], 1,
-                         &out_d2[0], 1);
-            Vmath::Vvtvp(ntot, &df[8][0], 1, &Diff2[0], 1, &out_d2[0], 1,
-                         &out_d2[0], 1);
-        }
-    }
-    else // regular geometry
-    {
-        if (out_d0.size())
-        {
-            Vmath::Smul(ntot, df[0][0], &Diff0[0], 1, &out_d0[0], 1);
-            Blas::Daxpy(ntot, df[1][0], &Diff1[0], 1, &out_d0[0], 1);
-            Blas::Daxpy(ntot, df[2][0], &Diff2[0], 1, &out_d0[0], 1);
-        }
-
-        if (out_d1.size())
-        {
-            Vmath::Smul(ntot, df[3][0], &Diff0[0], 1, &out_d1[0], 1);
-            Blas::Daxpy(ntot, df[4][0], &Diff1[0], 1, &out_d1[0], 1);
-            Blas::Daxpy(ntot, df[5][0], &Diff2[0], 1, &out_d1[0], 1);
-        }
-
-        if (out_d2.size())
-        {
-            Vmath::Smul(ntot, df[6][0], &Diff0[0], 1, &out_d2[0], 1);
-            Blas::Daxpy(ntot, df[7][0], &Diff1[0], 1, &out_d2[0], 1);
-            Blas::Daxpy(ntot, df[8][0], &Diff2[0], 1, &out_d2[0], 1);
-        }
-    }
-}
-
-/**
- * \brief Calculate the derivative of the physical points in a single
- * direction.
- *
- * @param   dir         Direction in which to compute derivative.
- *                      Valid values are 0, 1, 2.
- * @param   inarray     Input array.
- * @param   outarray    Output array.
- */
-void HexExp::v_PhysDeriv(const int dir,
-                         const Array<OneD, const NekDouble> &inarray,
-                         Array<OneD, NekDouble> &outarray)
-{
-    switch (dir)
-    {
-        case 0:
-        {
-            PhysDeriv(inarray, outarray, NullNekDouble1DArray,
-                      NullNekDouble1DArray);
-        }
-        break;
-        case 1:
-        {
-            PhysDeriv(inarray, NullNekDouble1DArray, outarray,
-                      NullNekDouble1DArray);
-        }
-        break;
-        case 2:
-        {
-            PhysDeriv(inarray, NullNekDouble1DArray, NullNekDouble1DArray,
-                      outarray);
-        }
-        break;
-        default:
-        {
-            ASSERTL1(false, "input dir is out of range");
-        }
-        break;
-    }
-}
-
 void HexExp::v_PhysDirectionalDeriv(
     const Array<OneD, const NekDouble> &inarray,
     const Array<OneD, const NekDouble> &direction,
@@ -264,13 +136,12 @@ void HexExp::v_PhysDirectionalDeriv(
     int nquad2   = m_base[2]->GetNumPoints();
     int ntot     = nquad0 * nquad1 * nquad2;
 
-    Array<TwoD, const NekDouble> df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
-    Array<OneD, NekDouble> Diff0 = Array<OneD, NekDouble>(ntot);
-    Array<OneD, NekDouble> Diff1 = Array<OneD, NekDouble>(ntot);
-    Array<OneD, NekDouble> Diff2 = Array<OneD, NekDouble>(ntot);
+    Array<TwoD, const NekDouble> df = m_geomFactors->GetDerivFactors();
+    Array<OneD, NekDouble> Diff0    = Array<OneD, NekDouble>(ntot);
+    Array<OneD, NekDouble> Diff1    = Array<OneD, NekDouble>(ntot);
+    Array<OneD, NekDouble> Diff2    = Array<OneD, NekDouble>(ntot);
 
-    StdHexExp::v_PhysDeriv(inarray, Diff0, Diff1, Diff2);
+    v_StdPhysDeriv(inarray, Diff0, Diff1, Diff2);
 
     Array<OneD, Array<OneD, NekDouble>> dfdir(shapedim);
     Expansion::ComputeGmatcdotMF(df, direction, dfdir);
@@ -283,127 +154,8 @@ void HexExp::v_PhysDirectionalDeriv(
 }
 
 //-----------------------------
-// Transforms
-//-----------------------------
-
-/**
- * \brief Forward transform from physical quadrature space stored in \a
- * inarray and evaluate the expansion coefficients and store in
- * \a (this)->_coeffs
- *
- * @param   inarray     Input array
- * @param   outarray    Output array
- */
-void HexExp::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
-                        Array<OneD, NekDouble> &outarray)
-{
-    if (m_base[0]->Collocation() && m_base[1]->Collocation() &&
-        m_base[2]->Collocation())
-    {
-        Vmath::Vcopy(GetNcoeffs(), &inarray[0], 1, &outarray[0], 1);
-    }
-    else
-    {
-        IProductWRTBase(inarray, outarray);
-
-        // get Mass matrix inverse
-        MatrixKey masskey(StdRegions::eInvMass, DetShapeType(), *this);
-        DNekScalMatSharedPtr matsys = m_matrixManager[masskey];
-
-        // copy inarray in case inarray == outarray
-        DNekVec in(m_ncoeffs, outarray);
-        DNekVec out(m_ncoeffs, outarray, eWrapper);
-
-        out = (*matsys) * in;
-    }
-}
-
-//-----------------------------
 // Inner product functions
 //-----------------------------
-
-/**
- * \brief Calculate the inner product of inarray with respect to the
- * elements basis.
- *
- * @param   inarray     Input array of physical space data.
- * @param   outarray    Output array of data.
- */
-void HexExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
-                               Array<OneD, NekDouble> &outarray)
-{
-    HexExp::v_IProductWRTBase_SumFac(inarray, outarray);
-}
-
-/**
- * \brief Calculate the inner product of inarray with respect to the
- * given basis B = base0 * base1 * base2.
- *
- * \f$ \begin{array}{rcl} I_{pqr} = (\phi_{pqr}, u)_{\delta}
- * & = & \sum_{i=0}^{nq_0} \sum_{j=0}^{nq_1} \sum_{k=0}^{nq_2}
- *     \psi_{p}^{a} (\xi_{1i}) \psi_{q}^{a} (\xi_{2j}) \psi_{r}^{a}
- *     (\xi_{3k}) w_i w_j w_k u(\xi_{1,i} \xi_{2,j} \xi_{3,k})
- * J_{i,j,k}\\ & = & \sum_{i=0}^{nq_0} \psi_p^a(\xi_{1,i})
- *     \sum_{j=0}^{nq_1} \psi_{q}^a(\xi_{2,j}) \sum_{k=0}^{nq_2}
- *     \psi_{r}^a u(\xi_{1i},\xi_{2j},\xi_{3k})
- * J_{i,j,k} \end{array} \f$ \n
- * where
- * \f$ \phi_{pqr} (\xi_1 , \xi_2 , \xi_3)
- *    = \psi_p^a ( \xi_1) \psi_{q}^a (\xi_2) \psi_{r}^a (\xi_3) \f$ \n
- * which can be implemented as \n
- * \f$f_{r} (\xi_{3k})
- *    = \sum_{k=0}^{nq_3} \psi_{r}^a u(\xi_{1i},\xi_{2j},\xi_{3k})
- * J_{i,j,k} = {\bf B_3 U}   \f$ \n
- * \f$ g_{q} (\xi_{3k}) = \sum_{j=0}^{nq_1} \psi_{q}^a (\xi_{2j})
- *                          f_{r} (\xi_{3k})  = {\bf B_2 F}  \f$ \n
- * \f$ (\phi_{pqr}, u)_{\delta}
- *    = \sum_{k=0}^{nq_0} \psi_{p}^a (\xi_{3k}) g_{q} (\xi_{3k})
- *    = {\bf B_1 G} \f$
- *
- * @param   base0       Basis to integrate wrt in first dimension.
- * @param   base1       Basis to integrate wrt in second dimension.
- * @param   base2       Basis to integrate wrt in third dimension.
- * @param   inarray     Input array.
- * @param   outarray    Output array.
- * @param   coll_check  (not used)
- */
-void HexExp::v_IProductWRTBase_SumFac(
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, bool multiplybyweights)
-{
-    int nquad0 = m_base[0]->GetNumPoints();
-    int nquad1 = m_base[1]->GetNumPoints();
-    int nquad2 = m_base[2]->GetNumPoints();
-    int order0 = m_base[0]->GetNumModes();
-    int order1 = m_base[1]->GetNumModes();
-
-    Array<OneD, NekDouble> wsp(nquad0 * nquad1 * (nquad2 + order0) +
-                               order0 * order1 * nquad2);
-
-    if (multiplybyweights)
-    {
-        Array<OneD, NekDouble> tmp(inarray.size());
-
-        MultiplyByQuadratureMetric(inarray, tmp);
-        IProductWRTBase_SumFacKernel(
-            m_base[0]->GetBdata(), m_base[1]->GetBdata(), m_base[2]->GetBdata(),
-            tmp, outarray, wsp, true, true, true);
-    }
-    else
-    {
-        IProductWRTBase_SumFacKernel(
-            m_base[0]->GetBdata(), m_base[1]->GetBdata(), m_base[2]->GetBdata(),
-            inarray, outarray, wsp, true, true, true);
-    }
-}
-
-void HexExp::v_IProductWRTDerivBase(const int dir,
-                                    const Array<OneD, const NekDouble> &inarray,
-                                    Array<OneD, NekDouble> &outarray)
-{
-    HexExp::v_IProductWRTDerivBase_SumFac(dir, inarray, outarray);
-}
-
 /**
  * @brief Calculates the inner product \f$ I_{pqr} = (u,
  * \partial_{x_i} \phi_{pqr}) \f$.
@@ -424,9 +176,9 @@ void HexExp::v_IProductWRTDerivBase(const int dir,
  * @param inarray   The function \f$ u \f$.
  * @param outarray  Value of the inner product.
  */
-void HexExp::v_IProductWRTDerivBase_SumFac(
-    const int dir, const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
+void HexExp::v_IProductWRTDerivBase(const int dir,
+                                    const Array<OneD, const NekDouble> &inarray,
+                                    Array<OneD, NekDouble> &outarray)
 {
     ASSERTL1((dir == 0) || (dir == 1) || (dir == 2), "Invalid direction.");
 
@@ -434,38 +186,38 @@ void HexExp::v_IProductWRTDerivBase_SumFac(
     const int nq1 = m_base[1]->GetNumPoints();
     const int nq2 = m_base[2]->GetNumPoints();
     const int nq  = nq0 * nq1 * nq2;
-    const int nm0 = m_base[0]->GetNumModes();
-    const int nm1 = m_base[1]->GetNumModes();
 
-    Array<OneD, NekDouble> alloc(4 * nq + m_ncoeffs + nm0 * nq2 * (nq1 + nm1));
-    Array<OneD, NekDouble> tmp1(alloc);           // Quad metric
-    Array<OneD, NekDouble> tmp2(alloc + nq);      // Dir1 metric
-    Array<OneD, NekDouble> tmp3(alloc + 2 * nq);  // Dir2 metric
-    Array<OneD, NekDouble> tmp4(alloc + 3 * nq);  // Dir3 metric
-    Array<OneD, NekDouble> tmp5(alloc + 4 * nq);  // iprod tmp
-    Array<OneD, NekDouble> wsp(tmp5 + m_ncoeffs); // Wsp
-
-    MultiplyByQuadratureMetric(inarray, tmp1);
+    Array<OneD, NekDouble> tmp2(nq);        // Dir1 metric
+    Array<OneD, NekDouble> tmp3(nq);        // Dir2 metric
+    Array<OneD, NekDouble> tmp4(nq);        // Dir3 metric
+    Array<OneD, NekDouble> tmp5(m_ncoeffs); // iprod tmp
 
     Array<OneD, Array<OneD, NekDouble>> tmp2D{3};
     tmp2D[0] = tmp2;
     tmp2D[1] = tmp3;
     tmp2D[2] = tmp4;
 
-    HexExp::v_AlignVectorToCollapsedDir(dir, tmp1, tmp2D);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
-                                 m_base[2]->GetBdata(), tmp2, outarray, wsp,
-                                 false, true, true);
+    const bool CollDir0 = m_base[0]->Collocation();
+    const bool CollDir1 = m_base[1]->Collocation();
+    const bool CollDir2 = m_base[2]->Collocation();
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
-                                 m_base[2]->GetBdata(), tmp3, tmp5, wsp, true,
-                                 false, true);
+    HexExp::v_AlignVectorToCollapsedDir(dir, inarray, tmp2D);
+
+    v_IProductWRTBaseKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
+                            m_base[2]->GetBdata(), tmp2, outarray, jac,
+                            Deformed, false, CollDir1, CollDir2);
+
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
+                            m_base[2]->GetBdata(), tmp3, tmp5, jac, Deformed,
+                            CollDir0, false, CollDir2);
     Vmath::Vadd(m_ncoeffs, tmp5, 1, outarray, 1, outarray, 1);
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
-                                 m_base[2]->GetDbdata(), tmp4, tmp5, wsp, true,
-                                 true, false);
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
+                            m_base[2]->GetDbdata(), tmp4, tmp5, jac, Deformed,
+                            CollDir0, CollDir1, false);
     Vmath::Vadd(m_ncoeffs, tmp5, 1, outarray, 1, outarray, 1);
 }
 
@@ -480,8 +232,7 @@ void HexExp::v_AlignVectorToCollapsedDir(
     const int nq2 = m_base[2]->GetNumPoints();
     const int nq  = nq0 * nq1 * nq2;
 
-    const Array<TwoD, const NekDouble> &df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
 
     Array<OneD, NekDouble> tmp1(nq); // Quad metric
 
@@ -491,7 +242,7 @@ void HexExp::v_AlignVectorToCollapsedDir(
 
     Vmath::Vcopy(nq, inarray, 1, tmp1, 1); // Dir3 metric
 
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
         Vmath::Vmul(nq, &df[3 * dir][0], 1, tmp1.data(), 1, tmp2.data(), 1);
         Vmath::Vmul(nq, &df[3 * dir + 1][0], 1, tmp1.data(), 1, tmp3.data(), 1);
@@ -521,73 +272,51 @@ void HexExp::v_IProductWRTDirectionalDerivBase_SumFac(
     const int nq1 = m_base[1]->GetNumPoints();
     const int nq2 = m_base[2]->GetNumPoints();
     const int nq  = nq0 * nq1 * nq2;
-    const int nm0 = m_base[0]->GetNumModes();
-    const int nm1 = m_base[1]->GetNumModes();
 
-    const Array<TwoD, const NekDouble> &df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
+    Array<OneD, NekDouble> tmp2(nq);        // Dir1 metric
+    Array<OneD, NekDouble> tmp3(nq);        // Dir2 metric
+    Array<OneD, NekDouble> tmp4(nq);        // Dir3 metric
+    Array<OneD, NekDouble> tmp5(m_ncoeffs); // iprod tmp
 
-    Array<OneD, NekDouble> alloc(4 * nq + m_ncoeffs + nm0 * nq2 * (nq1 + nm1));
-    Array<OneD, NekDouble> tmp1(alloc);           // Quad metric
-    Array<OneD, NekDouble> tmp2(alloc + nq);      // Dir1 metric
-    Array<OneD, NekDouble> tmp3(alloc + 2 * nq);  // Dir2 metric
-    Array<OneD, NekDouble> tmp4(alloc + 3 * nq);  // Dir3 metric
-    Array<OneD, NekDouble> tmp5(alloc + 4 * nq);  // iprod tmp
-    Array<OneD, NekDouble> wsp(tmp5 + m_ncoeffs); // Wsp
+    Array<OneD, Array<OneD, NekDouble>> tmp2D{3};
+    tmp2D[0] = tmp2;
+    tmp2D[1] = tmp3;
+    tmp2D[2] = tmp4;
 
-    MultiplyByQuadratureMetric(inarray, tmp1);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
+
+    const bool CollDir0 = m_base[0]->Collocation();
+    const bool CollDir1 = m_base[1]->Collocation();
+    const bool CollDir2 = m_base[2]->Collocation();
+
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
 
     Array<OneD, Array<OneD, NekDouble>> dfdir(shapedim);
     Expansion::ComputeGmatcdotMF(df, direction, dfdir);
 
-    Vmath::Vmul(nq, &dfdir[0][0], 1, tmp1.data(), 1, tmp2.data(), 1);
-    Vmath::Vmul(nq, &dfdir[1][0], 1, tmp1.data(), 1, tmp3.data(), 1);
-    Vmath::Vmul(nq, &dfdir[2][0], 1, tmp1.data(), 1, tmp4.data(), 1);
+    Vmath::Vmul(nq, &dfdir[0][0], 1, inarray.data(), 1, tmp2.data(), 1);
+    Vmath::Vmul(nq, &dfdir[1][0], 1, inarray.data(), 1, tmp3.data(), 1);
+    Vmath::Vmul(nq, &dfdir[2][0], 1, inarray.data(), 1, tmp4.data(), 1);
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
-                                 m_base[2]->GetBdata(), tmp2, outarray, wsp,
-                                 false, true, true);
+    v_IProductWRTBaseKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
+                            m_base[2]->GetBdata(), tmp2, outarray, jac,
+                            Deformed, false, CollDir1, CollDir2);
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
-                                 m_base[2]->GetBdata(), tmp3, tmp5, wsp, true,
-                                 false, true);
-
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
+                            m_base[2]->GetBdata(), tmp3, tmp5, jac, Deformed,
+                            CollDir0, false, CollDir2);
     Vmath::Vadd(m_ncoeffs, tmp5, 1, outarray, 1, outarray, 1);
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
-                                 m_base[2]->GetDbdata(), tmp4, tmp5, wsp, true,
-                                 true, false);
-
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
+                            m_base[2]->GetDbdata(), tmp4, tmp5, jac, Deformed,
+                            CollDir0, CollDir1, false);
     Vmath::Vadd(m_ncoeffs, tmp5, 1, outarray, 1, outarray, 1);
 }
 
 //-----------------------------
 // Evaluation functions
 //-----------------------------
-
-/**
- * Given the local cartesian coordinate \a Lcoord evaluate the
- * value of physvals at this point by calling through to the
- * StdExpansion method
- */
-NekDouble HexExp::v_StdPhysEvaluate(
-    const Array<OneD, const NekDouble> &Lcoord,
-    const Array<OneD, const NekDouble> &physvals)
-{
-    // Evaluate point in local coordinates.
-    return StdExpansion3D::v_PhysEvaluate(Lcoord, physvals);
-}
-
-NekDouble HexExp::v_PhysEvaluate(const Array<OneD, const NekDouble> &coord,
-                                 const Array<OneD, const NekDouble> &physvals)
-{
-    Array<OneD, NekDouble> Lcoord = Array<OneD, NekDouble>(3);
-
-    ASSERTL0(m_geom, "m_geom not defined");
-    m_geom->GetLocCoords(coord, Lcoord);
-    return StdExpansion3D::v_PhysEvaluate(Lcoord, physvals);
-}
-
 NekDouble HexExp::v_PhysEvalFirstDeriv(
     const Array<OneD, NekDouble> &coord,
     const Array<OneD, const NekDouble> &inarray,
@@ -881,9 +610,7 @@ void HexExp::v_GetTracePhysMap(const int face, Array<OneD, int> &outarray)
 void HexExp::v_ComputeTraceNormal(const int face)
 {
     int i;
-    const SpatialDomains::GeomFactorsSharedPtr &geomFactors =
-        GetGeom()->GetMetricInfo();
-    SpatialDomains::GeomType type = geomFactors->GetGtype();
+    SpatialDomains::GeomType type = m_geomFactors->GetGtype();
 
     LibUtilities::PointsKeyVector ptsKeys = GetPointsKeys();
     for (i = 0; i < ptsKeys.size(); ++i)
@@ -897,8 +624,9 @@ void HexExp::v_ComputeTraceNormal(const int face)
     }
 
     const Array<TwoD, const NekDouble> &df =
-        geomFactors->GetDerivFactors(ptsKeys);
-    const Array<OneD, const NekDouble> &jac = geomFactors->GetJac(ptsKeys);
+        m_geomFactors->ComputeDerivFactors(ptsKeys);
+    const Array<OneD, const NekDouble> &jac =
+        m_geomFactors->ComputeJac(ptsKeys);
 
     LibUtilities::BasisKey tobasis0 = GetTraceBasisKey(face, 0);
     LibUtilities::BasisKey tobasis1 = GetTraceBasisKey(face, 1);
@@ -1273,9 +1001,9 @@ void HexExp::v_SVVLaplacianFilter(Array<OneD, NekDouble> &array,
     int nq = GetTotPoints();
 
     // Calculate sqrt of the Jacobian
-    Array<OneD, const NekDouble> jac = m_metricinfo->GetJac(GetPointsKeys());
+    Array<OneD, const NekDouble> jac = m_geomFactors->GetJac();
     Array<OneD, NekDouble> sqrt_jac(nq);
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
         Vmath::Vsqrt(nq, jac, 1, sqrt_jac, 1);
     }
@@ -1396,7 +1124,7 @@ void HexExp::v_LaplacianMatrixOp_MatFree_Kernel(
     Array<OneD, NekDouble> wsp4(wsp + 4 * nqtot);
     Array<OneD, NekDouble> wsp5(wsp + 5 * nqtot);
 
-    StdExpansion3D::PhysTensorDeriv(inarray, wsp0, wsp1, wsp2);
+    PhysTensorDeriv(inarray, wsp0, wsp1, wsp2);
 
     // wsp0 = k = g0 * wsp1 + g1 * wsp2 = g0 * du_dxi1 + g1 * du_dxi2
     // wsp2 = l = g1 * wsp1 + g2 * wsp2 = g0 * du_dxi1 + g1 * du_dxi2
@@ -1412,28 +1140,30 @@ void HexExp::v_LaplacianMatrixOp_MatFree_Kernel(
                    &wsp1[0], 1, &wsp5[0], 1);
     Vmath::Vvtvp(nqtot, &metric22[0], 1, &wsp2[0], 1, &wsp5[0], 1, &wsp5[0], 1);
 
+    const bool CollDir0 = m_base[0]->Collocation();
+    const bool CollDir1 = m_base[1]->Collocation();
+    const bool CollDir2 = m_base[2]->Collocation();
+
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
+
     // outarray = m = (D_xi1 * B)^T * k
     // wsp1     = n = (D_xi2 * B)^T * l
-    IProductWRTBase_SumFacKernel(dbase0, base1, base2, wsp3, outarray, wsp0,
-                                 false, true, true);
-    IProductWRTBase_SumFacKernel(base0, dbase1, base2, wsp4, wsp2, wsp0, true,
-                                 false, true);
+    v_IProductWRTBaseKernel(dbase0, base1, base2, wsp3, outarray, jac, Deformed,
+                            false, CollDir1, CollDir2);
+    v_IProductWRTBaseKernel(base0, dbase1, base2, wsp4, wsp2, jac, Deformed,
+                            CollDir0, false, CollDir2);
     Vmath::Vadd(m_ncoeffs, wsp2.data(), 1, outarray.data(), 1, outarray.data(),
                 1);
-    IProductWRTBase_SumFacKernel(base0, base1, dbase2, wsp5, wsp2, wsp0, true,
-                                 true, false);
+    v_IProductWRTBaseKernel(base0, base1, dbase2, wsp5, wsp2, jac, Deformed,
+                            CollDir0, CollDir1, false);
     Vmath::Vadd(m_ncoeffs, wsp2.data(), 1, outarray.data(), 1, outarray.data(),
                 1);
 }
 
 void HexExp::v_ComputeLaplacianMetric()
 {
-    if (m_metrics.count(eMetricQuadrature) == 0)
-    {
-        ComputeQuadratureMetric();
-    }
-
-    const SpatialDomains::GeomType type = m_metricinfo->GetGtype();
+    const SpatialDomains::GeomType type = m_geomFactors->GetGtype();
     const unsigned int nqtot            = GetTotPoints();
     const unsigned int dim              = 3;
     const MetricType m[3][3]            = {
@@ -1447,7 +1177,7 @@ void HexExp::v_ComputeLaplacianMetric()
         {
             m_metrics[m[i][j]] = Array<OneD, NekDouble>(nqtot);
             const Array<TwoD, const NekDouble> &gmat =
-                m_metricinfo->GetGmat(GetPointsKeys());
+                m_geomFactors->GetGmat(GetPointsKeys());
             if (type == SpatialDomains::eDeformed)
             {
                 Vmath::Vcopy(nqtot, &gmat[i * dim + j][0], 1,
@@ -1458,7 +1188,6 @@ void HexExp::v_ComputeLaplacianMetric()
                 Vmath::Fill(nqtot, gmat[i * dim + j][0], &m_metrics[m[i][j]][0],
                             1);
             }
-            MultiplyByQuadratureMetric(m_metrics[m[i][j]], m_metrics[m[i][j]]);
         }
     }
 }
@@ -1477,8 +1206,7 @@ void HexExp::v_NormalTraceDerivFactors(
     int nquad1 = GetNumPoints(1);
     int nquad2 = GetNumPoints(2);
 
-    const Array<TwoD, const NekDouble> &df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
 
     if (d0factors.size() != 6)
     {
@@ -1533,7 +1261,7 @@ void HexExp::v_NormalTraceDerivFactors(
 
     int ncoords = normal_0.size();
 
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
         // faces 0 and 5
         for (int i = 0; i < nquad0 * nquad1; ++i)

@@ -55,6 +55,9 @@ NekLinSysIterCG::NekLinSysIterCG(
     const NekSysKey &pKey)
     : NekLinSysIter(pSession, vRowComm, nDimen, pKey)
 {
+    m_flexible = pSession->DefinesParameter("FlexibleConjugateGradient")
+                     ? pSession->GetParameter("FlexibleConjugateGradient")
+                     : false;
 }
 
 void NekLinSysIterCG::v_InitObject()
@@ -73,6 +76,16 @@ int NekLinSysIterCG::v_SolveSystem(const int nGlobal,
     DoConjugateGradient(nGlobal, pInput, pOutput, nDir);
 
     return m_totalIterations;
+}
+
+void NekLinSysIterCG::v_DoIterate(const int nGlobal,
+                                  const Array<OneD, NekDouble> &rhs,
+                                  Array<OneD, NekDouble> &x, const int nDir,
+                                  NekDouble &err, int &iter)
+{
+    DoConjugateGradient(nGlobal, rhs, x, nDir);
+    iter = m_totalIterations;
+    err  = m_finalError;
 }
 
 /**  
@@ -107,9 +120,10 @@ void NekLinSysIterCG::DoConjugateGradient(
     NekDouble beta;
     NekDouble rho;
     NekDouble rho_new;
+    NekDouble rho_star;
     NekDouble mu;
     NekDouble eps;
-    Array<OneD, NekDouble> vExchange(3, 0.0);
+    Array<OneD, NekDouble> vExchange(4, 0.0);
 
     // Copy initial residual from input
     Vmath::Vcopy(nNonDir, pInput + nDir, 1, r_A, 1);
@@ -136,11 +150,12 @@ void NekLinSysIterCG::DoConjugateGradient(
     // If input residual is less than tolerance skip solve.
     if (eps < m_NekLinSysTolerance * m_NekLinSysTolerance * m_rhs_magnitude)
     {
+        m_finalError = sqrt(eps / m_rhs_magnitude);
         if (m_verbose && m_root)
         {
             cout << "CG iterations made = " << m_totalIterations
                  << " using tolerance of " << m_NekLinSysTolerance
-                 << " (error = " << sqrt(eps / m_rhs_magnitude)
+                 << " (error = " << m_finalError
                  << ", rhs_mag = " << sqrt(m_rhs_magnitude) << ")" << endl;
         }
         return;
@@ -154,6 +169,7 @@ void NekLinSysIterCG::DoConjugateGradient(
 
     m_rowComm->AllReduce(vExchange, Nektar::LibUtilities::ReduceSum);
 
+    rho_star          = 0.0;
     rho               = vExchange[0];
     mu                = vExchange[1];
     beta              = 0.0;
@@ -165,15 +181,16 @@ void NekLinSysIterCG::DoConjugateGradient(
     {
         if (m_totalIterations > m_NekLinSysMaxIterations)
         {
+            m_finalError = sqrt(eps / m_rhs_magnitude);
             if (m_root)
             {
                 cout << "CG iterations made = " << m_totalIterations
                      << " using tolerance of " << m_NekLinSysTolerance
-                     << " (error = " << sqrt(eps / m_rhs_magnitude)
-                     << ", rhs_mag = " << sqrt(m_rhs_magnitude) << ")" << endl;
+                     << " (error = " << m_finalError
+                     << ", rhs_mag = " << sqrt(m_rhs_magnitude) << ")"
+                     << " WARNING: Exceeded maxIt" << endl;
             }
-            ROOTONLY_NEKERROR(ErrorUtil::efatal,
-                              "Exceeded maximum number of iterations");
+            break;
         }
 
         // Compute new search direction p_k, q_k
@@ -187,46 +204,85 @@ void NekLinSysIterCG::DoConjugateGradient(
         // Update residual vector r_{k+1}
         Vmath::Svtvp(nNonDir, -alpha, &q_A[0], 1, &r_A[0], 1, &r_A[0], 1);
 
+        if (m_flexible)
+        {
+            if (m_mapIsOnes)
+            {
+                // <r_{k+1}, w_{k}>
+                vExchange[3] = Vmath::Dot(nNonDir, r_A, w_A + nDir);
+            }
+            else
+            {
+                // <r_{k+1}, w_{k}>
+                vExchange[3] =
+                    Vmath::Dot2(nNonDir, r_A, w_A + nDir, m_map + nDir);
+            }
+        }
+
         // Apply preconditioner
         m_operator.DoNekSysPrecon(r_A, tmp = w_A + nDir);
 
         // Perform the method-specific matrix-vector multiply operation.
         m_operator.DoNekSysLhsEval(w_A, s_A);
 
-        // <r_{k+1}, w_{k+1}>
-        vExchange[0] = Vmath::Dot2(nNonDir, r_A, w_A + nDir, m_map + nDir);
+        if (m_mapIsOnes)
+        {
+            // <r_{k+1}, w_{k+1}>
+            vExchange[0] = Vmath::Dot(nNonDir, r_A, w_A + nDir);
 
-        // <s_{k+1}, w_{k+1}>
-        vExchange[1] =
-            Vmath::Dot2(nNonDir, s_A + nDir, w_A + nDir, m_map + nDir);
+            // <s_{k+1}, w_{k+1}>
+            vExchange[1] = Vmath::Dot(nNonDir, s_A + nDir, w_A + nDir);
 
-        // <r_{k+1}, r_{k+1}>
-        vExchange[2] = Vmath::Dot2(nNonDir, r_A, r_A, m_map + nDir);
+            if (m_totalIterations % m_errorCheckInterval == 0)
+            {
+                // <r_{k+1}, r_{k+1}>
+                vExchange[2] = Vmath::Dot(nNonDir, r_A, r_A);
+            }
+        }
+        else
+        {
+            // <r_{k+1}, w_{k+1}>
+            vExchange[0] = Vmath::Dot2(nNonDir, r_A, w_A + nDir, m_map + nDir);
 
+            // <s_{k+1}, w_{k+1}>
+            vExchange[1] =
+                Vmath::Dot2(nNonDir, s_A + nDir, w_A + nDir, m_map + nDir);
+
+            if (m_totalIterations % m_errorCheckInterval == 0)
+            {
+                // <r_{k+1}, r_{k+1}>
+                vExchange[2] = Vmath::Dot2(nNonDir, r_A, r_A, m_map + nDir);
+            }
+        }
         // Perform inner-product exchanges
         m_rowComm->AllReduce(vExchange, Nektar::LibUtilities::ReduceSum);
 
         rho_new = vExchange[0];
         mu      = vExchange[1];
         eps     = vExchange[2];
+        if (m_flexible)
+        {
+            rho_star = vExchange[3];
+        }
 
         m_totalIterations++;
 
         // Test if norm is within tolerance
         if (eps < m_NekLinSysTolerance * m_NekLinSysTolerance * m_rhs_magnitude)
         {
+            m_finalError = sqrt(eps / m_rhs_magnitude);
             if (m_verbose && m_root)
             {
                 cout << "CG iterations made = " << m_totalIterations
                      << " using tolerance of " << m_NekLinSysTolerance
-                     << " (error = " << sqrt(eps / m_rhs_magnitude)
+                     << " (error = " << m_finalError
                      << ", rhs_mag = " << sqrt(m_rhs_magnitude) << ")" << endl;
             }
             break;
         }
 
         // Compute search direction and solution coefficients
-        beta  = rho_new / rho;
+        beta  = (rho_new - rho_star) / rho;
         alpha = rho_new / (mu - rho_new * beta / alpha);
         rho   = rho_new;
     }

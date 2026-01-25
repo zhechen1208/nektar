@@ -35,29 +35,46 @@
 
 #include <SpatialDomains/GeomFactors.h>
 #include <SpatialDomains/SegGeom.h>
+#include <SpatialDomains/XmapFactory.hpp>
 
 #include <LibUtilities/Foundations/ManagerAccess.h> // for PointsManager, etc
 #include <StdRegions/StdRegions.hpp>
 #include <StdRegions/StdSegExp.h>
 
+namespace Nektar
+{
+// Forward declarations for allocation pools that are defined within
+// MeshGraph.cpp compilation unit.
+template <>
+PoolAllocator<SpatialDomains::PointGeom>
+    ObjPoolManager<SpatialDomains::PointGeom>::m_alloc;
+template <>
+PoolAllocator<SpatialDomains::SegGeom>
+    ObjPoolManager<SpatialDomains::SegGeom>::m_alloc;
+} // namespace Nektar
+
 namespace Nektar::SpatialDomains
 {
+
+XmapFactory<StdRegions::StdSegExp, 1> &GetStdSegFactory()
+{
+    static XmapFactory<StdRegions::StdSegExp, 1> factory;
+    return factory;
+}
 SegGeom::SegGeom()
 {
     m_shapeType = LibUtilities::eSegment;
 }
 
-SegGeom::SegGeom(int id, const int coordim, const PointGeomSharedPtr vertex[],
-                 const CurveSharedPtr curve)
+SegGeom::SegGeom(int id, int coordim, std::array<PointGeom *, kNverts> vertex,
+                 Curve *curve)
     : Geometry1D(coordim)
 {
     m_shapeType = LibUtilities::eSegment;
     m_globalID  = id;
     m_state     = eNotFilled;
     m_curve     = curve;
-
-    m_verts[0] = vertex[0];
-    m_verts[1] = vertex[1];
+    m_verts     = vertex;
 }
 
 SegGeom::SegGeom(const SegGeom &in) : Geometry1D(in)
@@ -102,9 +119,9 @@ void SegGeom::SetUpXmap()
  * has the same x value and vert[1] is set to vert[0] plus the length of the
  * original segment
  **/
-SegGeomSharedPtr SegGeom::GenerateOneSpaceDimGeom(void)
+SegGeomUniquePtr SegGeom::GenerateOneSpaceDimGeom(EntityHolder1D &holder)
 {
-    SegGeomSharedPtr returnval = MemoryManager<SegGeom>::AllocateSharedPtr();
+    SegGeomUniquePtr returnval = ObjPoolManager<SegGeom>::AllocateUniquePtr();
 
     // info about numbering
     returnval->m_globalID = m_globalID;
@@ -112,19 +129,19 @@ SegGeomSharedPtr SegGeom::GenerateOneSpaceDimGeom(void)
     // geometric information.
     returnval->m_coordim     = 1;
     NekDouble x0             = (*m_verts[0])[0];
-    PointGeomSharedPtr vert0 = MemoryManager<PointGeom>::AllocateSharedPtr(
+    PointGeomUniquePtr vert0 = ObjPoolManager<PointGeom>::AllocateUniquePtr(
         1, m_verts[0]->GetGlobalID(), x0, 0.0, 0.0);
     vert0->SetGlobalID(vert0->GetGlobalID());
-    returnval->m_verts[0] = vert0;
+    returnval->m_verts[0] = vert0.get();
+    holder.m_pointVec.push_back(std::move(vert0));
 
     // Get information to calculate length.
     const Array<OneD, const LibUtilities::BasisSharedPtr> base =
         m_xmap->GetBase();
     LibUtilities::PointsKeyVector v;
     v.push_back(base[0]->GetPointsKey());
-    v_GenGeomFactors();
 
-    const Array<OneD, const NekDouble> jac = m_geomFactors->GetJac(v);
+    const Array<OneD, const NekDouble> jac = v_GenGeomFactors(v)->GetJac();
 
     NekDouble len = 0.0;
     if (jac.size() == 1)
@@ -142,11 +159,12 @@ SegGeomSharedPtr SegGeom::GenerateOneSpaceDimGeom(void)
         }
     }
     // Set up second vertex.
-    PointGeomSharedPtr vert1 = MemoryManager<PointGeom>::AllocateSharedPtr(
+    PointGeomUniquePtr vert1 = ObjPoolManager<PointGeom>::AllocateUniquePtr(
         1, m_verts[1]->GetGlobalID(), x0 + len, 0.0, 0.0);
     vert1->SetGlobalID(vert1->GetGlobalID());
 
-    returnval->m_verts[1] = vert1;
+    returnval->m_verts[1] = vert1.get();
+    holder.m_pointVec.push_back(std::move(vert1));
 
     // at present just use previous m_xmap[0];
     returnval->m_xmap = m_xmap;
@@ -211,27 +229,30 @@ StdRegions::Orientation SegGeom::GetEdgeOrientation(const SegGeom &edge1,
     return returnval;
 }
 
-void SegGeom::v_GenGeomFactors()
+GeomType SegGeom::v_CalcGeomType()
 {
     if (!m_setupState)
     {
         SegGeom::v_Setup();
     }
+    SegGeom::v_FillGeom();
 
-    if (m_geomFactorsState != ePtsFilled)
+    SpatialDomains::GeomType gType = eRegular;
+
+    if (m_xmap->GetBasisNumModes(0) != 2)
     {
-        SpatialDomains::GeomType gType = eRegular;
-        SegGeom::v_FillGeom();
-
-        if (m_xmap->GetBasisNumModes(0) != 2)
-        {
-            gType = eDeformed;
-        }
-
-        m_geomFactors = MemoryManager<GeomFactors>::AllocateSharedPtr(
-            gType, m_coordim, m_xmap, m_coeffs);
-        m_geomFactorsState = ePtsFilled;
+        gType = eDeformed;
     }
+
+    return gType;
+}
+
+GeomFactorsUniquePtr SegGeom::v_GenGeomFactors(
+    LibUtilities::PointsKeyVector &keyTgt)
+{
+    GeomType Gtype = CalcGeomType();
+    return ObjPoolManager<GeomFactors>::AllocateUniquePtr(
+        Gtype, m_coordim, m_xmap, m_coeffs, keyTgt);
 }
 
 void SegGeom::v_FillGeom()
@@ -309,7 +330,7 @@ void SegGeom::v_Reset(CurveMap &curvedEdges, CurveMap &curvedFaces)
 
     if (it != curvedEdges.end())
     {
-        m_curve = it->second;
+        m_curve = it->second.get();
     }
 
     SetUpXmap();
@@ -326,9 +347,9 @@ void SegGeom::v_Setup()
     }
 }
 
-PointGeomSharedPtr SegGeom::v_GetVertex(const int i) const
+PointGeom *SegGeom::v_GetVertex(const int i) const
 {
-    PointGeomSharedPtr returnval;
+    PointGeom *returnval = nullptr;
 
     if (i >= 0 && i < kNverts)
     {
@@ -346,7 +367,8 @@ int SegGeom::v_GetNumVerts() const
 NekDouble SegGeom::v_FindDistance(const Array<OneD, const NekDouble> &xs,
                                   Array<OneD, NekDouble> &xiOut)
 {
-    if (m_geomFactors->GetGtype() == eRegular)
+    GeomType Gtype = CalcGeomType();
+    if (Gtype == eRegular)
     {
         xiOut = Array<OneD, NekDouble>(1, 0.0);
 
@@ -365,7 +387,7 @@ NekDouble SegGeom::v_FindDistance(const Array<OneD, const NekDouble> &xs,
     }
     // If deformed edge then the inverse mapping is non-linear so need to
     // numerically solve for the local coordinate
-    else if (m_geomFactors->GetGtype() == eDeformed)
+    else if (Gtype == eDeformed)
     {
         Array<OneD, NekDouble> xi(1, 0.0);
 

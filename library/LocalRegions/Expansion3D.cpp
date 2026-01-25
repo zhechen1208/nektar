@@ -409,15 +409,15 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
     DNekScalMatSharedPtr returnval;
     LibUtilities::PointsKeyVector ptsKeys = GetPointsKeys();
 
-    ASSERTL2(m_metricinfo->GetGtype() != SpatialDomains::eNoGeomType,
+    ASSERTL2(m_geomFactors->GetGtype() != SpatialDomains::eNoGeomType,
              "Geometric information is not set up");
 
     switch (mkey.GetMatrixType())
     {
         case StdRegions::eMass:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed ||
-                mkey.GetNVarCoeff())
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed ||
+                mkey.HasVarCoeffForMatrixType(StdRegions::eMass))
             {
                 NekDouble one        = 1.0;
                 DNekMatSharedPtr mat = GenMatrix(mkey);
@@ -426,7 +426,7 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
             }
             else
             {
-                NekDouble jac        = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac        = (m_geomFactors->GetJac())[0];
                 DNekMatSharedPtr mat = GetStdMatrix(mkey);
                 returnval =
                     MemoryManager<DNekScalMat>::AllocateSharedPtr(jac, mat);
@@ -435,7 +435,7 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
         break;
         case StdRegions::eInvMass:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
             {
                 NekDouble one = 1.0;
                 StdRegions::StdMatrixKey masskey(StdRegions::eMass,
@@ -447,7 +447,7 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
             }
             else
             {
-                NekDouble fac        = 1.0 / (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble fac        = 1.0 / (m_geomFactors->GetJac())[0];
                 DNekMatSharedPtr mat = GetStdMatrix(mkey);
                 returnval =
                     MemoryManager<DNekScalMat>::AllocateSharedPtr(fac, mat);
@@ -458,8 +458,8 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
         case StdRegions::eWeakDeriv1:
         case StdRegions::eWeakDeriv2:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed ||
-                mkey.GetNVarCoeff())
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed ||
+                mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian))
             {
                 NekDouble one        = 1.0;
                 DNekMatSharedPtr mat = GenMatrix(mkey);
@@ -469,9 +469,9 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
             }
             else
             {
-                NekDouble jac = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac = (m_geomFactors->GetJac())[0];
                 Array<TwoD, const NekDouble> df =
-                    m_metricinfo->GetDerivFactors(ptsKeys);
+                    m_geomFactors->GetDerivFactors();
                 int dir = 0;
                 if (mkey.GetMatrixType() == StdRegions::eWeakDeriv0)
                 {
@@ -513,18 +513,9 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
         break;
         case StdRegions::eLaplacian:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffLaplacian)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD00)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD01)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD10)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD02)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD20)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD11)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD12)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD21)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD22)) ||
-                (mkey.ConstFactorExists(StdRegions::eFactorSVVCutoffRatio)))
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed ||
+                mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian) ||
+                mkey.ConstFactorExists(StdRegions::eFactorSVVDiffCoeff))
             {
                 NekDouble one        = 1.0;
                 DNekMatSharedPtr mat = GenMatrix(mkey);
@@ -554,9 +545,9 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
                 DNekMat &lap12 = *GetStdMatrix(lap12key);
                 DNekMat &lap22 = *GetStdMatrix(lap22key);
 
-                NekDouble jac = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac = (m_geomFactors->GetJac())[0];
                 Array<TwoD, const NekDouble> gmat =
-                    m_metricinfo->GetGmat(ptsKeys);
+                    m_geomFactors->GetGmat(ptsKeys);
 
                 int rows = lap00.GetRows();
                 int cols = lap00.GetColumns();
@@ -578,10 +569,31 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
         case StdRegions::eHelmholtz:
         {
             NekDouble factor = mkey.GetConstFactor(StdRegions::eFactorLambda);
-            MatrixKey masskey(StdRegions::eMass, mkey.GetShapeType(), *this);
+
+            // Construct mass matrix
+            // Check for mass-specific varcoeffs to avoid unncessary
+            // re-computation of the elemental matrix every time step
+            StdRegions::VarCoeffMap massVarcoeffs = StdRegions::NullVarCoeffMap;
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eMass))
+            {
+                massVarcoeffs[StdRegions::eVarCoeffMass] =
+                    mkey.GetVarCoeff(StdRegions::eVarCoeffMass);
+            }
+            MatrixKey masskey(StdRegions::eMass, mkey.GetShapeType(), *this,
+                              mkey.GetConstFactors(), massVarcoeffs);
             DNekScalMat &MassMat = *GetLocMatrix(masskey);
+
+            // Construct laplacian matrix (Check for varcoeffs)
+            // Take all varcoeffs if one or more are detected
+            // TODO We might want to have a map
+            // from MatrixType to Vector of Varcoeffs and vice-versa
+            StdRegions::VarCoeffMap lapVarcoeffs = StdRegions::NullVarCoeffMap;
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian))
+            {
+                lapVarcoeffs = mkey.GetVarCoeffs();
+            }
             MatrixKey lapkey(StdRegions::eLaplacian, mkey.GetShapeType(), *this,
-                             mkey.GetConstFactors(), mkey.GetVarCoeffs());
+                             mkey.GetConstFactors(), lapVarcoeffs);
             DNekScalMat &LapMat = *GetLocMatrix(lapkey);
 
             int rows = LapMat.GetRows();
@@ -595,6 +607,15 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
 
             returnval =
                 MemoryManager<DNekScalMat>::AllocateSharedPtr(one, helm);
+
+            if (!massVarcoeffs.empty())
+            {
+                DropLocMatrix(masskey);
+            }
+            if (!lapVarcoeffs.empty())
+            {
+                DropLocMatrix(lapkey);
+            }
         }
         break;
         case StdRegions::eHelmholtzGJP:
@@ -623,6 +644,48 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
                 HelmMat.Scale(), NDTraceMat);
         }
         break;
+        case StdRegions::eLinearAdvectionReaction:
+        {
+            NekDouble lambda = mkey.GetConstFactor(StdRegions::eFactorLambda);
+
+            // Construct mass matrix
+            // Check for mass-specific varcoeffs to avoid unncessary
+            // re-computation of the elemental matrix every time step
+            StdRegions::VarCoeffMap massVarcoeffs = StdRegions::NullVarCoeffMap;
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eMass))
+            {
+                massVarcoeffs[StdRegions::eVarCoeffMass] =
+                    mkey.GetVarCoeff(StdRegions::eVarCoeffMass);
+            }
+            MatrixKey masskey(StdRegions::eMass, mkey.GetShapeType(), *this,
+                              mkey.GetConstFactors(), massVarcoeffs);
+            DNekScalMat &MassMat = *GetLocMatrix(masskey);
+
+            // Construct advection matrix
+            // Check for varcoeffs not required;
+            // assume advection velocity is always time-dependent
+            MatrixKey advkey(mkey, StdRegions::eLinearAdvection);
+            DNekScalMat &AdvMat = *GetLocMatrix(advkey);
+
+            int rows = MassMat.GetRows();
+            int cols = MassMat.GetColumns();
+
+            DNekMatSharedPtr adr =
+                MemoryManager<DNekMat>::AllocateSharedPtr(rows, cols);
+
+            NekDouble one = 1.0;
+            (*adr)        = -lambda * MassMat + AdvMat;
+
+            returnval = MemoryManager<DNekScalMat>::AllocateSharedPtr(one, adr);
+
+            // Clear memory for time-dependent matrices
+            DropLocMatrix(advkey);
+            if (!massVarcoeffs.empty())
+            {
+                DropLocMatrix(masskey);
+            }
+        }
+        break;
         case StdRegions::eLinearAdvectionDiffusionReaction:
         {
             NekDouble lambda = mkey.GetConstFactor(StdRegions::eFactorLambda);
@@ -645,16 +708,7 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
             // TODO We might want to have a map
             // from MatrixType to Vector of Varcoeffs and vice-versa
             StdRegions::VarCoeffMap lapVarcoeffs = StdRegions::NullVarCoeffMap;
-            if ((mkey.HasVarCoeff(StdRegions::eVarCoeffLaplacian)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD00)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD01)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD10)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD02)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD20)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD11)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD12)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD21)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD22)))
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian))
             {
                 lapVarcoeffs = mkey.GetVarCoeffs();
             }
@@ -699,7 +753,7 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
 
             // Construct mass matrix (Check for varcoeffs)
             StdRegions::VarCoeffMap massVarcoeffs = StdRegions::NullVarCoeffMap;
-            if (mkey.HasVarCoeff(StdRegions::eVarCoeffMass))
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eMass))
             {
                 massVarcoeffs[StdRegions::eVarCoeffMass] =
                     mkey.GetVarCoeff(StdRegions::eVarCoeffMass);
@@ -710,16 +764,7 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
 
             // Construct laplacian matrix (Check for varcoeffs)
             StdRegions::VarCoeffMap lapVarcoeffs = StdRegions::NullVarCoeffMap;
-            if ((mkey.HasVarCoeff(StdRegions::eVarCoeffLaplacian)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD00)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD01)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD10)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD02)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD20)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD11)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD12)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD21)) ||
-                (mkey.HasVarCoeff(StdRegions::eVarCoeffD22)))
+            if (mkey.HasVarCoeffForMatrixType(StdRegions::eLaplacian))
             {
                 lapVarcoeffs = mkey.GetVarCoeffs();
             }
@@ -772,7 +817,7 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
         break;
         case StdRegions::eIProductWRTBase:
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
             {
                 NekDouble one        = 1.0;
                 DNekMatSharedPtr mat = GenMatrix(mkey);
@@ -781,7 +826,7 @@ DNekScalMatSharedPtr Expansion3D::CreateMatrix(const MatrixKey &mkey)
             }
             else
             {
-                NekDouble jac        = (m_metricinfo->GetJac(ptsKeys))[0];
+                NekDouble jac        = (m_geomFactors->GetJac())[0];
                 DNekMatSharedPtr mat = GetStdMatrix(mkey);
                 returnval =
                     MemoryManager<DNekScalMat>::AllocateSharedPtr(jac, mat);
@@ -1576,7 +1621,7 @@ DNekMatSharedPtr Expansion3D::v_GenMatrix(const StdRegions::StdMatrixKey &mkey)
             for (int i = 0; i < m_ncoeffs; ++i)
             {
                 FillMode(i, phys);
-                PhysDeriv(phys, Deriv[0], Deriv[1], Deriv[2]);
+                v_PhysDeriv(phys, Deriv[0], Deriv[1], Deriv[2]);
 
                 for (int t = 0; t < ntraces; ++t)
                 {
@@ -1658,6 +1703,128 @@ DNekMatSharedPtr Expansion3D::v_GenMatrix(const StdRegions::StdMatrixKey &mkey)
     }
 
     return returnval;
+}
+
+//---------------------------------------
+// Transforms
+//---------------------------------------
+/**
+ * \brief Calculate the derivative of the physical points
+ *
+ * For Hexahedral region can use the Tensor_Deriv function defined
+ * under StdExpansion.
+ * @param   inarray     Input array
+ * @param   out_d0      Derivative of \a inarray in first direction.
+ * @param   out_d1      Derivative of \a inarray in second direction.
+ * @param   out_d2      Derivative of \a inarray in third direction.
+ */
+void Expansion3D::v_PhysDeriv(const Array<OneD, const NekDouble> &inarray,
+                              Array<OneD, NekDouble> &out_d0,
+                              Array<OneD, NekDouble> &out_d1,
+                              Array<OneD, NekDouble> &out_d2)
+{
+    int nquad0 = m_base[0]->GetNumPoints();
+    int nquad1 = m_base[1]->GetNumPoints();
+    int nquad2 = m_base[2]->GetNumPoints();
+    int ntot   = nquad0 * nquad1 * nquad2;
+
+    Array<TwoD, const NekDouble> df = m_geomFactors->GetDerivFactors();
+    Array<OneD, NekDouble> Diff0    = Array<OneD, NekDouble>(ntot);
+    Array<OneD, NekDouble> Diff1    = Array<OneD, NekDouble>(ntot);
+    Array<OneD, NekDouble> Diff2    = Array<OneD, NekDouble>(ntot);
+
+    v_StdPhysDeriv(inarray, Diff0, Diff1, Diff2);
+
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
+    {
+        if (out_d0.size())
+        {
+            Vmath::Vmul(ntot, &df[0][0], 1, &Diff0[0], 1, &out_d0[0], 1);
+            Vmath::Vvtvp(ntot, &df[1][0], 1, &Diff1[0], 1, &out_d0[0], 1,
+                         &out_d0[0], 1);
+            Vmath::Vvtvp(ntot, &df[2][0], 1, &Diff2[0], 1, &out_d0[0], 1,
+                         &out_d0[0], 1);
+        }
+
+        if (out_d1.size())
+        {
+            Vmath::Vmul(ntot, &df[3][0], 1, &Diff0[0], 1, &out_d1[0], 1);
+            Vmath::Vvtvp(ntot, &df[4][0], 1, &Diff1[0], 1, &out_d1[0], 1,
+                         &out_d1[0], 1);
+            Vmath::Vvtvp(ntot, &df[5][0], 1, &Diff2[0], 1, &out_d1[0], 1,
+                         &out_d1[0], 1);
+        }
+
+        if (out_d2.size())
+        {
+            Vmath::Vmul(ntot, &df[6][0], 1, &Diff0[0], 1, &out_d2[0], 1);
+            Vmath::Vvtvp(ntot, &df[7][0], 1, &Diff1[0], 1, &out_d2[0], 1,
+                         &out_d2[0], 1);
+            Vmath::Vvtvp(ntot, &df[8][0], 1, &Diff2[0], 1, &out_d2[0], 1,
+                         &out_d2[0], 1);
+        }
+    }
+    else // regular geometry
+    {
+        if (out_d0.size())
+        {
+            Vmath::Smul(ntot, df[0][0], &Diff0[0], 1, &out_d0[0], 1);
+            Blas::Daxpy(ntot, df[1][0], &Diff1[0], 1, &out_d0[0], 1);
+            Blas::Daxpy(ntot, df[2][0], &Diff2[0], 1, &out_d0[0], 1);
+        }
+
+        if (out_d1.size())
+        {
+            Vmath::Smul(ntot, df[3][0], &Diff0[0], 1, &out_d1[0], 1);
+            Blas::Daxpy(ntot, df[4][0], &Diff1[0], 1, &out_d1[0], 1);
+            Blas::Daxpy(ntot, df[5][0], &Diff2[0], 1, &out_d1[0], 1);
+        }
+
+        if (out_d2.size())
+        {
+            Vmath::Smul(ntot, df[6][0], &Diff0[0], 1, &out_d2[0], 1);
+            Blas::Daxpy(ntot, df[7][0], &Diff1[0], 1, &out_d2[0], 1);
+            Blas::Daxpy(ntot, df[8][0], &Diff2[0], 1, &out_d2[0], 1);
+        }
+    }
+}
+
+/**
+ * \brief Calculate the inner product of inarray with respect to the
+ * elements basis.
+ *
+ * @param   inarray     Input array of physical space data.
+ * @param   outarray    Output array of data.
+ */
+void Expansion3D::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
+                                    Array<OneD, NekDouble> &outarray)
+{
+    const bool CollDir0 = m_base[0]->Collocation();
+    const bool CollDir1 = m_base[1]->Collocation();
+    const bool CollDir2 = m_base[2]->Collocation();
+
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
+
+    if (v_IsCollocatedBasis())
+    {
+        int nqtot = GetTotPoints();
+        if (Deformed)
+        {
+            Vmath::Vmul(nqtot, jac, 1, inarray, 1, outarray, 1);
+        }
+        else
+        {
+            Vmath::Smul(nqtot, jac[0], inarray, 1, outarray, 1);
+        }
+        v_MultiplyByStdQuadratureMetric(outarray, outarray);
+    }
+    else
+    {
+        v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetBdata(),
+                                m_base[2]->GetBdata(), inarray, outarray, jac,
+                                Deformed, CollDir0, CollDir1, CollDir2);
+    }
 }
 
 void Expansion3D::v_AddFaceNormBoundaryInt(
@@ -2009,7 +2176,7 @@ DNekMatSharedPtr Expansion3D::v_BuildTransformationMatrix(
 
     int nBndCoeffs = NumBndryCoeffs();
 
-    const SpatialDomains::Geometry3DSharedPtr &geom = GetGeom3D();
+    const SpatialDomains::Geometry3D *geom = GetGeom3D();
 
     // Get geometric information about this element
     nVerts = GetNverts();
@@ -2520,7 +2687,7 @@ Array<OneD, unsigned int> Expansion3D::GetEdgeInverseBoundaryMap(int eid)
     // Number of interior edge coefficients
     nEdgeCoeffs = GetEdgeNcoeffs(eid) - 2;
 
-    const SpatialDomains::Geometry3DSharedPtr &geom = GetGeom3D();
+    const SpatialDomains::Geometry3D *geom = GetGeom3D();
 
     Array<OneD, unsigned int> edgemaparray(nEdgeCoeffs);
     StdRegions::Orientation eOrient    = geom->GetEorient(eid);
@@ -2790,13 +2957,13 @@ void Expansion3D::v_GetTracePhysVals(
         FaceExp->GetBasis(to_id1)->GetPointsKey(), o_tmp2.data());
 
     // Reshuffule points as required and put into outarray.
-    v_ReOrientTracePhysMap(orient, faceids, nq0, nq1);
-    Vmath::Scatr(nq0 * nq1, o_tmp2, faceids, outarray);
+    v_ReOrientTracePhysMap(orient, faceids, nq0, nq1, true);
+    Vmath::Gathr(nq0 * nq1, o_tmp2, faceids, outarray);
 }
 
 void Expansion3D::v_GenTraceExp(const int traceid, ExpansionSharedPtr &exp)
 {
-    SpatialDomains::GeometrySharedPtr faceGeom = m_geom->GetFace(traceid);
+    SpatialDomains::Geometry *faceGeom = m_geom->GetFace(traceid);
     if (faceGeom->GetNumVerts() == 3)
     {
         exp = MemoryManager<LocalRegions::TriExp>::AllocateSharedPtr(
@@ -2811,9 +2978,19 @@ void Expansion3D::v_GenTraceExp(const int traceid, ExpansionSharedPtr &exp)
     }
 }
 
+/**
+ * @brief This method produces a mapping @param idmap which
+ * reorientates face data according to the input parameter @param
+ * Orient. The sign convention is assumed to take the element local
+ * face to a global trace face and this is denoted by the boolean
+ * Forwards, i..e globaltrace[i] = localtrace[idmap[i]]. If the
+ * boolean is set to Forwards == false then a mapping is produced
+ * which maps the gloabl trace back to the local elemental trace such that
+ * localtrace[i] = globaltrace[idmap[i]].
+ */
 void Expansion3D::v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                                          Array<OneD, int> &idmap, const int nq0,
-                                         const int nq1)
+                                         const int nq1, bool Forwards)
 {
 
     if (idmap.size() != nq0 * nq1)
@@ -2821,82 +2998,56 @@ void Expansion3D::v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
         idmap = Array<OneD, int>(nq0 * nq1);
     }
 
-    if (GetNverts() == 3) // Tri face
+    switch (orient)
     {
-        switch (orient)
+        case StdRegions::eDir1FwdDir1_Dir2FwdDir2: // Used in Tri & Quad faces
+            // eseentially straight copy
+            for (int i = 0; i < nq0 * nq1; ++i)
+            {
+                idmap[i] = i;
+            }
+            break;
+        case StdRegions::eDir1BwdDir1_Dir2FwdDir2: // Used in Tri & Quad faces
         {
-            case StdRegions::eDir1FwdDir1_Dir2FwdDir2:
-                // eseentially straight copy
-                for (int i = 0; i < nq0 * nq1; ++i)
+            // Direction A negative and B positive
+            for (int j = 0; j < nq1; j++)
+            {
+                for (int i = 0; i < nq0; ++i)
                 {
-                    idmap[i] = i;
+                    idmap[j * nq0 + i] = nq0 - 1 - i + j * nq0;
                 }
-                break;
-            case StdRegions::eDir1BwdDir1_Dir2FwdDir2:
-                // reverse
-                for (int j = 0; j < nq1; ++j)
-                {
-                    for (int i = 0; i < nq0; ++i)
-                    {
-                        idmap[j * nq0 + i] = nq0 - 1 - i + j * nq0;
-                    }
-                }
-                break;
-            default:
-                ASSERTL0(false,
-                         "Case not supposed to be used in this function");
+            }
         }
-    }
-    else
-    {
-        switch (orient)
+        break;
+        case StdRegions::eDir1FwdDir1_Dir2BwdDir2:
         {
-            case StdRegions::eDir1FwdDir1_Dir2FwdDir2:
-                // eseentially straight copy
-                for (int i = 0; i < nq0 * nq1; ++i)
-                {
-                    idmap[i] = i;
-                }
-                break;
-            case StdRegions::eDir1BwdDir1_Dir2FwdDir2:
+            // Direction A positive and B negative
+            for (int j = 0; j < nq1; j++)
             {
-                // Direction A negative and B positive
-                for (int j = 0; j < nq1; j++)
+                for (int i = 0; i < nq0; ++i)
                 {
-                    for (int i = 0; i < nq0; ++i)
-                    {
-                        idmap[j * nq0 + i] = nq0 - 1 - i + j * nq0;
-                    }
+                    idmap[j * nq0 + i] = nq0 * (nq1 - 1 - j) + i;
                 }
             }
-            break;
-            case StdRegions::eDir1FwdDir1_Dir2BwdDir2:
+        }
+        break;
+        case StdRegions::eDir1BwdDir1_Dir2BwdDir2:
+        {
+            // Direction A negative and B negative
+            for (int j = 0; j < nq1; j++)
             {
-                // Direction A positive and B negative
-                for (int j = 0; j < nq1; j++)
+                for (int i = 0; i < nq0; ++i)
                 {
-                    for (int i = 0; i < nq0; ++i)
-                    {
-                        idmap[j * nq0 + i] = nq0 * (nq1 - 1 - j) + i;
-                    }
+                    idmap[j * nq0 + i] = nq0 * nq1 - 1 - j * nq0 - i;
                 }
             }
-            break;
-            case StdRegions::eDir1BwdDir1_Dir2BwdDir2:
+        }
+        break;
+        case StdRegions::eDir1FwdDir2_Dir2FwdDir1:
+        {
+            // Transposed, Direction A and B positive
+            if (Forwards)
             {
-                // Direction A negative and B negative
-                for (int j = 0; j < nq1; j++)
-                {
-                    for (int i = 0; i < nq0; ++i)
-                    {
-                        idmap[j * nq0 + i] = nq0 * nq1 - 1 - j * nq0 - i;
-                    }
-                }
-            }
-            break;
-            case StdRegions::eDir1FwdDir2_Dir2FwdDir1:
-            {
-                // Transposed, Direction A and B positive
                 for (int i = 0; i < nq0; ++i)
                 {
                     for (int j = 0; j < nq1; ++j)
@@ -2905,22 +3056,24 @@ void Expansion3D::v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                     }
                 }
             }
-            break;
-            case StdRegions::eDir1FwdDir2_Dir2BwdDir1:
+            else // inverse case - different if nq0 != nq1
             {
-                // Transposed, Direction A positive and B negative
-                for (int i = 0; i < nq0; ++i)
+                for (int j = 0; j < nq1; ++j)
                 {
-                    for (int j = 0; j < nq1; ++j)
+                    for (int i = 0; i < nq0; ++i)
                     {
-                        idmap[i * nq1 + j] = nq0 - 1 - i + j * nq0;
+                        idmap[j * nq0 + i] = i * nq1 + j;
                     }
                 }
             }
-            break;
-            case StdRegions::eDir1BwdDir2_Dir2FwdDir1:
+        }
+        break;
+        case StdRegions::eDir1FwdDir2_Dir2BwdDir1:
+        {
+            // Transposed, Direction A positive with mapped direction
+            // B and direction B negative with mapped direction A
+            if (Forwards)
             {
-                // Transposed, Direction A negative and B positive
                 for (int i = 0; i < nq0; ++i)
                 {
                     for (int j = 0; j < nq1; ++j)
@@ -2929,10 +3082,49 @@ void Expansion3D::v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                     }
                 }
             }
-            break;
-            case StdRegions::eDir1BwdDir2_Dir2BwdDir1:
+            else
             {
-                // Transposed, Direction A and B negative
+                for (int j = 0; j < nq1; ++j)
+                {
+                    for (int i = 0; i < nq0; ++i)
+                    {
+                        idmap[j * nq0 + i] = nq1 - 1 - j + i * nq1;
+                    }
+                }
+            }
+        }
+        break;
+        case StdRegions::eDir1BwdDir2_Dir2FwdDir1:
+        {
+            // Transposed, Direction A negative with mapped directon B and
+            // direction B positive with mapped direction A
+            if (Forwards)
+            {
+                for (int i = 0; i < nq0; ++i)
+                {
+                    for (int j = 0; j < nq1; ++j)
+                    {
+                        idmap[i * nq1 + j] = nq0 - 1 - i + j * nq0;
+                    }
+                }
+            }
+            else
+            {
+                for (int j = 0; j < nq1; ++j)
+                {
+                    for (int i = 0; i < nq0; ++i)
+                    {
+                        idmap[j * nq0 + i] = nq1 * (nq0 - 1) - i * nq1 + j;
+                    }
+                }
+            }
+        }
+        break;
+        case StdRegions::eDir1BwdDir2_Dir2BwdDir1:
+        {
+            // Transposed, Direction A and B negative
+            if (Forwards)
+            {
                 for (int i = 0; i < nq0; ++i)
                 {
                     for (int j = 0; j < nq1; ++j)
@@ -2941,11 +3133,21 @@ void Expansion3D::v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
                     }
                 }
             }
-            break;
-            default:
-                ASSERTL0(false, "Unknow orientation");
-                break;
+            else
+            {
+                for (int j = 0; j < nq1; ++j)
+                {
+                    for (int i = 0; i < nq0; ++i)
+                    {
+                        idmap[j * nq0 + i] = nq0 * nq1 - 1 - j - i * nq1;
+                    }
+                }
+            }
         }
+        break;
+        default:
+            ASSERTL0(false, "Unknow orientation");
+            break;
     }
 }
 
@@ -3001,7 +3203,7 @@ Array<OneD, NekDouble> Expansion3D::GetnFacecdotMF(
 
 void Expansion3D::v_TraceNormLen(const int traceid, NekDouble &h, NekDouble &p)
 {
-    SpatialDomains::GeometrySharedPtr geom = GetGeom();
+    SpatialDomains::Geometry *geom = GetGeom();
 
     int nverts = geom->GetFace(traceid)->GetNumVerts();
 

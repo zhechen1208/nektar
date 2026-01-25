@@ -44,7 +44,7 @@ namespace Nektar::LocalRegions
 {
 TriExp::TriExp(const LibUtilities::BasisKey &Ba,
                const LibUtilities::BasisKey &Bb,
-               const SpatialDomains::Geometry2DSharedPtr &geom)
+               SpatialDomains::Geometry2D *geom)
     : StdExpansion(LibUtilities::StdTriData::getNumberOfCoefficients(
                        Ba.GetNumModes(), (Bb.GetNumModes())),
                    2, Ba, Bb),
@@ -53,11 +53,9 @@ TriExp::TriExp(const LibUtilities::BasisKey &Ba,
                      Ba, Bb),
       StdTriExp(Ba, Bb), Expansion(geom), Expansion2D(geom),
       m_matrixManager(
-          std::bind(&Expansion2D::CreateMatrix, this, std::placeholders::_1),
-          std::string("TriExpMatrix")),
+          std::bind(&Expansion2D::CreateMatrix, this, std::placeholders::_1)),
       m_staticCondMatrixManager(std::bind(&Expansion::CreateStaticCondMatrix,
-                                          this, std::placeholders::_1),
-                                std::string("TriExpStaticCondMatrix"))
+                                          this, std::placeholders::_1))
 {
 }
 
@@ -72,12 +70,12 @@ NekDouble TriExp::v_Integral(const Array<OneD, const NekDouble> &inarray)
 {
     int nquad0                       = m_base[0]->GetNumPoints();
     int nquad1                       = m_base[1]->GetNumPoints();
-    Array<OneD, const NekDouble> jac = m_metricinfo->GetJac(GetPointsKeys());
+    Array<OneD, const NekDouble> jac = m_geomFactors->GetJac();
     NekDouble ival;
     Array<OneD, NekDouble> tmp(nquad0 * nquad1);
 
     // multiply inarray with Jacobian
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
         Vmath::Vmul(nquad0 * nquad1, jac, 1, inarray, 1, tmp, 1);
     }
@@ -89,96 +87,6 @@ NekDouble TriExp::v_Integral(const Array<OneD, const NekDouble> &inarray)
     // call StdQuadExp version;
     ival = StdTriExp::v_Integral(tmp);
     return ival;
-}
-
-void TriExp::v_PhysDeriv(const Array<OneD, const NekDouble> &inarray,
-                         Array<OneD, NekDouble> &out_d0,
-                         Array<OneD, NekDouble> &out_d1,
-                         Array<OneD, NekDouble> &out_d2)
-{
-    int nquad0 = m_base[0]->GetNumPoints();
-    int nquad1 = m_base[1]->GetNumPoints();
-    int nqtot  = nquad0 * nquad1;
-    const Array<TwoD, const NekDouble> &df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
-
-    Array<OneD, NekDouble> diff0(2 * nqtot);
-    Array<OneD, NekDouble> diff1(diff0 + nqtot);
-
-    StdTriExp::v_PhysDeriv(inarray, diff0, diff1);
-
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
-    {
-        if (out_d0.size())
-        {
-            Vmath::Vmul(nqtot, df[0], 1, diff0, 1, out_d0, 1);
-            Vmath::Vvtvp(nqtot, df[1], 1, diff1, 1, out_d0, 1, out_d0, 1);
-        }
-
-        if (out_d1.size())
-        {
-            Vmath::Vmul(nqtot, df[2], 1, diff0, 1, out_d1, 1);
-            Vmath::Vvtvp(nqtot, df[3], 1, diff1, 1, out_d1, 1, out_d1, 1);
-        }
-
-        if (out_d2.size())
-        {
-            Vmath::Vmul(nqtot, df[4], 1, diff0, 1, out_d2, 1);
-            Vmath::Vvtvp(nqtot, df[5], 1, diff1, 1, out_d2, 1, out_d2, 1);
-        }
-    }
-    else // regular geometry
-    {
-        if (out_d0.size())
-        {
-            Vmath::Smul(nqtot, df[0][0], diff0, 1, out_d0, 1);
-            Blas::Daxpy(nqtot, df[1][0], diff1, 1, out_d0, 1);
-        }
-
-        if (out_d1.size())
-        {
-            Vmath::Smul(nqtot, df[2][0], diff0, 1, out_d1, 1);
-            Blas::Daxpy(nqtot, df[3][0], diff1, 1, out_d1, 1);
-        }
-
-        if (out_d2.size())
-        {
-            Vmath::Smul(nqtot, df[4][0], diff0, 1, out_d2, 1);
-            Blas::Daxpy(nqtot, df[5][0], diff1, 1, out_d2, 1);
-        }
-    }
-}
-
-void TriExp::v_PhysDeriv(const int dir,
-                         const Array<OneD, const NekDouble> &inarray,
-                         Array<OneD, NekDouble> &outarray)
-{
-    switch (dir)
-    {
-        case 0:
-        {
-            PhysDeriv(inarray, outarray, NullNekDouble1DArray,
-                      NullNekDouble1DArray);
-        }
-        break;
-        case 1:
-        {
-            PhysDeriv(inarray, NullNekDouble1DArray, outarray,
-                      NullNekDouble1DArray);
-        }
-        break;
-        case 2:
-        {
-            PhysDeriv(inarray, NullNekDouble1DArray, NullNekDouble1DArray,
-                      outarray);
-        }
-        break;
-        default:
-        {
-            ASSERTL1(false, "input dir is out of range");
-        }
-        break;
-    }
 }
 
 void TriExp::v_PhysDirectionalDeriv(
@@ -194,16 +102,15 @@ void TriExp::v_PhysDirectionalDeriv(
     int nquad1 = m_base[1]->GetNumPoints();
     int nqtot  = nquad0 * nquad1;
 
-    const Array<TwoD, const NekDouble> &df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
 
     Array<OneD, NekDouble> diff0(2 * nqtot);
     Array<OneD, NekDouble> diff1(diff0 + nqtot);
 
     // diff0 = du/d_xi, diff1 = du/d_eta
-    StdTriExp::v_PhysDeriv(inarray, diff0, diff1);
+    v_StdPhysDeriv(inarray, diff0, diff1, NullNekDouble1DArray);
 
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
         Array<OneD, Array<OneD, NekDouble>> tangmat(2);
 
@@ -244,22 +151,6 @@ void TriExp::v_PhysDirectionalDeriv(
         Vmath::Vvtvp(nqtot, &tangmat[1][0], 1, &diff1[0], 1, &out[0], 1,
                      &out[0], 1);
     }
-}
-
-void TriExp::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
-                        Array<OneD, NekDouble> &outarray)
-{
-    IProductWRTBase(inarray, outarray);
-
-    // get Mass matrix inverse
-    MatrixKey masskey(StdRegions::eInvMass, DetShapeType(), *this);
-    DNekScalMatSharedPtr matsys = m_matrixManager[masskey];
-
-    // copy inarray in case inarray == outarray
-    NekVector<NekDouble> in(m_ncoeffs, outarray, eCopy);
-    NekVector<NekDouble> out(m_ncoeffs, outarray, eWrapper);
-
-    out = (*matsys) * in;
 }
 
 void TriExp::v_FwdTransBndConstrained(
@@ -328,9 +219,6 @@ void TriExp::v_FwdTransBndConstrained(
     Array<OneD, unsigned int> mapArray;
     Array<OneD, int> signArray;
     NekDouble sign;
-    // define an orientation to get EdgeToElmtMapping from Cartesian data
-    StdRegions::Orientation orient[3] = {
-        StdRegions::eForwards, StdRegions::eForwards, StdRegions::eForwards};
 
     for (i = 0; i < 3; i++)
     {
@@ -338,7 +226,7 @@ void TriExp::v_FwdTransBndConstrained(
 
         // this orient goes with the one above and so could
         // probably set both to eForwards
-        GetTraceToElementMap(i, mapArray, signArray, orient[i]);
+        GetTraceToElementMap(i, mapArray, signArray);
         for (j = 0; j < nmodes[i != 0]; j++)
         {
             sign                  = (NekDouble)signArray[j];
@@ -357,7 +245,7 @@ void TriExp::v_FwdTransBndConstrained(
         StdRegions::StdMatrixKey stdmasskey(StdRegions::eMass, DetShapeType(),
                                             *this);
         MassMatrixOp(outarray, tmp0, stdmasskey);
-        IProductWRTBase(inarray, tmp1);
+        v_IProductWRTBase(inarray, tmp1);
 
         Vmath::Vsub(m_ncoeffs, tmp1, 1, tmp0, 1, tmp1, 1);
 
@@ -389,74 +277,33 @@ void TriExp::v_FwdTransBndConstrained(
     }
 }
 
-void TriExp::v_IProductWRTBase(const Array<OneD, const NekDouble> &inarray,
-                               Array<OneD, NekDouble> &outarray)
-{
-    IProductWRTBase_SumFac(inarray, outarray);
-}
-
 void TriExp::v_IProductWRTDerivBase(const int dir,
                                     const Array<OneD, const NekDouble> &inarray,
                                     Array<OneD, NekDouble> &outarray)
 {
-    IProductWRTDerivBase_SumFac(dir, inarray, outarray);
-}
-
-void TriExp::v_IProductWRTBase_SumFac(
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray, bool multiplybyweights)
-{
     int nquad0 = m_base[0]->GetNumPoints();
     int nquad1 = m_base[1]->GetNumPoints();
-    int order0 = m_base[0]->GetNumModes();
+    int nqtot  = nquad0 * nquad1;
 
-    if (multiplybyweights)
-    {
-        Array<OneD, NekDouble> tmp(nquad0 * nquad1 + nquad1 * order0);
-        Array<OneD, NekDouble> wsp(tmp + nquad0 * nquad1);
-
-        MultiplyByQuadratureMetric(inarray, tmp);
-        IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(),
-                                     m_base[1]->GetBdata(), tmp, outarray, wsp);
-    }
-    else
-    {
-        Array<OneD, NekDouble> wsp(+nquad1 * order0);
-
-        IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(),
-                                     m_base[1]->GetBdata(), inarray, outarray,
-                                     wsp);
-    }
-}
-
-void TriExp::v_IProductWRTDerivBase_SumFac(
-    const int dir, const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
-{
-    int nquad0  = m_base[0]->GetNumPoints();
-    int nquad1  = m_base[1]->GetNumPoints();
-    int nqtot   = nquad0 * nquad1;
-    int nmodes0 = m_base[0]->GetNumModes();
-    int wspsize = max(max(nqtot, m_ncoeffs), nquad1 * nmodes0);
-
-    Array<OneD, NekDouble> tmp0(4 * wspsize);
-    Array<OneD, NekDouble> tmp1(tmp0 + wspsize);
-    Array<OneD, NekDouble> tmp2(tmp0 + 2 * wspsize);
-    Array<OneD, NekDouble> tmp3(tmp0 + 3 * wspsize);
-
+    Array<OneD, NekDouble> tmp1(nqtot);
+    Array<OneD, NekDouble> tmp2(nqtot);
+    Array<OneD, NekDouble> tmp3(m_ncoeffs);
     Array<OneD, Array<OneD, NekDouble>> tmp2D{2};
     tmp2D[0] = tmp1;
     tmp2D[1] = tmp2;
 
     TriExp::v_AlignVectorToCollapsedDir(dir, inarray, tmp2D);
 
-    MultiplyByQuadratureMetric(tmp1, tmp1);
-    MultiplyByQuadratureMetric(tmp2, tmp2);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
-                                 tmp1, tmp3, tmp0);
-    IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
-                                 tmp2, outarray, tmp0);
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
+
+    v_IProductWRTBaseKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(), tmp1,
+                            tmp3, jac, Deformed);
+
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(), tmp2,
+                            outarray, jac, Deformed);
+
     Vmath::Vadd(m_ncoeffs, tmp3, 1, outarray, 1, outarray, 1);
 }
 
@@ -474,29 +321,23 @@ void TriExp::v_AlignVectorToCollapsedDir(
     int nmodes0 = m_base[0]->GetNumModes();
     int wspsize = max(max(nqtot, m_ncoeffs), nquad1 * nmodes0);
 
-    const Array<TwoD, const NekDouble> &df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
 
     Array<OneD, NekDouble> tmp0(wspsize);
     Array<OneD, NekDouble> tmp3(wspsize);
-    Array<OneD, NekDouble> gfac0(wspsize);
-    Array<OneD, NekDouble> gfac1(wspsize);
 
     Array<OneD, NekDouble> tmp1 = outarray[0];
     Array<OneD, NekDouble> tmp2 = outarray[1];
 
-    const Array<OneD, const NekDouble> &z0 = m_base[0]->GetZ();
-    const Array<OneD, const NekDouble> &z1 = m_base[1]->GetZ();
+    // get geometric factor: 2/(1-z1)
+    StdRegions::StdFacKey fackey(StdRegions::eTwoOverOneMinusZ1,
+                                 m_base[1]->GetBasisKey());
+    Array<OneD, const NekDouble> gfac0 = GetStdFac(fackey);
 
-    // set up geometric factor: 2/(1-z1)
-    for (int i = 0; i < nquad1; ++i)
-    {
-        gfac0[i] = 2.0 / (1 - z1[i]);
-    }
-    for (int i = 0; i < nquad0; ++i)
-    {
-        gfac1[i] = 0.5 * (1 + z0[i]);
-    }
+    // get geometric facotr: 0.5*(1-z0)
+    StdRegions::StdFacKey fackey1(StdRegions::eHalfMultOnePlusZ0,
+                                  m_base[0]->GetBasisKey());
+    Array<OneD, const NekDouble> gfac1 = GetStdFac(fackey1);
 
     for (int i = 0; i < nquad1; ++i)
     {
@@ -510,7 +351,7 @@ void TriExp::v_AlignVectorToCollapsedDir(
                     &tmp1[0] + i * nquad0, 1);
     }
 
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
         Vmath::Vmul(nqtot, &df[2 * dir][0], 1, &tmp0[0], 1, &tmp0[0], 1);
         Vmath::Vmul(nqtot, &df[2 * dir + 1][0], 1, &tmp1[0], 1, &tmp1[0], 1);
@@ -530,48 +371,29 @@ void TriExp::v_IProductWRTDirectionalDerivBase(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray)
 {
-    IProductWRTDirectionalDerivBase_SumFac(direction, inarray, outarray);
-}
-
-/**
- * @brief Directinoal Derivative in the modal space in the dir
- * direction of varcoeffs.
- */
-void TriExp::v_IProductWRTDirectionalDerivBase_SumFac(
-    const Array<OneD, const NekDouble> &direction,
-    const Array<OneD, const NekDouble> &inarray,
-    Array<OneD, NekDouble> &outarray)
-{
     int i;
     int shapedim = 2;
     int nquad0   = m_base[0]->GetNumPoints();
     int nquad1   = m_base[1]->GetNumPoints();
     int nqtot    = nquad0 * nquad1;
-    int nmodes0  = m_base[0]->GetNumModes();
-    int wspsize  = max(max(nqtot, m_ncoeffs), nquad1 * nmodes0);
 
-    const Array<TwoD, const NekDouble> &df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
 
-    Array<OneD, NekDouble> tmp0(6 * wspsize);
-    Array<OneD, NekDouble> tmp1(tmp0 + wspsize);
-    Array<OneD, NekDouble> tmp2(tmp0 + 2 * wspsize);
-    Array<OneD, NekDouble> tmp3(tmp0 + 3 * wspsize);
-    Array<OneD, NekDouble> gfac0(tmp0 + 4 * wspsize);
-    Array<OneD, NekDouble> gfac1(tmp0 + 5 * wspsize);
+    Array<OneD, NekDouble> tmp0(nqtot);
+    Array<OneD, NekDouble> tmp1(nqtot);
+    Array<OneD, NekDouble> tmp2(nqtot);
+    Array<OneD, NekDouble> tmp3(m_ncoeffs);
 
-    const Array<OneD, const NekDouble> &z0 = m_base[0]->GetZ();
-    const Array<OneD, const NekDouble> &z1 = m_base[1]->GetZ();
+    // get geometric factor: 2/(1-z1)
+    StdRegions::StdFacKey fackey(StdRegions::eTwoOverOneMinusZ1,
+                                 m_base[1]->GetBasisKey());
+    Array<OneD, const NekDouble> gfac0 = GetStdFac(fackey);
 
-    // set up geometric factor: 2/(1-z1)
-    for (i = 0; i < nquad1; ++i)
-    {
-        gfac0[i] = 2.0 / (1 - z1[i]);
-    }
-    for (i = 0; i < nquad0; ++i)
-    {
-        gfac1[i] = 0.5 * (1 + z0[i]);
-    }
+    // get geometric facotr: 0.5*(1-z0)
+    StdRegions::StdFacKey fackey1(StdRegions::eHalfMultOnePlusZ0,
+                                  m_base[0]->GetBasisKey());
+    Array<OneD, const NekDouble> gfac1 = GetStdFac(fackey1);
+
     for (i = 0; i < nquad1; ++i)
     {
         Vmath::Smul(nquad0, gfac0[i], &inarray[0] + i * nquad0, 1,
@@ -593,13 +415,15 @@ void TriExp::v_IProductWRTDirectionalDerivBase_SumFac(
 
     Vmath::Vadd(nqtot, &tmp0[0], 1, &tmp1[0], 1, &tmp1[0], 1);
 
-    MultiplyByQuadratureMetric(tmp1, tmp1);
-    MultiplyByQuadratureMetric(tmp2, tmp2);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
 
-    IProductWRTBase_SumFacKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(),
-                                 tmp1, tmp3, tmp0);
-    IProductWRTBase_SumFacKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(),
-                                 tmp2, outarray, tmp0);
+    v_IProductWRTBaseKernel(m_base[0]->GetDbdata(), m_base[1]->GetBdata(), tmp1,
+                            tmp3, jac, Deformed);
+
+    v_IProductWRTBaseKernel(m_base[0]->GetBdata(), m_base[1]->GetDbdata(), tmp2,
+                            outarray, jac, Deformed);
+
     Vmath::Vadd(m_ncoeffs, tmp3, 1, outarray, 1, outarray, 1);
 }
 
@@ -615,7 +439,7 @@ void TriExp::v_NormVectorIProductWRTBase(const Array<OneD, const NekDouble> &Fx,
         GetLeftAdjacentElementExp()->GetTraceNormal(
             GetLeftAdjacentElementTrace());
 
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
         Vmath::Vvtvvtp(nq, &normals[0][0], 1, &Fx[0], 1, &normals[1][0], 1,
                        &Fy[0], 1, &Fn[0], 1);
@@ -678,30 +502,6 @@ void TriExp::v_GetCoords(Array<OneD, NekDouble> &coords_0,
                          Array<OneD, NekDouble> &coords_2)
 {
     Expansion::v_GetCoords(coords_0, coords_1, coords_2);
-}
-
-/**
- * Given the local cartesian coordinate \a Lcoord evaluate the
- * value of physvals at this point by calling through to the
- * StdExpansion method
- */
-NekDouble TriExp::v_StdPhysEvaluate(
-    const Array<OneD, const NekDouble> &Lcoord,
-    const Array<OneD, const NekDouble> &physvals)
-{
-    // Evaluate point in local (eta) coordinates.
-    return StdExpansion2D::v_PhysEvaluate(Lcoord, physvals);
-}
-
-NekDouble TriExp::v_PhysEvaluate(const Array<OneD, const NekDouble> &coord,
-                                 const Array<OneD, const NekDouble> &physvals)
-{
-    Array<OneD, NekDouble> Lcoord = Array<OneD, NekDouble>(2);
-
-    ASSERTL0(m_geom, "m_geom not defined");
-    m_geom->GetLocCoords(coord, Lcoord);
-
-    return StdExpansion2D::v_PhysEvaluate(Lcoord, physvals);
 }
 
 NekDouble TriExp::v_PhysEvalFirstDeriv(
@@ -819,9 +619,6 @@ void TriExp::v_GetTracePhysMap(const int edge, Array<OneD, int> &outarray)
 void TriExp::v_ComputeTraceNormal(const int edge)
 {
     int i;
-    const SpatialDomains::GeomFactorsSharedPtr &geomFactors =
-        GetGeom()->GetMetricInfo();
-
     LibUtilities::PointsKeyVector ptsKeys = GetPointsKeys();
     for (i = 0; i < ptsKeys.size(); ++i)
     {
@@ -833,10 +630,11 @@ void TriExp::v_ComputeTraceNormal(const int edge)
         }
     }
 
-    const SpatialDomains::GeomType type = geomFactors->GetGtype();
+    const SpatialDomains::GeomType type = m_geomFactors->GetGtype();
     const Array<TwoD, const NekDouble> &df =
-        geomFactors->GetDerivFactors(ptsKeys);
-    const Array<OneD, const NekDouble> &jac = geomFactors->GetJac(ptsKeys);
+        m_geomFactors->ComputeDerivFactors(ptsKeys);
+    const Array<OneD, const NekDouble> &jac =
+        m_geomFactors->ComputeJac(ptsKeys);
 
     // The points of normals should follow trace basis, not local basis.
     LibUtilities::BasisKey tobasis = GetTraceBasisKey(edge);
@@ -998,7 +796,7 @@ void TriExp::v_ComputeTraceNormal(const int edge)
     {
         for (i = 0; i < GetCoordim(); ++i)
         {
-            if (geomFactors->GetGtype() == SpatialDomains::eDeformed)
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
             {
                 Vmath::Reverse(nqe, normal[i], 1, normal[i], 1);
             }
@@ -1187,7 +985,7 @@ void TriExp::v_LaplacianMatrixOp_MatFree_Kernel(
     Array<OneD, NekDouble> wsp1(wsp + wspsize);
     Array<OneD, NekDouble> wsp2(wsp + 2 * wspsize);
 
-    StdExpansion2D::PhysTensorDeriv(inarray, wsp1, wsp2);
+    PhysTensorDeriv(inarray, wsp1, wsp2);
 
     // wsp0 = k = g0 * wsp1 + g1 * wsp2 = g0 * du_dxi1 + g1 * du_dxi2
     // wsp2 = l = g1 * wsp1 + g2 * wsp2 = g0 * du_dxi1 + g1 * du_dxi2
@@ -1200,8 +998,11 @@ void TriExp::v_LaplacianMatrixOp_MatFree_Kernel(
 
     // outarray = m = (D_xi1 * B)^T * k
     // wsp1     = n = (D_xi2 * B)^T * l
-    IProductWRTBase_SumFacKernel(dbase0, base1, wsp0, outarray, wsp1);
-    IProductWRTBase_SumFacKernel(base0, dbase1, wsp2, wsp1, wsp0);
+    const Array<OneD, const NekDouble> &jac = m_geomFactors->GetJac();
+    bool Deformed = (m_geomFactors->GetGtype() == SpatialDomains::eDeformed);
+
+    v_IProductWRTBaseKernel(dbase0, base1, wsp0, outarray, jac, Deformed);
+    v_IProductWRTBaseKernel(base0, dbase1, wsp2, wsp1, jac, Deformed);
 
     // outarray = outarray + wsp1
     //          = L * u_hat
@@ -1211,13 +1012,8 @@ void TriExp::v_LaplacianMatrixOp_MatFree_Kernel(
 
 void TriExp::v_ComputeLaplacianMetric()
 {
-    if (m_metrics.count(eMetricQuadrature) == 0)
-    {
-        ComputeQuadratureMetric();
-    }
-
     unsigned int i, j;
-    const SpatialDomains::GeomType type = m_metricinfo->GetGtype();
+    const SpatialDomains::GeomType type = m_geomFactors->GetGtype();
     const unsigned int nqtot            = GetTotPoints();
     const unsigned int dim              = 2;
     const MetricType m[3][3]            = {
@@ -1236,21 +1032,27 @@ void TriExp::v_ComputeLaplacianMetric()
         }
     }
 
-    const Array<OneD, const NekDouble> &z0 = m_base[0]->GetZ();
-    const Array<OneD, const NekDouble> &z1 = m_base[1]->GetZ();
     const unsigned int nquad0              = m_base[0]->GetNumPoints();
     const unsigned int nquad1              = m_base[1]->GetNumPoints();
-    const Array<TwoD, const NekDouble> &df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
 
+    // get geometric factor: 2/(1-z1)
+    StdRegions::StdFacKey fackey(StdRegions::eTwoOverOneMinusZ1,
+                                 m_base[1]->GetBasisKey());
+    Array<OneD, const NekDouble> gfac0 = GetStdFac(fackey);
     for (i = 0; i < nquad1; i++)
     {
-        Blas::Dscal(nquad0, 2.0 / (1 - z1[i]), &dEta_dXi[0][0] + i * nquad0, 1);
-        Blas::Dscal(nquad0, 2.0 / (1 - z1[i]), &dEta_dXi[1][0] + i * nquad0, 1);
+        Blas::Dscal(nquad0, gfac0[i], &dEta_dXi[0][0] + i * nquad0, 1);
+        Blas::Dscal(nquad0, gfac0[i], &dEta_dXi[1][0] + i * nquad0, 1);
     }
+
+    // get geometric facotr: 0.5*(1-z0)
+    StdRegions::StdFacKey fackey1(StdRegions::eHalfMultOnePlusZ0,
+                                  m_base[0]->GetBasisKey());
+    Array<OneD, const NekDouble> gfac1 = GetStdFac(fackey1);
     for (i = 0; i < nquad0; i++)
     {
-        Blas::Dscal(nquad1, 0.5 * (1 + z0[i]), &dEta_dXi[1][0] + i, nquad0);
+        Blas::Dscal(nquad1, gfac1[i], &dEta_dXi[1][0] + i, nquad0);
     }
 
     Array<OneD, NekDouble> tmp(nqtot);
@@ -1343,14 +1145,6 @@ void TriExp::v_ComputeLaplacianMetric()
                          &m_metrics[eMetricLaplacian11][0], 1);
         }
     }
-
-    for (unsigned int i = 0; i < dim; ++i)
-    {
-        for (unsigned int j = i; j < dim; ++j)
-        {
-            MultiplyByQuadratureMetric(m_metrics[m[i][j]], m_metrics[m[i][j]]);
-        }
-    }
 }
 
 /**
@@ -1427,9 +1221,9 @@ void TriExp::v_SVVLaplacianFilter(Array<OneD, NekDouble> &array,
     int nq = GetTotPoints();
 
     // Calculate sqrt of the Jacobian
-    Array<OneD, const NekDouble> jac = m_metricinfo->GetJac(GetPointsKeys());
+    Array<OneD, const NekDouble> jac = m_geomFactors->GetJac();
     Array<OneD, NekDouble> sqrt_jac(nq);
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
         Vmath::Vsqrt(nq, jac, 1, sqrt_jac, 1);
     }
@@ -1461,8 +1255,7 @@ void TriExp::v_NormalTraceDerivFactors(
     int nquad0 = GetNumPoints(0);
     int nquad1 = GetNumPoints(1);
 
-    const Array<TwoD, const NekDouble> &df =
-        m_metricinfo->GetDerivFactors(GetPointsKeys());
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
 
     if (d0factors.size() != 3)
     {
@@ -1494,7 +1287,7 @@ void TriExp::v_NormalTraceDerivFactors(
 
     int ncoords = normal_0.size();
 
-    if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
     {
 
         // d xi_2/dx n_x

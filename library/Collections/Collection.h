@@ -99,6 +99,10 @@ public:
     {
         return m_geomData;
     }
+    inline std::vector<StdRegions::StdExpansionSharedPtr> &GetExpVector()
+    {
+        return m_collExp;
+    }
 
     inline int GetInputSize(const OperatorType &op, bool defaultIn = true)
     {
@@ -117,7 +121,7 @@ public:
     }
 
 protected:
-    std::unordered_map<OperatorType, OperatorSharedPtr, EnumHash> m_ops;
+    std::unordered_map<OperatorType, OperatorSharedPtr> m_ops;
     CoalescedGeomDataSharedPtr m_geomData;
     // store details for initialisation on call rather than default
     // initialisation

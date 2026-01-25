@@ -36,6 +36,7 @@
 
 #include <SpatialDomains/Geometry1D.h>
 #include <SpatialDomains/SegGeom.h>
+#include <SpatialDomains/XmapFactory.hpp>
 #include <StdRegions/StdTetExp.h>
 
 namespace Nektar::SpatialDomains
@@ -49,23 +50,23 @@ const unsigned int TetGeom::EdgeFaceConnectivity[6][2] = {
 const unsigned int TetGeom::EdgeNormalToFaceVert[4][3] = {
     {3, 4, 5}, {1, 2, 5}, {0, 2, 3}, {0, 1, 4}};
 
+XmapFactory<StdRegions::StdTetExp, 3> &GetStdTetFactory()
+{
+    static XmapFactory<StdRegions::StdTetExp, 3> factory;
+    return factory;
+}
+
 TetGeom::TetGeom()
 {
     m_shapeType = LibUtilities::eTetrahedron;
 }
 
-TetGeom::TetGeom(int id, const TriGeomSharedPtr faces[])
+TetGeom::TetGeom(int id, std::array<TriGeom *, kNfaces> faces)
     : Geometry3D(faces[0]->GetEdge(0)->GetVertex(0)->GetCoordim())
 {
     m_shapeType = LibUtilities::eTetrahedron;
     m_globalID  = id;
-
-    /// Copy the face shared pointers
-    m_faces.insert(m_faces.begin(), faces, faces + TetGeom::kNfaces);
-
-    /// Set up orientation vectors with correct amount of elements.
-    m_eorient.resize(kNedges);
-    m_forient.resize(kNfaces);
+    m_faces     = faces;
 
     SetUpLocalEdges();
     SetUpLocalVertices();
@@ -116,8 +117,6 @@ void TetGeom::SetUpLocalEdges()
     int i, j;
     unsigned int check;
 
-    SegGeomSharedPtr edge;
-
     // First set up the 3 bottom edges
 
     if (m_faces[0]->GetEid(0) != m_faces[1]->GetEid(0))
@@ -139,9 +138,8 @@ void TetGeom::SetUpLocalEdges()
         {
             if ((m_faces[0])->GetEid(i) == (m_faces[faceConnected])->GetEid(0))
             {
-                edge = std::dynamic_pointer_cast<SegGeom>(
-                    (m_faces[0])->GetEdge(i));
-                m_edges.push_back(edge);
+                m_edges[faceConnected - 1] =
+                    static_cast<SegGeom *>((m_faces[0])->GetEdge(i));
                 check++;
             }
         }
@@ -173,9 +171,7 @@ void TetGeom::SetUpLocalEdges()
         {
             if ((m_faces[1])->GetEid(i) == (m_faces[3])->GetEid(j))
             {
-                edge = std::dynamic_pointer_cast<SegGeom>(
-                    (m_faces[1])->GetEdge(i));
-                m_edges.push_back(edge);
+                m_edges[3] = static_cast<SegGeom *>((m_faces[1])->GetEdge(i));
                 check++;
             }
         }
@@ -207,9 +203,8 @@ void TetGeom::SetUpLocalEdges()
                 if ((m_faces[faceConnected])->GetEid(i) ==
                     (m_faces[faceConnected + 1])->GetEid(j))
                 {
-                    edge = std::dynamic_pointer_cast<SegGeom>(
+                    m_edges[faceConnected + 3] = static_cast<SegGeom *>(
                         (m_faces[faceConnected])->GetEdge(i));
-                    m_edges.push_back(edge);
                     check++;
                 }
             }
@@ -241,14 +236,14 @@ void TetGeom::SetUpLocalVertices()
     if ((m_edges[0]->GetVid(0) == m_edges[1]->GetVid(0)) ||
         (m_edges[0]->GetVid(0) == m_edges[1]->GetVid(1)))
     {
-        m_verts.push_back(m_edges[0]->GetVertex(1));
-        m_verts.push_back(m_edges[0]->GetVertex(0));
+        m_verts[0] = m_edges[0]->GetVertex(1);
+        m_verts[1] = m_edges[0]->GetVertex(0);
     }
     else if ((m_edges[0]->GetVid(1) == m_edges[1]->GetVid(0)) ||
              (m_edges[0]->GetVid(1) == m_edges[1]->GetVid(1)))
     {
-        m_verts.push_back(m_edges[0]->GetVertex(0));
-        m_verts.push_back(m_edges[0]->GetVertex(1));
+        m_verts[0] = m_edges[0]->GetVertex(0);
+        m_verts[1] = m_edges[0]->GetVertex(1);
     }
     else
     {
@@ -264,11 +259,11 @@ void TetGeom::SetUpLocalVertices()
     {
         if (m_edges[i]->GetVid(0) == m_verts[i]->GetGlobalID())
         {
-            m_verts.push_back(m_edges[i]->GetVertex(1));
+            m_verts[2] = m_edges[i]->GetVertex(1);
         }
         else if (m_edges[i]->GetVid(1) == m_verts[i]->GetGlobalID())
         {
-            m_verts.push_back(m_edges[i]->GetVertex(0));
+            m_verts[2] = m_edges[i]->GetVertex(0);
         }
         else
         {
@@ -283,11 +278,11 @@ void TetGeom::SetUpLocalVertices()
     // set up top vertex
     if (m_edges[3]->GetVid(0) == m_verts[0]->GetGlobalID())
     {
-        m_verts.push_back(m_edges[3]->GetVertex(1));
+        m_verts[3] = m_edges[3]->GetVertex(1);
     }
     else
     {
-        m_verts.push_back(m_edges[3]->GetVertex(0));
+        m_verts[3] = m_edges[3]->GetVertex(0);
     }
 
     // Check the other edges match up.
@@ -587,25 +582,6 @@ void TetGeom::v_Setup()
         }
         SetUpXmap();
         SetUpCoeffs(m_xmap->GetNcoeffs());
-        m_setupState = true;
-    }
-}
-
-/**
- * Generate the geometry factors for this element.
- */
-void TetGeom::v_GenGeomFactors()
-{
-    if (!m_setupState)
-    {
-        TetGeom::v_Setup();
-    }
-
-    if (m_geomFactorsState != ePtsFilled)
-    {
-        GeomType Gtype = eRegular;
-
-        v_FillGeom();
 
         // check to see if expansions are linear
         m_straightEdge = 1;
@@ -613,33 +589,66 @@ void TetGeom::v_GenGeomFactors()
             m_xmap->GetBasisNumModes(1) != 2 ||
             m_xmap->GetBasisNumModes(2) != 2)
         {
-            Gtype          = eDeformed;
             m_straightEdge = 0;
         }
 
-        if (Gtype == eRegular)
-        {
-            m_isoParameter = Array<OneD, Array<OneD, NekDouble>>(3);
-            for (int i = 0; i < 3; ++i)
-            {
-                m_isoParameter[i]    = Array<OneD, NekDouble>(4, 0.);
-                NekDouble A          = (*m_verts[0])(i);
-                NekDouble B          = (*m_verts[1])(i);
-                NekDouble C          = (*m_verts[2])(i);
-                NekDouble D          = (*m_verts[3])(i);
-                m_isoParameter[i][0] = 0.5 * (-A + B + C + D);
-
-                m_isoParameter[i][1] = 0.5 * (-A + B); // xi1
-                m_isoParameter[i][2] = 0.5 * (-A + C); // xi2
-                m_isoParameter[i][3] = 0.5 * (-A + D); // xi3
-            }
-            v_CalculateInverseIsoParam();
-        }
-
-        m_geomFactors = MemoryManager<GeomFactors>::AllocateSharedPtr(
-            Gtype, m_coordim, m_xmap, m_coeffs);
-        m_geomFactorsState = ePtsFilled;
+        m_setupState = true;
     }
+}
+
+/**
+ * Generate the geometry factors for this element.
+ */
+GeomType TetGeom::v_CalcGeomType()
+{
+    if (!m_setupState)
+    {
+        TetGeom::v_Setup();
+    }
+    v_FillGeom();
+
+    GeomType Gtype = eRegular;
+
+    // check to see if expansions are linear
+    if (m_xmap->GetBasisNumModes(0) != 2 || m_xmap->GetBasisNumModes(1) != 2 ||
+        m_xmap->GetBasisNumModes(2) != 2)
+    {
+        Gtype = eDeformed;
+    }
+
+    if (Gtype == eRegular)
+    {
+        m_isoParameter = Array<OneD, Array<OneD, NekDouble>>(3);
+        for (int i = 0; i < 3; ++i)
+        {
+            m_isoParameter[i]    = Array<OneD, NekDouble>(4, 0.);
+            NekDouble A          = (*m_verts[0])(i);
+            NekDouble B          = (*m_verts[1])(i);
+            NekDouble C          = (*m_verts[2])(i);
+            NekDouble D          = (*m_verts[3])(i);
+            m_isoParameter[i][0] = 0.5 * (-A + B + C + D);
+
+            m_isoParameter[i][1] = 0.5 * (-A + B); // xi1
+            m_isoParameter[i][2] = 0.5 * (-A + C); // xi2
+            m_isoParameter[i][3] = 0.5 * (-A + D); // xi3
+        }
+    }
+
+    if (Gtype == eRegular)
+    {
+        v_CalculateInverseIsoParam();
+    }
+
+    return Gtype;
+}
+
+GeomFactorsUniquePtr TetGeom::v_GenGeomFactors(
+    LibUtilities::PointsKeyVector &keyTgt)
+{
+    GeomType Gtype = CalcGeomType();
+
+    return ObjPoolManager<GeomFactors>::AllocateUniquePtr(
+        Gtype, m_coordim, m_xmap, m_coeffs, keyTgt);
 }
 
 /**
@@ -666,18 +675,78 @@ void TetGeom::SetUpXmap()
     tmp.push_back(m_faces[3]->GetXmap()->GetTraceNcoeffs(1));
     int order2 = *std::max_element(tmp.begin(), tmp.end());
 
-    const LibUtilities::BasisKey A(
-        LibUtilities::eModified_A, order0,
-        LibUtilities::PointsKey(order0 + 1,
-                                LibUtilities::eGaussLobattoLegendre));
-    const LibUtilities::BasisKey B(
-        LibUtilities::eModified_B, order1,
-        LibUtilities::PointsKey(order1, LibUtilities::eGaussRadauMAlpha1Beta0));
-    const LibUtilities::BasisKey C(
-        LibUtilities::eModified_C, order2,
-        LibUtilities::PointsKey(order2, LibUtilities::eGaussRadauMAlpha2Beta0));
+    std::array<LibUtilities::BasisKey, 3> basis = {
+        LibUtilities::BasisKey(
+            LibUtilities::eModified_A, order0,
+            LibUtilities::PointsKey(order0 + 1,
+                                    LibUtilities::eGaussLobattoLegendre)),
+        LibUtilities::BasisKey(
+            LibUtilities::eModified_B, order1,
+            LibUtilities::PointsKey(order1,
+                                    LibUtilities::eGaussRadauMAlpha1Beta0)),
+        LibUtilities::BasisKey(
+            LibUtilities::eModified_C, order2,
+            LibUtilities::PointsKey(order2,
+                                    LibUtilities::eGaussRadauMAlpha2Beta0))};
 
-    m_xmap = MemoryManager<StdRegions::StdTetExp>::AllocateSharedPtr(A, B, C);
+    m_xmap = GetStdTetFactory().CreateInstance(basis);
+}
+
+/**
+ * @brief Put all quadrature information into face/edge structure and
+ * backward transform.
+ *
+ * Note verts, edges, and faces are listed according to anticlockwise
+ * convention but points in _coeffs have to be in array format from left
+ * to right.
+ */
+void TetGeom::v_FillGeom()
+{
+    if (m_state == ePtsFilled)
+    {
+        return;
+    }
+
+    int i, j, k;
+
+    for (i = 0; i < kNfaces; i++)
+    {
+        m_faces[i]->FillGeom();
+
+        int nFaceCoeffs = m_faces[i]->GetXmap()->GetNcoeffs();
+
+        Array<OneD, unsigned int> mapArray(nFaceCoeffs);
+        Array<OneD, int> signArray(nFaceCoeffs);
+
+        if (m_forient[i] < 9)
+        {
+            m_xmap->GetTraceToElementMap(
+                i, mapArray, signArray, m_forient[i],
+                m_faces[i]->GetXmap()->GetTraceNcoeffs(0),
+                m_faces[i]->GetXmap()->GetTraceNcoeffs(1));
+        }
+        else
+        {
+            m_xmap->GetTraceToElementMap(
+                i, mapArray, signArray, m_forient[i],
+                m_faces[i]->GetXmap()->GetTraceNcoeffs(1),
+                m_faces[i]->GetXmap()->GetTraceNcoeffs(0));
+        }
+
+        for (j = 0; j < m_coordim; j++)
+        {
+            const Array<OneD, const NekDouble> &coeffs =
+                m_faces[i]->GetCoeffs(j);
+
+            for (k = 0; k < nFaceCoeffs; k++)
+            {
+                NekDouble v              = signArray[k] * coeffs[k];
+                m_coeffs[j][mapArray[k]] = v;
+            }
+        }
+    }
+
+    m_state = ePtsFilled;
 }
 
 } // namespace Nektar::SpatialDomains

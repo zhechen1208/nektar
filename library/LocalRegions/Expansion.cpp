@@ -40,23 +40,24 @@ using namespace std;
 
 namespace Nektar::LocalRegions
 {
-Expansion::Expansion(SpatialDomains::GeometrySharedPtr pGeom)
+Expansion::Expansion(SpatialDomains::Geometry *pGeom)
     : m_indexMapManager(
           std::bind(&Expansion::CreateIndexMap, this, std::placeholders::_1),
           std::string("ExpansionIndexMap")),
-      m_geom(pGeom), m_metricinfo(m_geom->GetGeomFactors()),
-      m_elementTraceLeft(-1), m_elementTraceRight(-1)
+      m_geom(pGeom), m_elementTraceLeft(-1), m_elementTraceRight(-1)
 {
-    if (!m_metricinfo)
+    GenGeomFactors();
+
+    if (!m_geomFactors)
     {
         return;
     }
 
-    if (!m_metricinfo->IsValid())
+    if (!m_geomFactors->IsValid())
     {
         int nDim    = m_base.size();
         string type = "regular";
-        if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+        if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
         {
             type = "deformed";
         }
@@ -73,8 +74,11 @@ Expansion::Expansion(SpatialDomains::GeometrySharedPtr pGeom)
 
 Expansion::Expansion(const Expansion &pSrc)
     : StdExpansion(pSrc), m_indexMapManager(pSrc.m_indexMapManager),
-      m_geom(pSrc.m_geom), m_metricinfo(pSrc.m_metricinfo)
+      m_geom(pSrc.m_geom)
 {
+    m_geomFactors =
+        ObjPoolManager<SpatialDomains::GeomFactors>::AllocateUniquePtr(
+            *(pSrc.m_geomFactors));
 }
 
 Expansion::~Expansion()
@@ -164,7 +168,7 @@ DNekScalMatSharedPtr Expansion::GetLocMatrix(
     return GetLocMatrix(mkey);
 }
 
-SpatialDomains::GeometrySharedPtr Expansion::GetGeom() const
+SpatialDomains::Geometry *Expansion::GetGeom() const
 {
     return m_geom;
 }
@@ -175,7 +179,7 @@ void Expansion::Reset()
     m_metrics.clear();
 
     // Regenerate geometry factors
-    m_metricinfo = m_geom->GetGeomFactors();
+    GenGeomFactors();
 }
 
 IndexMapValuesSharedPtr Expansion::CreateIndexMap(const IndexMapKey &ikey)
@@ -243,11 +247,6 @@ IndexMapValuesSharedPtr Expansion::CreateIndexMap(const IndexMapKey &ikey)
     return returnval;
 }
 
-const SpatialDomains::GeomFactorsSharedPtr &Expansion::GetMetricInfo() const
-{
-    return m_metricinfo;
-}
-
 const NormalVector &Expansion::GetTraceNormal(const int id)
 {
     std::map<int, NormalVector>::const_iterator x;
@@ -273,7 +272,7 @@ DNekScalBlkMatSharedPtr Expansion::CreateStaticCondMatrix(const MatrixKey &mkey)
 {
     DNekScalBlkMatSharedPtr returnval;
 
-    ASSERTL2(m_metricinfo->GetGtype() != SpatialDomains::eNoGeomType,
+    ASSERTL2(m_geomFactors->GetGtype() != SpatialDomains::eNoGeomType,
              "Geometric information is not set up");
 
     // set up block matrix system
@@ -291,7 +290,7 @@ DNekScalBlkMatSharedPtr Expansion::CreateStaticCondMatrix(const MatrixKey &mkey)
         // this can only use stdregions statically condensed system
         // for mass matrix
         case StdRegions::eMass:
-            if ((m_metricinfo->GetGtype() == SpatialDomains::eDeformed) ||
+            if ((m_geomFactors->GetGtype() == SpatialDomains::eDeformed) ||
                 (mkey.GetNVarCoeff()))
             {
                 factor = 1.0;
@@ -299,7 +298,7 @@ DNekScalBlkMatSharedPtr Expansion::CreateStaticCondMatrix(const MatrixKey &mkey)
             }
             else
             {
-                factor = (m_metricinfo->GetJac(GetPointsKeys()))[0];
+                factor = (m_geomFactors->GetJac())[0];
                 goto UseStdRegionsMatrix;
             }
             break;
@@ -420,6 +419,54 @@ void Expansion::v_DropLocMatrix(
     NEKERROR(ErrorUtil::efatal, "This function is only valid for LocalRegions");
 }
 
+/**
+ * \brief Forward transform from physical quadrature space stored in
+ * \a inarray and evaluate the expansion coefficients and store in \a
+ * (this)->m_coeffs
+ *
+ * Inputs:\n
+ *
+ * - \a inarray: array of physical quadrature points to be transformed
+ *
+ * Outputs:\n
+ *
+ * - (this)->_coeffs: updated array of expansion coefficients.
+ */
+void Expansion::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
+                           Array<OneD, NekDouble> &outarray)
+{
+    if (v_IsCollocatedBasis())
+    {
+        Vmath::Vcopy(GetNcoeffs(), &inarray[0], 1, &outarray[0], 1);
+    }
+    else
+    {
+        v_IProductWRTBase(inarray, outarray);
+
+        // get Mass matrix inverse
+        MatrixKey masskey(StdRegions::eInvMass, DetShapeType(), *this);
+        DNekScalMatSharedPtr matsys = v_GetLocMatrix(masskey);
+
+        // copy inarray in case inarray == outarray
+        DNekVec in(m_ncoeffs, outarray);
+        DNekVec out(m_ncoeffs, outarray, eWrapper);
+
+        out = (*matsys) * in;
+    }
+}
+
+NekDouble Expansion::v_PhysEvaluate(
+    const Array<OneD, const NekDouble> &coord,
+    const Array<OneD, const NekDouble> &physvals)
+{
+    Array<OneD, NekDouble> Lcoord = Array<OneD, NekDouble>(GetShapeDimension());
+
+    ASSERTL0(m_geom, "m_geom not defined");
+    m_geom->GetLocCoords(coord, Lcoord);
+
+    return v_StdPhysEvaluate(Lcoord, physvals);
+}
+
 void Expansion::v_MultiplyByQuadratureMetric(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray)
@@ -448,6 +495,14 @@ void Expansion::v_DivideByQuadratureMetric(
 
     Vmath::Vdiv(nqtot, inarray, 1, m_metrics[eMetricQuadrature], 1, outarray,
                 1);
+    // remove NaN or Inf values and set to zero
+    for (int i = 0; i < nqtot; ++i)
+    {
+        if (std::isnan(outarray[i]) || std::isinf(outarray[i]))
+        {
+            outarray[i] = 0.0;
+        }
+    }
 }
 
 void Expansion::ComputeLaplacianMetric()
@@ -457,18 +512,17 @@ void Expansion::ComputeLaplacianMetric()
 
 void Expansion::ComputeQuadratureMetric()
 {
-    unsigned int nqtot              = GetTotPoints();
-    SpatialDomains::GeomType type   = m_metricinfo->GetGtype();
-    LibUtilities::PointsKeyVector p = GetPointsKeys();
+    unsigned int nqtot            = GetTotPoints();
+    SpatialDomains::GeomType type = m_geomFactors->GetGtype();
     if (type == SpatialDomains::eRegular ||
         type == SpatialDomains::eMovingRegular)
     {
         m_metrics[eMetricQuadrature] =
-            Array<OneD, NekDouble>(nqtot, m_metricinfo->GetJac(p)[0]);
+            Array<OneD, NekDouble>(nqtot, m_geomFactors->GetJac()[0]);
     }
     else
     {
-        m_metrics[eMetricQuadrature] = m_metricinfo->GetJac(p);
+        m_metrics[eMetricQuadrature] = m_geomFactors->GetJac();
     }
 
     v_MultiplyByStdQuadratureMetric(m_metrics[eMetricQuadrature],
@@ -527,6 +581,79 @@ void Expansion::StdDerivBaseOnTraceMat(Array<OneD, DNekMatSharedPtr> &DerivMat)
                 }
             }
             cnt += nTracePts;
+        }
+    }
+}
+
+void Expansion::PhysDerivBaseOnTraceMat(const int traceid,
+                                        Array<OneD, DNekMatSharedPtr> &DerivMat)
+{
+    int nquad = GetTotPoints();
+    int ndir  = m_base.size();
+
+    Array<OneD, NekDouble> coeffs(m_ncoeffs);
+    Array<OneD, NekDouble> phys(nquad);
+
+    Array<OneD, int> tracePhysIds;
+    GetTracePhysMap(traceid, tracePhysIds);
+
+    int nTracePts = GetTraceNumPoints(traceid);
+
+    // initialise array to null so can call for
+    // differnt dimensions
+    Array<OneD, Array<OneD, NekDouble>> Deriv(3, NullNekDouble1DArray);
+    DerivMat = Array<OneD, DNekMatSharedPtr>(ndir);
+    for (int d = 0; d < ndir; ++d)
+    {
+        Deriv[d]    = Array<OneD, NekDouble>(nquad);
+        DerivMat[d] = MemoryManager<DNekMat>::AllocateSharedPtr(m_ncoeffs,
+                                                                nTracePts, 0.0);
+    }
+
+    for (int i = 0; i < m_ncoeffs; ++i)
+    {
+        Vmath::Zero(m_ncoeffs, coeffs, 1);
+        coeffs[i] = 1.0;
+        BwdTrans(coeffs, phys);
+
+        // dphi_i/d\xi_1,  dphi_i/d\xi_2  dphi_i/d\xi_3
+        PhysDeriv(phys, Deriv[0], Deriv[1], Deriv[2]);
+
+        for (int k = 0; k < nTracePts; ++k)
+        {
+            for (int d = 0; d < ndir; ++d)
+            {
+                (*DerivMat[d])(i, k) = Deriv[d][tracePhysIds[k]];
+            }
+        }
+    }
+}
+
+void Expansion::PhysBaseOnTraceMat(const int traceid,
+                                   DNekMatSharedPtr &BdataMat)
+{
+    int nquad = GetTotPoints();
+
+    Array<OneD, NekDouble> coeffs(m_ncoeffs);
+    Array<OneD, NekDouble> phys(nquad);
+
+    Array<OneD, int> tracePhysIds;
+    GetTracePhysMap(traceid, tracePhysIds);
+
+    int nTracePts = GetTraceNumPoints(traceid);
+
+    BdataMat =
+        MemoryManager<DNekMat>::AllocateSharedPtr(m_ncoeffs, nTracePts, 0.0);
+
+    for (int i = 0; i < m_ncoeffs; ++i)
+    {
+        Vmath::Zero(m_ncoeffs, coeffs, 1);
+        coeffs[i] = 1.0;
+        BwdTrans(coeffs, phys);
+
+        for (int k = 0; k < nTracePts; ++k)
+        {
+            (*BdataMat)(i, k) = phys[tracePhysIds[k]];
         }
     }
 }
@@ -617,7 +744,7 @@ void Expansion::ComputeGmatcdotMF(const Array<TwoD, const NekDouble> &df,
         dfdir[j] = Array<OneD, NekDouble>(nqtot, 0.0);
         for (int k = 0; k < coordim; k++)
         {
-            if (m_metricinfo->GetGtype() == SpatialDomains::eDeformed)
+            if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
             {
                 Vmath::Vvtvp(nqtot, &df[shapedim * k + j][0], 1,
                              &direction[k * nqtot], 1, &dfdir[j][0], 1,
@@ -856,7 +983,7 @@ void Expansion::v_GetTracePhysMap([[maybe_unused]] const int edge,
 void Expansion::v_ReOrientTracePhysMap(
     [[maybe_unused]] const StdRegions::Orientation orient,
     [[maybe_unused]] Array<OneD, int> &idmap, [[maybe_unused]] const int nq0,
-    [[maybe_unused]] const int nq1)
+    [[maybe_unused]] const int nq1, [[maybe_unused]] bool Forwards)
 {
     NEKERROR(ErrorUtil::efatal,
              "Method does not exist for this shape or library");
@@ -931,4 +1058,283 @@ void Expansion::v_AlignVectorToCollapsedDir(
 {
     NEKERROR(ErrorUtil::efatal, "v_AlignVectorToCollapsedDir is not defined");
 }
+
+void GetTraceQuadRange(const LibUtilities::ShapeType shapeType,
+                       const LibUtilities::BasisKeyVector &bkeys, int traceid,
+                       std::vector<int> &q_begin, std::vector<int> &q_end)
+{
+    auto DIM = LibUtilities::ShapeTypeDimMap[shapeType];
+
+    if (DIM == 1)
+    {
+        q_begin.resize(1);
+        q_end.resize(1);
+        LibUtilities::GetEffectiveQuadRange(bkeys[0].GetPointsKey(), q_begin[0],
+                                            q_end[0]);
+        return;
+    }
+    else if (DIM == 2)
+    {
+        q_begin.resize(2);
+        q_end.resize(2);
+        LibUtilities::GetEffectiveQuadRange(bkeys[0].GetPointsKey(), q_begin[0],
+                                            q_end[0]);
+        LibUtilities::GetEffectiveQuadRange(bkeys[1].GetPointsKey(), q_begin[1],
+                                            q_end[1]);
+    }
+    else if (DIM == 3)
+    {
+        q_begin.resize(3);
+        q_end.resize(3);
+        LibUtilities::GetEffectiveQuadRange(bkeys[0].GetPointsKey(), q_begin[0],
+                                            q_end[0]);
+        LibUtilities::GetEffectiveQuadRange(bkeys[1].GetPointsKey(), q_begin[1],
+                                            q_end[1]);
+        LibUtilities::GetEffectiveQuadRange(bkeys[2].GetPointsKey(), q_begin[2],
+                                            q_end[2]);
+    }
+
+    switch (shapeType)
+    {
+        case LibUtilities::eTriangle:
+        {
+            switch (traceid)
+            {
+                case 0:
+                {
+                    // assume it always includes the end points
+                    q_begin[1] = 0;
+                    q_end[1]   = 1;
+                    return;
+                }
+                case 1:
+                {
+                    // assume it always includes the end points
+                    q_begin[0] = bkeys[0].GetNumPoints() - 1;
+                    q_end[0]   = bkeys[0].GetNumPoints();
+                    return;
+                }
+                case 2:
+                {
+                    q_begin[0] = 0;
+                    q_end[0]   = 1;
+                    return;
+                }
+                default:
+                {
+                    NEKERROR(ErrorUtil::efatal, "Invalid trace id");
+                    break;
+                }
+            }
+        }
+        break;
+        case LibUtilities::eQuadrilateral:
+        {
+            switch (traceid)
+            {
+                case 0:
+                {
+                    q_begin[1] = 0;
+                    q_end[1]   = 1;
+                    return;
+                }
+                case 1:
+                {
+                    q_begin[0] = bkeys[0].GetNumPoints() - 1;
+                    q_end[0]   = bkeys[0].GetNumPoints();
+                    return;
+                }
+                case 2:
+                {
+                    q_begin[1] = bkeys[1].GetNumPoints() - 1;
+                    q_end[1]   = bkeys[1].GetNumPoints();
+                    return;
+                }
+                case 3:
+                {
+                    q_begin[0] = 0;
+                    q_end[0]   = 1;
+                    return;
+                }
+                default:
+                {
+                    NEKERROR(ErrorUtil::efatal, "Invalid trace id");
+                    break;
+                }
+            }
+        }
+        break;
+        case LibUtilities::eHexahedron:
+        {
+            switch (traceid)
+            {
+                case 0:
+                {
+                    q_begin[2] = 0;
+                    q_end[2]   = 1;
+                    return;
+                }
+                case 1:
+                {
+                    q_begin[1] = 0;
+                    q_end[1]   = 1;
+                    return;
+                }
+                case 2:
+                {
+                    q_begin[0] = bkeys[0].GetNumPoints() - 1;
+                    q_end[0]   = bkeys[0].GetNumPoints();
+                    return;
+                }
+                case 3:
+                {
+                    q_begin[1] = bkeys[1].GetNumPoints() - 1;
+                    q_end[1]   = bkeys[1].GetNumPoints();
+                    return;
+                }
+                case 4:
+                {
+                    q_begin[0] = 0;
+                    q_end[0]   = 1;
+                    return;
+                }
+                case 5:
+                {
+                    q_begin[2] = bkeys[2].GetNumPoints() - 1;
+                    q_end[2]   = bkeys[2].GetNumPoints();
+                    return;
+                }
+                default:
+                {
+                    NEKERROR(ErrorUtil::efatal, "Invalid trace id");
+                    break;
+                }
+            }
+        }
+        break;
+        case LibUtilities::eTetrahedron:
+        {
+            switch (traceid)
+            {
+                case 0:
+                {
+                    q_begin[2] = 0;
+                    q_end[2]   = 1;
+                    return;
+                }
+                case 1:
+                {
+                    q_begin[1] = 0;
+                    q_end[1]   = 1;
+                    return;
+                }
+                case 2:
+                {
+                    q_begin[0] = bkeys[0].GetNumPoints() - 1;
+                    q_end[0]   = bkeys[0].GetNumPoints();
+                    return;
+                }
+                case 3:
+                {
+                    q_begin[0] = 0;
+                    q_end[0]   = 1;
+                    return;
+                }
+                default:
+                {
+                    NEKERROR(ErrorUtil::efatal, "Invalid trace id");
+                    break;
+                }
+            }
+        }
+        break;
+        case LibUtilities::ePrism:
+        {
+            switch (traceid)
+            {
+                case 0:
+                {
+                    q_begin[2] = 0;
+                    q_end[2]   = 1;
+                    return;
+                }
+                case 1:
+                {
+                    q_begin[1] = 0;
+                    q_end[1]   = 1;
+                    return;
+                }
+                case 2:
+                {
+                    q_begin[0] = bkeys[0].GetNumPoints() - 1;
+                    q_end[0]   = bkeys[0].GetNumPoints();
+                    return;
+                }
+                case 3:
+                {
+                    q_begin[1] = bkeys[1].GetNumPoints() - 1;
+                    q_end[1]   = bkeys[1].GetNumPoints();
+                    return;
+                }
+                case 4:
+                {
+                    q_begin[0] = 0;
+                    q_end[0]   = 1;
+                    return;
+                }
+                default:
+                {
+                    NEKERROR(ErrorUtil::efatal, "Invalid trace id");
+                    break;
+                }
+            }
+        }
+        break;
+        case LibUtilities::ePyramid:
+        {
+            switch (traceid)
+            {
+                case 0:
+                {
+                    q_begin[2] = 0;
+                    q_end[2]   = 1;
+                    return;
+                }
+                case 1:
+                {
+                    q_begin[1] = 0;
+                    q_end[1]   = 1;
+                    return;
+                }
+                case 2:
+                {
+                    q_begin[0] = bkeys[0].GetNumPoints() - 1;
+                    q_end[0]   = bkeys[0].GetNumPoints();
+                    return;
+                }
+                case 3:
+                {
+                    q_begin[0] = bkeys[1].GetNumPoints() - 1;
+                    q_end[0]   = bkeys[1].GetNumPoints();
+                    return;
+                }
+                case 4:
+                {
+                    q_begin[1] = 0;
+                    q_end[1]   = 1;
+                    return;
+                }
+                default:
+                {
+                    NEKERROR(ErrorUtil::efatal, "Invalid trace id");
+                    break;
+                }
+            }
+        }
+        break;
+        default:
+            return;
+    }
+}
+
 } // namespace Nektar::LocalRegions

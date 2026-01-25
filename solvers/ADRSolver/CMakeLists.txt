@@ -11,6 +11,7 @@ IF( NEKTAR_SOLVER_ADR )
         ./ADRSolver.cpp
         ./EquationSystems/Helmholtz.cpp
         ./EquationSystems/Laplace.cpp
+        ./EquationSystems/LaplacePhi.cpp
         ./EquationSystems/Poisson.cpp
         ./EquationSystems/Projection.cpp
         ./EquationSystems/SteadyAdvectionDiffusion.cpp
@@ -123,6 +124,9 @@ IF( NEKTAR_SOLVER_ADR )
     ADD_NEKTAR_TEST(AdvDiff_QuadTri_GJP)
     ADD_NEKTAR_TEST(AdvDiff3D_AllElmt_GJP)
 
+    # 1D continuous advection (non-conservative)
+    ADD_NEKTAR_TEST(Advection1D_implicit)
+
     # 2D continuous advection (non-conservative)
     ADD_NEKTAR_TEST(Advection_m12_Order1)
     ADD_NEKTAR_TEST(Advection_m12_Order2)
@@ -232,6 +236,7 @@ IF( NEKTAR_SOLVER_ADR )
     ADD_NEKTAR_TEST(SVV_Tri)
     ADD_NEKTAR_TEST(SVV_Prism)
     ADD_NEKTAR_TEST(SVV_Tet)
+    ADD_NEKTAR_TEST(LaplacePhi)
 
     # Movement tests
     ADD_NEKTAR_TEST(Movement_fixed_interfaces232_dirichlet)

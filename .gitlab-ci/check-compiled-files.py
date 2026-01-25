@@ -55,6 +55,8 @@ ignore_sources = [
     "solvers/CompressibleFlowSolver/Utilities/TimeRoeKernel.cpp",
     # Template for PWS
     "solvers/PulseWaveSolver/EquationSystems/TemplatePressureArea.cpp",
+    # CardiacEPSolver CellMLToNektar template file
+    "solvers/CardiacEPSolver/Utilities/CellMLToNektar/nektar/template/model.cpp",
 ]
 
 ignore_sources = [ os.path.join(cwd, os.path.normpath(p)) for p in ignore_sources ]
