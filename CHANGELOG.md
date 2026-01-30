@@ -17,6 +17,7 @@ v5.10.0
 - Remove v_IProductWRTBase_SumFac and v_IProductWRTDerivBase_SumFac member functions from LocalRegion and StdRegion (!2263)
 - Tidy redundant use of orientation in FwdTransBndConstrained (!2361)
 - Added UnitTest for the LinearADR operator in Collections (!1831)
+- Remove v_PhysDeriv_s and v_PhysDeriv_n (!2364)
 - Add support for pybind11 v3.0 (2332)
 - fix for ReOrientTraceMap to accurately reflect eDir1FwdDir2_Dir2BwdDir1 & eDir1BwdDir2_Dir2FwdDir1 (!2362)
 - Tidy PhysDeriv in StdRegion and LocalRegion (!2367)

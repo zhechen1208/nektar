@@ -68,8 +68,6 @@ enum Direction
     eX,
     eY,
     eZ,
-    eS,
-    eN
 };
 
 enum ExpansionType
