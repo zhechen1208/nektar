@@ -23,6 +23,8 @@ v5.10.0
 - Add Flexible option for Conjugate Gradient and GMRES (!2376)
 - Tidy v_FwdTrans, v_IProductWRTBase, v_MultiplyByStdQuadratureMetric, v_StdPhysEvaluate, v_PhysEvaluate, v_StdPhysDeriv, v_PhysDeriv inheritance in StdRegion and LocalRegion (!2381)
 
+- Remove Vmath SIMD (!2365) 
+
 v5.9.0
 ------
 **Library**
