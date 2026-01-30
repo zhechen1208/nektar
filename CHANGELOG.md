@@ -20,6 +20,7 @@ v5.10.0
 - Add support for pybind11 v3.0 (2332)
 - fix for ReOrientTraceMap to accurately reflect eDir1FwdDir2_Dir2BwdDir1 & eDir1BwdDir2_Dir2FwdDir1 (!2362)
 
+- Remove Vmath SIMD (!2365) 
 
 v5.9.0
 ------
