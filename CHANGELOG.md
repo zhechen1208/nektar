@@ -25,6 +25,7 @@ v5.10.0
 - Tidy v_FwdTrans, v_IProductWRTBase, v_MultiplyByStdQuadratureMetric, v_StdPhysEvaluate, v_PhysEvaluate, v_StdPhysDeriv, v_PhysDeriv inheritance in StdRegion and LocalRegion (!2381)
 
 - Remove Vmath SIMD (!2365) 
+- Fix non-zero Dirichlet BCs with flow rate for inc NS Solver (!2399)
 
 v5.9.0
 ------

@@ -410,7 +410,45 @@ void VelocityCorrectionScheme::SetupFlowrate(NekDouble aii_dt)
     //  to spacedim. Only need velocity components for stokes forcing
     int SaveNConvectiveFields = m_nConvectiveFields;
     m_nConvectiveFields       = m_spacedim;
+    // Save Dirichlet BCs and set to zero for Stokes solve
+    std::map<std::pair<int, int>, Array<OneD, NekDouble>> SaveDirBCs;
+    for (int i = 0; i < m_nConvectiveFields; ++i)
+    {
+        const Array<OneD, const ExpListSharedPtr> &BndCondExp =
+            m_fields[i]->GetBndCondExpansions();
+
+        for (int j = 0; j < BndCondExp.size(); ++j)
+        {
+            if (m_fields[i]
+                    ->GetBndConditions()[j]
+                    ->GetBoundaryConditionType() == SpatialDomains::eDirichlet)
+            {
+                Array<OneD, NekDouble> bndcoeffs =
+                    m_fields[i]->UpdateBndCondExpansion(j)->UpdateCoeffs();
+                SaveDirBCs[std::make_pair(i, j)] =
+                    Array<OneD, NekDouble>(bndcoeffs.size(), bndcoeffs.data());
+                Vmath::Zero(bndcoeffs.size(), bndcoeffs, 1);
+            }
+        }
+    }
     SolveUnsteadyStokesSystem(inTmp, m_flowrateStokes, 0.0, aii_dt);
+    // Reset Dirichlet BCs
+    for (int i = 0; i < m_nConvectiveFields; ++i)
+    {
+        for (int j = 0; j < m_fields[i]->GetBndCondExpansions().size(); ++j)
+        {
+            if (m_fields[i]
+                    ->GetBndConditions()[j]
+                    ->GetBoundaryConditionType() == SpatialDomains::eDirichlet)
+            {
+                Array<OneD, NekDouble> bndcoeffs =
+                    m_fields[i]->UpdateBndCondExpansion(j)->UpdateCoeffs();
+                Vmath::Vcopy(bndcoeffs.size(), SaveDirBCs[std::make_pair(i, j)],
+                             1, bndcoeffs, 1);
+            }
+        }
+    }
+
     m_nConvectiveFields = SaveNConvectiveFields;
     m_greenFlux         = MeasureFlowrate(m_flowrateStokes);
 
