@@ -26,6 +26,7 @@ v5.10.0
 - Tidy v_FwdTrans, v_Integral, v_GetStdExp, v_GetLinStdExp virtual functions (!!2384)
 
 - Remove Vmath SIMD (!2365) 
+- Fix non-zero Dirichlet BCs with flow rate for inc NS Solver (!2399)
 
 v5.9.0
 ------
