@@ -127,6 +127,17 @@ void ContField3DHomogeneous2D::v_ImposeDirichletConditions(
 /**
  *
  */
+void ContField3DHomogeneous2D::v_AvgAssemble(bool useComm)
+{
+    for (int n = 0; n < m_lines.size(); ++n)
+    {
+        m_lines[n]->AvgAssemble(useComm);
+    }
+}
+
+/**
+ *
+ */
 void ContField3DHomogeneous2D::v_LocalToGlobal(bool useComm)
 {
     for (int n = 0; n < m_lines.size(); ++n)

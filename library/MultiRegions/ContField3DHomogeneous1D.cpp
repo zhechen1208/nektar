@@ -194,6 +194,17 @@ void ContField3DHomogeneous1D::v_FillBndCondFromField(
 /**
  *
  */
+void ContField3DHomogeneous1D::v_AvgAssemble(bool useComm)
+{
+    for (int n = 0; n < m_planes.size(); ++n)
+    {
+        m_planes[n]->AvgAssemble(useComm);
+    }
+}
+
+/**
+ *
+ */
 void ContField3DHomogeneous1D::v_LocalToGlobal(bool useComm)
 {
     for (int n = 0; n < m_planes.size(); ++n)

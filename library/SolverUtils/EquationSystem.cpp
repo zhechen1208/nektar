@@ -1086,7 +1086,7 @@ void EquationSystem::v_SetInitialConditions(
         {
             for (int i = 0; i < m_fields.size(); ++i)
             {
-                m_fields[i]->LocalToGlobal();
+                m_fields[i]->AvgAssemble();
                 m_fields[i]->GlobalToLocal();
                 m_fields[i]->BwdTrans(m_fields[i]->GetCoeffs(),
                                       m_fields[i]->UpdatePhys());
