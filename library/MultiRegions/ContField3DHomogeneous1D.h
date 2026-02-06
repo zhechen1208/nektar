@@ -77,6 +77,9 @@ protected:
     void v_FillBndCondFromField(const int nreg,
                                 const Array<OneD, NekDouble> coeffs) override;
 
+    /// Template method virtual forwarded for AvgAssemble()
+    void v_AvgAssemble(bool useComm) override;
+
     /// Template method virtual forwarded for LocalToGlobal()
     void v_LocalToGlobal(bool useComm) override;
 

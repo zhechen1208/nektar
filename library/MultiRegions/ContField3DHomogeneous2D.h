@@ -68,6 +68,8 @@ protected:
 
     void v_ImposeDirichletConditions(Array<OneD, NekDouble> &outarray) override;
 
+    void v_AvgAssemble(bool useComm) override;
+
     /// Template method virtual forwarded for LocalToGlobal()
     void v_LocalToGlobal(bool useComm) override;
 

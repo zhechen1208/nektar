@@ -720,6 +720,35 @@ void ContField::v_GlobalToLocal(void)
  * \f{tabbing}
  * \hspace{1cm}  \= Do \= $e=$  $1, N_{\mathrm{el}}$ \\
  * \> \> Do \= $i=$  $0,N_m^e-1$ \\
+ * \> \> \> $\boldsymbol{\hat{u}}_g[\mbox{map}[e][i]] +=
+ * \mbox{invMultiplicityWithign}[e][i] \cdot \boldsymbol{\hat{u}}^{e}[i]$\\
+ * \> \> continue\\
+ * \> continue
+ * \f}
+ * where \a map\f$[e][i]\f$ is the mapping array and \a
+ * invMultiplicityWithSign\f$[e][i]\f$ is an array of similar dimensions
+ * ensuring the correct modal connectivity between the different elements
+ * divided by the multiplicity of the degree of freedom(both these arrays are
+ * contained in the data member #m_locToGloMap).
+ *
+ */
+void ContField::v_AvgAssemble(const Array<OneD, const NekDouble> &inarray,
+                              Array<OneD, NekDouble> &outarray, bool useComm)
+{
+    m_locToGloMap->AvgAssemble(inarray, outarray, useComm);
+}
+
+void ContField::v_AvgAssemble(bool useComm)
+
+{
+    m_locToGloMap->AvgAssemble(m_coeffs, m_coeffs, useComm);
+}
+
+/**
+ * This operation is evaluated as:
+ * \f{tabbing}
+ * \hspace{1cm}  \= Do \= $e=$  $1, N_{\mathrm{el}}$ \\
+ * \> \> Do \= $i=$  $0,N_m^e-1$ \\
  * \> \> \> $\boldsymbol{\hat{u}}_g[\mbox{map}[e][i]] =
  * \mbox{sign}[e][i] \cdot \boldsymbol{\hat{u}}^{e}[i]$\\
  * \> \> continue\\
@@ -728,14 +757,9 @@ void ContField::v_GlobalToLocal(void)
  * where \a map\f$[e][i]\f$ is the mapping array and \a
  * sign\f$[e][i]\f$ is an array of similar dimensions ensuring the
  * correct modal connectivity between the different elements (both
- * these arrays are contained in the data member #m_locToGloMap). This
- * operation is equivalent to the gather operation
- * \f$\boldsymbol{\hat{u}}_g=\mathcal{A}^{-1}\boldsymbol{\hat{u}}_l\f$,
- * where \f$\mathcal{A}\f$ is the
- * \f$N_{\mathrm{eof}}\times N_{\mathrm{dof}}\f$ permutation matrix.
+ * these arrays are contained in the data member #m_locToGloMap).
  *
  */
-
 void ContField::v_LocalToGlobal(const Array<OneD, const NekDouble> &inarray,
                                 Array<OneD, NekDouble> &outarray, bool useComm)
 {

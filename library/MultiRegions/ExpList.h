@@ -456,6 +456,13 @@ public:
     /// stored in expansion
     inline void FillBndCondFromField(const int nreg,
                                      const Array<OneD, NekDouble> coeffs);
+    /// Assemble the average global coefficients \f$\boldsymbol{\hat{u}}_g\f$
+    /// from the local coefficients \f$\boldsymbol{\hat{u}}_l\f$ .
+    // inline
+    MULTI_REGIONS_EXPORT inline void AvgAssemble(bool useComm = true);
+    MULTI_REGIONS_EXPORT inline void AvgAssemble(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray, bool useComm = true);
     /// Gathers the global coefficients \f$\boldsymbol{\hat{u}}_g\f$
     /// from the local coefficients \f$\boldsymbol{\hat{u}}_l\f$.
     // inline
@@ -1318,6 +1325,9 @@ protected:
     virtual void v_FillBndCondFromField(const int nreg,
                                         const Array<OneD, NekDouble> coeffs);
     virtual void v_Reset();
+    virtual void v_AvgAssemble(bool UseComm);
+    virtual void v_AvgAssemble(const Array<OneD, const NekDouble> &inarray,
+                               Array<OneD, NekDouble> &outarray, bool UseComm);
     virtual void v_LocalToGlobal(bool UseComm);
     virtual void v_LocalToGlobal(const Array<OneD, const NekDouble> &inarray,
                                  Array<OneD, NekDouble> &outarray,
@@ -2036,6 +2046,15 @@ inline void ExpList::FillBndCondFromField(const int nreg,
                                           const Array<OneD, NekDouble> coeffs)
 {
     v_FillBndCondFromField(nreg, coeffs);
+}
+inline void ExpList::AvgAssemble(bool useComm)
+{
+    v_AvgAssemble(useComm);
+}
+inline void ExpList::AvgAssemble(const Array<OneD, const NekDouble> &inarray,
+                                 Array<OneD, NekDouble> &outarray, bool useComm)
+{
+    v_AvgAssemble(inarray, outarray, useComm);
 }
 inline void ExpList::LocalToGlobal(bool useComm)
 {

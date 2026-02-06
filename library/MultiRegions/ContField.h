@@ -192,6 +192,15 @@ protected:
     MULTI_REGIONS_EXPORT void v_FillBndCondFromField(
         const int nreg, const Array<OneD, NekDouble> coeffs) override;
 
+    /// Assembly and average of the global coefficients
+    /// \f$\boldsymbol{\hat{u}}_g\f$ from the local coefficients
+    /// \f$\boldsymbol{\hat{u}}_l\f$.
+    MULTI_REGIONS_EXPORT void v_AvgAssemble(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray, bool useComm) override;
+
+    MULTI_REGIONS_EXPORT void v_AvgAssemble(bool useComm) override;
+
     /// Gathers the global coefficients \f$\boldsymbol{\hat{u}}_g\f$
     /// from the local coefficients \f$\boldsymbol{\hat{u}}_l\f$.
     MULTI_REGIONS_EXPORT void v_LocalToGlobal(

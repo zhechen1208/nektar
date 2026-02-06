@@ -5332,6 +5332,21 @@ void ExpList::v_FillBndCondFromField(
              "This method is not defined or valid for this class type");
 }
 
+void ExpList::v_AvgAssemble([[maybe_unused]] bool useComm)
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This method is not defined or valid for this class type");
+}
+
+void ExpList::v_AvgAssemble(
+    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
+    [[maybe_unused]] Array<OneD, NekDouble> &outarray,
+    [[maybe_unused]] bool useComm)
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This method is not defined or valid for this class type");
+}
+
 void ExpList::v_LocalToGlobal([[maybe_unused]] bool useComm)
 {
     NEKERROR(ErrorUtil::efatal,
