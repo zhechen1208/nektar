@@ -124,19 +124,21 @@ public:
         Array<OneD, NekDouble> &inout,
         const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray);
 
-    MULTI_REGIONS_EXPORT const GJPStabilisationSharedPtr GetGJPForcing()
+    MULTI_REGIONS_EXPORT void InitGJPData()
     {
-        // initialize if required
         if (!m_GJPData)
         {
             m_GJPData = MemoryManager<GJPStabilisation>::AllocateSharedPtr(
                 GetSharedThisPtr());
         }
+    }
 
+    MULTI_REGIONS_EXPORT const GJPStabilisationSharedPtr GetGJPData()
+    {
         return m_GJPData;
     }
 
-    MULTI_REGIONS_EXPORT void SetGJPForcing(
+    MULTI_REGIONS_EXPORT void SetGJPData(
         const GJPStabilisationSharedPtr &GJPData)
     {
         m_GJPData = GJPData;
@@ -239,7 +241,7 @@ protected:
                 Array<OneD, NekDouble> &outarray,
                 const StdRegions::ConstFactorMap &factors,
                 const StdRegions::VarCoeffMap &varcoeff,
-                const MultiRegions::VarFactorsMap &varfactors,
+                const StdRegions::VarFactorsMap &varfactors,
                 const Array<OneD, const NekDouble> &dirForcing,
                 const bool PhysSpaceForcing) override;
 
@@ -251,7 +253,7 @@ protected:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff,
-        const MultiRegions::VarFactorsMap &varfactors,
+        const StdRegions::VarFactorsMap &varfactors,
         const Array<OneD, const NekDouble> &dirForcing,
         const bool PhysSpaceForcing) override;
 
@@ -262,7 +264,7 @@ protected:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff,
-        const MultiRegions::VarFactorsMap &varfactors,
+        const StdRegions::VarFactorsMap &varfactors,
         const Array<OneD, const NekDouble> &dirForcing,
         const bool PhysSpaceForcing) override;
 
@@ -282,6 +284,12 @@ protected:
     // Remove GlobalLinSys, StaticCond Blocks and LocalMatrix Blocks
     MULTI_REGIONS_EXPORT void v_UnsetGlobalLinSys(GlobalLinSysKey,
                                                   bool) override;
+
+    MULTI_REGIONS_EXPORT const GJPStabilisationSharedPtr
+    v_GetGJPData(void) override
+    {
+        return m_GJPData;
+    }
 };
 
 typedef std::shared_ptr<ContField> ContFieldSharedPtr;

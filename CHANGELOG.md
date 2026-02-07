@@ -19,6 +19,7 @@ v5.10.0
 - Added UnitTest for the LinearADR operator in Collections (!1831)
 - Remove v_PhysDeriv_s and v_PhysDeriv_n (!2364)
 - Add support for pybind11 v3.0 (2332)
+- Updated GJP feature to ensure symmetric and works in 3D (2366)
 - fix for ReOrientTraceMap to accurately reflect eDir1FwdDir2_Dir2BwdDir1 & eDir1BwdDir2_Dir2FwdDir1 (!2362)
 - fix to make Continuous Galerkin initial conditions consistent in serial and parallel (!2387)
 
