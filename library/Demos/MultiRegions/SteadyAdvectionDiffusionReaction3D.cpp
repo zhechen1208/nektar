@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 //
-// File: SteadyAdvectionDiffusionReaction2D.cpp
+// File: SteadyAdvectionDiffusionReaction3D.cpp
 //
 // For more information, please see: http://www.nektar.info
 //
@@ -65,19 +65,19 @@ int main(int argc, char *argv[])
     Array<OneD, NekDouble> fce;
     Array<OneD, NekDouble> xc0, xc1, xc2;
     NekDouble lambda;
-    NekDouble ax, ay;
+    NekDouble ax, ay, az;
     StdRegions::ConstFactorMap factors;
 
     if (argc < 2)
     {
-        fprintf(stderr, "Usage: SteadyAdvectionDiffusionReaction2D  meshfile "
+        fprintf(stderr, "Usage: SteadyAdvectionDiffusionReaction3D  meshfile "
                         "[SysSolnType]\n");
         exit(1);
     }
 
     //----------------------------------------------
     // Read in mesh from input file
-    SpatialDomains::MeshGraphSharedPtr graph2D =
+    SpatialDomains::MeshGraphSharedPtr graph3D =
         SpatialDomains::MeshGraphIO::Read(vSession);
     //----------------------------------------------
 
@@ -85,6 +85,7 @@ int main(int argc, char *argv[])
     // Get Advection Velocity
     ax = vSession->GetParameter("Advection_x");
     ay = vSession->GetParameter("Advection_y");
+    az = vSession->GetParameter("Advection_z");
     //----------------------------------------------
 
     //----------------------------------------------
@@ -103,17 +104,21 @@ int main(int argc, char *argv[])
     lambda = vSession->GetParameter("Lambda");
     cout << "            Lambda         : " << lambda << endl;
     const SpatialDomains::ExpansionInfoMap &expansions =
-        graph2D->GetExpansionInfo();
+        graph3D->GetExpansionInfo();
     LibUtilities::BasisKey bkey0 =
         expansions.begin()->second->m_basisKeyVector[0];
     LibUtilities::BasisKey bkey1 =
         expansions.begin()->second->m_basisKeyVector[1];
+    LibUtilities::BasisKey bkey2 =
+        expansions.begin()->second->m_basisKeyVector[2];
     cout << "Solving Steady 2D LinearAdvection :" << endl;
     cout << "            Advection_x    : " << ax << endl;
     cout << "            Advection_y    : " << ay << endl;
+    cout << "            Advection_z    : " << az << endl;
     cout << "            Expansion      : ("
          << LibUtilities::BasisTypeMap[bkey0.GetBasisType()] << ","
-         << LibUtilities::BasisTypeMap[bkey1.GetBasisType()] << ")" << endl;
+         << LibUtilities::BasisTypeMap[bkey1.GetBasisType()] << ","
+         << LibUtilities::BasisTypeMap[bkey2.GetBasisType()] << ")" << endl;
     cout << "            No. modes      : " << bkey0.GetNumModes() << endl;
     if (useGJPStabilisation)
     {
@@ -127,7 +132,7 @@ int main(int argc, char *argv[])
     //----------------------------------------------
     // Define Expansion
     Exp = MemoryManager<MultiRegions::ContField>::AllocateSharedPtr(
-        vSession, graph2D, vSession->GetVariable(0));
+        vSession, graph3D, vSession->GetVariable(0));
     //----------------------------------------------
 
     Timing("Read files and define exp ..");
@@ -163,9 +168,10 @@ int main(int argc, char *argv[])
             break;
     }
 
-    Array<OneD, Array<OneD, NekDouble>> Vel(2);
+    Array<OneD, Array<OneD, NekDouble>> Vel(3);
     Vel[0] = Array<OneD, NekDouble>(nq, ax);
     Vel[1] = Array<OneD, NekDouble>(nq, ay);
+    Vel[2] = Array<OneD, NekDouble>(nq, az);
 
     StdRegions::VarCoeffMap varcoeffs;
 
@@ -173,8 +179,9 @@ int main(int argc, char *argv[])
 
     // Set advection velocities
     StdRegions::VarCoeffType varcoefftypes[] = {StdRegions::eVarCoeffVelX,
-                                                StdRegions::eVarCoeffVelY};
-    for (int i = 0; i < 2; i++)
+                                                StdRegions::eVarCoeffVelY,
+                                                StdRegions::eVarCoeffVelZ};
+    for (int i = 0; i < 3; i++)
     {
         varcoeffs[varcoefftypes[i]] = Vel[i];
     }
@@ -208,23 +215,6 @@ int main(int argc, char *argv[])
     Exp->BwdTrans(Exp->GetCoeffs(), Exp->UpdatePhys());
     // Exp->BwdTrans(Exp->GetContCoeffs(), Exp->UpdatePhys(), true);
     //----------------------------------------------
-
-    //-----------------------------------------------
-    // Write solution to file
-    LibUtilities::FieldIOSharedPtr fld =
-        LibUtilities::FieldIO::CreateDefault(vSession);
-    string out = vSession->GetSessionName() + ".fld";
-    std::vector<LibUtilities::FieldDefinitionsSharedPtr> FieldDef =
-        Exp->GetFieldDefinitions();
-    std::vector<std::vector<NekDouble>> FieldData(FieldDef.size());
-
-    for (int i = 0; i < FieldDef.size(); ++i)
-    {
-        FieldDef[i]->m_fields.push_back("u");
-        Exp->AppendFieldData(FieldDef[i], FieldData[i]);
-    }
-    fld->Write(out, FieldDef, FieldData);
-    //-----------------------------------------------
 
     //----------------------------------------------
     // See if there is an exact solution, if so

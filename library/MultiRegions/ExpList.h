@@ -62,6 +62,7 @@ class AssemblyMapCG;
 class InterfaceMapDG;
 class GlobalLinSysKey;
 class GlobalMatrix;
+class GJPStabilisation;
 
 enum Direction
 {
@@ -310,8 +311,8 @@ public:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff = StdRegions::NullVarCoeffMap,
-        const MultiRegions::VarFactorsMap &varfactors =
-            MultiRegions::NullVarFactorsMap,
+        const StdRegions::VarFactorsMap &varfactors =
+            StdRegions::NullVarFactorsMap,
         const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray,
         const bool PhysSpaceForcing                    = true);
 
@@ -321,8 +322,8 @@ public:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff = StdRegions::NullVarCoeffMap,
-        const MultiRegions::VarFactorsMap &varfactors =
-            MultiRegions::NullVarFactorsMap,
+        const StdRegions::VarFactorsMap &varfactors =
+            StdRegions::NullVarFactorsMap,
         const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray,
         const bool PhysSpaceForcing                    = true);
 
@@ -332,8 +333,8 @@ public:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff = StdRegions::NullVarCoeffMap,
-        const MultiRegions::VarFactorsMap &varfactors =
-            MultiRegions::NullVarFactorsMap,
+        const StdRegions::VarFactorsMap &varfactors =
+            StdRegions::NullVarFactorsMap,
         const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray,
         const bool PhysSpaceForcing                    = true);
     ///
@@ -1005,6 +1006,12 @@ public:
     {
         return v_GetPlane(n);
     }
+
+    inline const std::shared_ptr<GJPStabilisation> GetGJPData(void)
+    {
+        return v_GetGJPData();
+    }
+
     MULTI_REGIONS_EXPORT void CreateCollections(
         Collections::ImplementationType ImpType = Collections::eNoImpType);
     MULTI_REGIONS_EXPORT void ClearGlobalLinSysManager(void);
@@ -1295,7 +1302,7 @@ protected:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff,
-        const MultiRegions::VarFactorsMap &varfactors,
+        const StdRegions::VarFactorsMap &varfactors,
         const Array<OneD, const NekDouble> &dirForcing,
         const bool PhysSpaceForcing);
 
@@ -1304,7 +1311,7 @@ protected:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff,
-        const MultiRegions::VarFactorsMap &varfactors,
+        const StdRegions::VarFactorsMap &varfactors,
         const Array<OneD, const NekDouble> &dirForcing,
         const bool PhysSpaceForcing);
 
@@ -1313,7 +1320,7 @@ protected:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff,
-        const MultiRegions::VarFactorsMap &varfactors,
+        const StdRegions::VarFactorsMap &varfactors,
         const Array<OneD, const NekDouble> &dirForcing,
         const bool PhysSpaceForcing);
 
@@ -1556,6 +1563,12 @@ protected:
         const Array<OneD, const NekDouble> &FwdFlux,
         const Array<OneD, const NekDouble> &BwdFlux,
         Array<OneD, NekDouble> &outarray);
+
+    virtual const std::shared_ptr<GJPStabilisation> v_GetGJPData(void)
+    {
+        // default is to return empty pointer
+        return nullptr; // std::shared_ptr<GJPStabilisation>();
+    }
 
 private:
     /// Definition of the total number of degrees of freedom and
@@ -1813,7 +1826,7 @@ inline GlobalLinSysKey ExpList::HelmSolve(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray, const StdRegions::ConstFactorMap &factors,
     const StdRegions::VarCoeffMap &varcoeff,
-    const MultiRegions::VarFactorsMap &varfactors,
+    const StdRegions::VarFactorsMap &varfactors,
     const Array<OneD, const NekDouble> &dirForcing, const bool PhysSpaceForcing)
 {
     return v_HelmSolve(inarray, outarray, factors, varcoeff, varfactors,
@@ -1826,7 +1839,7 @@ inline GlobalLinSysKey ExpList::LinearAdvectionDiffusionReactionSolve(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray, const StdRegions::ConstFactorMap &factors,
     const StdRegions::VarCoeffMap &varcoeff,
-    const MultiRegions::VarFactorsMap &varfactors,
+    const StdRegions::VarFactorsMap &varfactors,
     const Array<OneD, const NekDouble> &dirForcing, const bool PhysSpaceForcing)
 {
     return v_LinearAdvectionDiffusionReactionSolve(
@@ -1838,7 +1851,7 @@ inline GlobalLinSysKey ExpList::LinearAdvectionReactionSolve(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray, const StdRegions::ConstFactorMap &factors,
     const StdRegions::VarCoeffMap &varcoeff,
-    const MultiRegions::VarFactorsMap &varfactors,
+    const StdRegions::VarFactorsMap &varfactors,
     const Array<OneD, const NekDouble> &dirForcing, const bool PhysSpaceForcing)
 {
     return v_LinearAdvectionReactionSolve(inarray, outarray, factors, varcoeff,

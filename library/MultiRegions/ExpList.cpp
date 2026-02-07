@@ -60,6 +60,7 @@
 #include <MultiRegions/AssemblyMap/AssemblyMapDG.h>  // for AssemblyMapDG, etc
 #include <MultiRegions/AssemblyMap/InterfaceMapDG.h> // for InterfaceMapDG, etc
 #include <MultiRegions/ExpList.h>
+#include <MultiRegions/GJPStabilisation.h>
 #include <MultiRegions/GlobalLinSys.h>
 #include <MultiRegions/GlobalLinSysKey.h> // for GlobalLinSysKey
 #include <MultiRegions/GlobalMatrix.h>    // for GlobalMatrix, etc
@@ -307,7 +308,7 @@ ExpList::ExpList(
         if (bndCond[i]->GetBoundaryConditionType() ==
             SpatialDomains::eDirichlet)
         {
-            bool IsNot0D = true; // Cehck for 0D expansion
+            bool IsNot0D = true; // Check for 0D expansion
             for (j = 0; j < bndConstraint[i]->GetExpSize(); ++j)
             {
                 SpatialDomains::ExpansionInfoShPtr eInfo =
@@ -1025,8 +1026,8 @@ ExpList::ExpList(
 }
 
 /**
- * Set  expansions for localtrace space expansions used in
- * DisContField as part of Gradient Jump Penalisation
+ * Set expansions for localtrace space expansions used in
+ * DisContField as part of Diffusion IP
  *
  * @param  pSession      A session within information about expansion
  * @param  locexp        Complete domain expansion list.
@@ -2729,6 +2730,16 @@ void ExpList::GeneralMatrixOp(const GlobalMatrixKey &gkey,
                 inarray + m_coeff_offset[i],
                 tmp_outarray = outarray + m_coeff_offset[i], mkey);
         }
+    }
+
+    // if GJPData is defined add this term
+    if (GetGJPData() && GetGJPData()->IsImplicit())
+    {
+        NekDouble scale =
+            1.0 * gkey.GetConstFactors().find(StdRegions::eFactorGJP)->second;
+        Array<OneD, NekDouble> inphys(GetTotPoints());
+        BwdTrans(inarray, inphys);
+        GetGJPData()->Apply(inphys, outarray, NullNekDouble1DArray, scale);
     }
 }
 
@@ -5154,7 +5165,7 @@ GlobalLinSysKey ExpList::v_HelmSolve(
     [[maybe_unused]] Array<OneD, NekDouble> &outarray,
     [[maybe_unused]] const StdRegions::ConstFactorMap &factors,
     [[maybe_unused]] const StdRegions::VarCoeffMap &varcoeff,
-    [[maybe_unused]] const MultiRegions::VarFactorsMap &varfactors,
+    [[maybe_unused]] const StdRegions::VarFactorsMap &varfactors,
     [[maybe_unused]] const Array<OneD, const NekDouble> &dirForcing,
     [[maybe_unused]] const bool PhysSpaceForcing)
 {
@@ -5167,7 +5178,7 @@ GlobalLinSysKey ExpList::v_LinearAdvectionDiffusionReactionSolve(
     [[maybe_unused]] Array<OneD, NekDouble> &outarray,
     [[maybe_unused]] const StdRegions::ConstFactorMap &factors,
     [[maybe_unused]] const StdRegions::VarCoeffMap &varcoeff,
-    [[maybe_unused]] const MultiRegions::VarFactorsMap &varfactors,
+    [[maybe_unused]] const StdRegions::VarFactorsMap &varfactors,
     [[maybe_unused]] const Array<OneD, const NekDouble> &dirForcing,
     [[maybe_unused]] const bool PhysSpaceForcing)
 {
@@ -5181,7 +5192,7 @@ GlobalLinSysKey ExpList::v_LinearAdvectionReactionSolve(
     [[maybe_unused]] Array<OneD, NekDouble> &outarray,
     [[maybe_unused]] const StdRegions::ConstFactorMap &factors,
     [[maybe_unused]] const StdRegions::VarCoeffMap &varcoeff,
-    [[maybe_unused]] const MultiRegions::VarFactorsMap &varfactors,
+    [[maybe_unused]] const StdRegions::VarFactorsMap &varfactors,
     [[maybe_unused]] const Array<OneD, const NekDouble> &dirForcing,
     [[maybe_unused]] const bool PhysSpaceForcing)
 {
@@ -5334,8 +5345,7 @@ void ExpList::v_FillBndCondFromField(
 
 void ExpList::v_AvgAssemble([[maybe_unused]] bool useComm)
 {
-    NEKERROR(ErrorUtil::efatal,
-             "This method is not defined or valid for this class type");
+    v_AvgAssemble(m_coeffs, m_coeffs, useComm);
 }
 
 void ExpList::v_AvgAssemble(
