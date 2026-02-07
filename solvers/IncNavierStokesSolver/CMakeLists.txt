@@ -226,6 +226,11 @@ IF( NEKTAR_SOLVER_INCNAVIERSTOKES )
     ADD_NEKTAR_TEST(PlungingAirfoil_2D)
     ADD_NEKTAR_TEST(3DH1D_L2ErrorFilter)
 
+    IF(NOT WIN32 AND NEKTAR_UTILITY_FIELDCONVERT)
+        ADD_NEKTAR_TEST(ScaleReynoldsShearFilter_ThermalChannel2D)
+        ADD_NEKTAR_TEST(ScaleReynoldsShearFilter_ThermalChannel3DH1D)
+    ENDIF()
+
     IF(NEKTAR_USE_SCOTCH)
         # This tests exhibits sensitivity to the choice of DirectStaticCond vs.
         # DirectMultiLevelStaticCond.
