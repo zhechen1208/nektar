@@ -38,7 +38,6 @@ v5.10.0
 **CI**
 - Add PROCESSORS property to tests to enforce correct parallelism (!2445)
 
-- Update Gitlab CI to not automically run pipeline for MR (!2421)
 
 v5.9.0
 ------
