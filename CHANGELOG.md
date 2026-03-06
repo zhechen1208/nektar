@@ -29,6 +29,7 @@ v5.10.0
 - Update GMRES with improved restart capabilities (LGMRES) (!2402)
 - Tidy v_FwdTrans, v_Integral, v_GetStdExp, v_GetLinStdExp virtual functions (!!2384)
 - Remove AdvectionFR, DiffusionLFR, and DiffusioLFRNS (!2425)
+- Fix NoCollection IProductWRTDerivBase for embedded case (!2454)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
