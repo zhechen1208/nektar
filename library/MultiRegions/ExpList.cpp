@@ -1883,7 +1883,8 @@ ExpList::~ExpList()
  */
 void ExpList::MultiplyByBlockMatrix(const GlobalMatrixKey &gkey,
                                     const Array<OneD, const NekDouble> &inarray,
-                                    Array<OneD, NekDouble> &outarray)
+                                    Array<OneD, NekDouble> &outarray,
+                                    bool Trans)
 {
     // Retrieve the block matrix using the given key.
     const DNekScalBlkMatSharedPtr &blockmat = GetBlockMatrix(gkey);
@@ -1895,7 +1896,14 @@ void ExpList::MultiplyByBlockMatrix(const GlobalMatrixKey &gkey,
     NekVector<NekDouble> out(nrows, outarray, eWrapper);
 
     // Perform matrix-vector multiply.
-    out = (*blockmat) * in;
+    if (Trans)
+    {
+        out = Transpose(*blockmat) * in;
+    }
+    else
+    {
+        out = (*blockmat) * in;
+    }
 }
 
 /**
@@ -2529,7 +2537,12 @@ const DNekScalBlkMatSharedPtr ExpList::GenBlockMatrix(
         case StdRegions::eInvMass:
         case StdRegions::eHelmholtz:
         case StdRegions::eLaplacian:
+        case StdRegions::eCoeffsToEquiSpaced:
+        case StdRegions::eEquiSpacedToCoeffs:
+        case StdRegions::eCoeffsToGLL:
+        case StdRegions::eGLLToCoeffs:
         case StdRegions::eInvHybridDGHelmholtz:
+
         {
             // set up an array of integers for block matrix construction
             for (i = 0; i < n_exp; ++i)
@@ -5768,6 +5781,11 @@ void ExpList::v_EvaluateBoundaryConditions(
              "This method is not defined or valid for this class type");
 }
 
+void ExpList::v_SetBCsToHomogeneous(void)
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This method is not defined or valid for this class type");
+}
 /**
  */
 map<int, RobinBCInfoSharedPtr> ExpList::v_GetRobinBCInfo(void)

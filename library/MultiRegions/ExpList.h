@@ -866,6 +866,9 @@ public:
         const NekDouble time = 0.0, const std::string varName = "",
         const NekDouble = NekConstants::kNekUnsetDouble,
         const NekDouble = NekConstants::kNekUnsetDouble);
+    /// Set boundary conditions to be homogeneous
+    inline void SetBCsToHomogeneous(void);
+
     // Routines for continous matrix solution
     /// This function calculates the result of the multiplication of a
     /// matrix of type specified by \a mkey with a vector given by \a
@@ -1078,6 +1081,11 @@ public:
         return it->second;
     }
 
+    void MultiplyByBlockMatrix(const GlobalMatrixKey &gkey,
+                               const Array<OneD, const NekDouble> &inarray,
+                               Array<OneD, NekDouble> &outarray,
+                               bool Transpose = false);
+
     /// This function returns collections
     MULTI_REGIONS_EXPORT inline const Collections::CollectionVector &
     GetCollections() const
@@ -1201,9 +1209,7 @@ protected:
     /// matrices of the type \a mtype.
     const DNekScalBlkMatSharedPtr GenBlockMatrix(const GlobalMatrixKey &gkey);
     const DNekScalBlkMatSharedPtr &GetBlockMatrix(const GlobalMatrixKey &gkey);
-    void MultiplyByBlockMatrix(const GlobalMatrixKey &gkey,
-                               const Array<OneD, const NekDouble> &inarray,
-                               Array<OneD, NekDouble> &outarray);
+
     /// Generates a global matrix from the given key and map.
     std::shared_ptr<GlobalMatrix> GenGlobalMatrix(
         const GlobalMatrixKey &mkey,
@@ -1534,6 +1540,8 @@ protected:
         const NekDouble time = 0.0, const std::string varName = "",
         const NekDouble x2_in = NekConstants::kNekUnsetDouble,
         const NekDouble x3_in = NekConstants::kNekUnsetDouble);
+
+    virtual void v_SetBCsToHomogeneous(void);
 
     virtual std::map<int, RobinBCInfoSharedPtr> v_GetRobinBCInfo(void);
 
@@ -2385,6 +2393,12 @@ inline void ExpList::EvaluateBoundaryConditions(const NekDouble time,
 {
     v_EvaluateBoundaryConditions(time, varName, x2_in, x3_in);
 }
+
+inline void ExpList::SetBCsToHomogeneous(void)
+{
+    v_SetBCsToHomogeneous();
+}
+
 inline void ExpList::SetUpPhysNormals()
 {
     v_SetUpPhysNormals();
