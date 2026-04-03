@@ -40,6 +40,9 @@ v5.10.0
 - Add PROCESSORS property to tests to enforce correct parallelism (!2445)
 
 
+**AcousticSolver**
+- Use native c++ random number generator instead of boost (!2379)
+
 v5.9.0
 ------
 **Library**
