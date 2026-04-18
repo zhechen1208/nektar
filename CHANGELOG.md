@@ -31,6 +31,7 @@ v5.10.0
 - Remove AdvectionFR, DiffusionLFR, and DiffusioLFRNS (!2425)
 - Fix NoCollection IProductWRTDerivBase for embedded case (!2454)
 - Tidy PhysDirectionalDeriv implementation in LocalRegions (!2473)
+- Fix LOR preconditioner in parallel (!2514)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
@@ -110,7 +111,7 @@ v5.8.0
 - Remove deprecated version of v_SetCoeffsToOrientation functions (!1954)
 - Fix issue with Dirichlet BCs when using variable P (!1972)
 - Patch for implicit-function error in scotch-6.0.4 (!1938)
-- LOR preconditioner added, to be used with GMRES and IterativeFull (!1888)
+- LOR preconditioner added, can be used with wither conjugate gradient or GMRES (!1888)
 - Tidy virtual inheritance in NodalTriExp (!1979)
 - Fix partial overload virtual function in AssemblyMap, StdRegions, and LocalRegions (!1978)
 - Fix partial overload virtual function v_PhysEvaluate (!1980)
