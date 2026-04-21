@@ -33,6 +33,7 @@ v5.10.0
 - Tidy PhysDirectionalDeriv implementation in LocalRegions (!2473)
 - Fix LOR preconditioner in parallel (!2514)
 - Fix memory leak with Scotch graph initialization (!2518)
+- Fix memory leak with GS in AssemblyMapDG initialization (!2519)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
