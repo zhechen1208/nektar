@@ -32,6 +32,7 @@ v5.10.0
 - Fix NoCollection IProductWRTDerivBase for embedded case (!2454)
 - Tidy PhysDirectionalDeriv implementation in LocalRegions (!2473)
 - Fix LOR preconditioner in parallel (!2514)
+- Fix memory leak with Scotch graph initialization (!2518)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
@@ -41,7 +42,6 @@ v5.10.0
 
 **CI**
 - Add PROCESSORS property to tests to enforce correct parallelism (!2445)
-
 
 **AcousticSolver**
 - Use native c++ random number generator instead of boost (!2379)
