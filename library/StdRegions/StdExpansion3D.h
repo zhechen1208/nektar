@@ -197,10 +197,6 @@ protected:
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray,
         const StdRegions::StdMatrixKey &mkey) override;
-
-    STD_REGIONS_EXPORT NekDouble
-    v_Integral(const Array<OneD, const NekDouble> &inarray) override;
-
     STD_REGIONS_EXPORT virtual int v_GetNedges(void) const;
     STD_REGIONS_EXPORT virtual int v_GetEdgeNcoeffs(const int i) const;
 
@@ -274,7 +270,11 @@ protected:
     STD_REGIONS_EXPORT void v_PhysInterp(
         std::shared_ptr<StdExpansion> fromExp,
         const Array<OneD, const NekDouble> &fromData,
-        Array<OneD, NekDouble> &toData) override;
+        Array<OneD, NekDouble> &toData, bool Transpose) override;
+
+    STD_REGIONS_EXPORT void v_ReOrientTracePhysMap(
+        const StdRegions::Orientation orient, Array<OneD, int> &idmap,
+        const int nq0, const int nq1, bool Forwards) override;
 
     int v_GetShapeDimension() const final
     {

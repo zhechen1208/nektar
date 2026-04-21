@@ -133,10 +133,25 @@ public:
             &bndCond,
         const Array<OneD, const ExpListSharedPtr> &BndCondExp);
 
+    MULTI_REGIONS_EXPORT unsigned GetTraceElmtId(const unsigned elmtid,
+                                                 const unsigned traceid)
+    {
+        return m_traceMap->GetElmtToTrace()[elmtid][traceid]->GetElmtId();
+    }
+
     MULTI_REGIONS_EXPORT ExpListSharedPtr &GetLocElmtTrace()
     {
+        if (!m_locElmtTrace)
+        {
+            m_locElmtTrace =
+                MemoryManager<MultiRegions::ExpList>::AllocateSharedPtr(
+                    m_session, *m_exp, GetGraph(), true, "LocElmtTrace");
+        }
+
         return m_locElmtTrace;
     }
+
+    bool IsLeftAdjacentTrace(const int n, const int e);
 
 protected:
     /// An array which contains the information about the boundary
@@ -237,8 +252,6 @@ protected:
                  const Collections::ImplementationType ImpType =
                      Collections::eNoImpType);
 
-    bool IsLeftAdjacentTrace(const int n, const int e);
-
     ExpListSharedPtr &v_GetTrace() override;
 
     AssemblyMapDGSharedPtr &v_GetTraceMap(void) override;
@@ -301,12 +314,15 @@ protected:
         const NekDouble x2_in = NekConstants::kNekUnsetDouble,
         const NekDouble x3_in = NekConstants::kNekUnsetDouble) override;
 
+    /// Set boundary conditions to be homogeneous
+    void v_SetBCsToHomogeneous(void) override;
+
     /// Solve the Helmholtz equation.
     GlobalLinSysKey v_HelmSolve(const Array<OneD, const NekDouble> &inarray,
                                 Array<OneD, NekDouble> &outarray,
                                 const StdRegions::ConstFactorMap &factors,
                                 const StdRegions::VarCoeffMap &varcoeff,
-                                const MultiRegions::VarFactorsMap &varfactors,
+                                const StdRegions::VarFactorsMap &varfactors,
                                 const Array<OneD, const NekDouble> &dirForcing,
                                 const bool PhysSpaceForcing) override;
 

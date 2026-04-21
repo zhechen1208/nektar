@@ -60,6 +60,7 @@
 #include <MultiRegions/AssemblyMap/AssemblyMapDG.h>  // for AssemblyMapDG, etc
 #include <MultiRegions/AssemblyMap/InterfaceMapDG.h> // for InterfaceMapDG, etc
 #include <MultiRegions/ExpList.h>
+#include <MultiRegions/GJPStabilisation.h>
 #include <MultiRegions/GlobalLinSys.h>
 #include <MultiRegions/GlobalLinSysKey.h> // for GlobalLinSysKey
 #include <MultiRegions/GlobalMatrix.h>    // for GlobalMatrix, etc
@@ -307,7 +308,7 @@ ExpList::ExpList(
         if (bndCond[i]->GetBoundaryConditionType() ==
             SpatialDomains::eDirichlet)
         {
-            bool IsNot0D = true; // Cehck for 0D expansion
+            bool IsNot0D = true; // Check for 0D expansion
             for (j = 0; j < bndConstraint[i]->GetExpSize(); ++j)
             {
                 SpatialDomains::ExpansionInfoShPtr eInfo =
@@ -1025,8 +1026,8 @@ ExpList::ExpList(
 }
 
 /**
- * Set  expansions for localtrace space expansions used in
- * DisContField as part of Gradient Jump Penalisation
+ * Set expansions for localtrace space expansions used in
+ * DisContField as part of Diffusion IP
  *
  * @param  pSession      A session within information about expansion
  * @param  locexp        Complete domain expansion list.
@@ -1882,7 +1883,8 @@ ExpList::~ExpList()
  */
 void ExpList::MultiplyByBlockMatrix(const GlobalMatrixKey &gkey,
                                     const Array<OneD, const NekDouble> &inarray,
-                                    Array<OneD, NekDouble> &outarray)
+                                    Array<OneD, NekDouble> &outarray,
+                                    bool Trans)
 {
     // Retrieve the block matrix using the given key.
     const DNekScalBlkMatSharedPtr &blockmat = GetBlockMatrix(gkey);
@@ -1894,7 +1896,14 @@ void ExpList::MultiplyByBlockMatrix(const GlobalMatrixKey &gkey,
     NekVector<NekDouble> out(nrows, outarray, eWrapper);
 
     // Perform matrix-vector multiply.
-    out = (*blockmat) * in;
+    if (Trans)
+    {
+        out = Transpose(*blockmat) * in;
+    }
+    else
+    {
+        out = (*blockmat) * in;
+    }
 }
 
 /**
@@ -2166,48 +2175,26 @@ void ExpList::v_PhysDeriv(Direction edir,
                           const Array<OneD, const NekDouble> &inarray,
                           Array<OneD, NekDouble> &out_d)
 {
-    int i;
-    if (edir == MultiRegions::eS)
+    // initialise if required
+    if (m_collectionsDoInit[Collections::ePhysDeriv])
     {
-        Array<OneD, NekDouble> e_out_ds;
-        for (i = 0; i < (*m_exp).size(); ++i)
-        {
-            e_out_ds = out_d + m_phys_offset[i];
-            (*m_exp)[i]->PhysDeriv_s(inarray + m_phys_offset[i], e_out_ds);
-        }
-    }
-    else if (edir == MultiRegions::eN)
-    {
-        Array<OneD, NekDouble> e_out_dn;
-        for (i = 0; i < (*m_exp).size(); i++)
-        {
-            e_out_dn = out_d + m_phys_offset[i];
-            (*m_exp)[i]->PhysDeriv_n(inarray + m_phys_offset[i], e_out_dn);
-        }
-    }
-    else
-    {
-        // initialise if required
-        if (m_collectionsDoInit[Collections::ePhysDeriv])
-        {
-            for (int i = 0; i < m_collections.size(); ++i)
-            {
-                m_collections[i].Initialise(Collections::ePhysDeriv);
-            }
-            m_collectionsDoInit[Collections::ePhysDeriv] = false;
-        }
-
-        // convert enum into int
-        int intdir = (int)edir;
-        Array<OneD, NekDouble> e_out_d;
-        int offset{0};
         for (int i = 0; i < m_collections.size(); ++i)
         {
-            e_out_d = out_d + offset;
-            m_collections[i].ApplyOperator(Collections::ePhysDeriv, intdir,
-                                           inarray + offset, e_out_d);
-            offset += m_collections[i].GetInputSize(Collections::ePhysDeriv);
+            m_collections[i].Initialise(Collections::ePhysDeriv);
         }
+        m_collectionsDoInit[Collections::ePhysDeriv] = false;
+    }
+
+    // convert enum into int
+    int intdir = (int)edir;
+    Array<OneD, NekDouble> e_out_d;
+    int offset{0};
+    for (int i = 0; i < m_collections.size(); ++i)
+    {
+        e_out_d = out_d + offset;
+        m_collections[i].ApplyOperator(Collections::ePhysDeriv, intdir,
+                                       inarray + offset, e_out_d);
+        offset += m_collections[i].GetInputSize(Collections::ePhysDeriv);
     }
 }
 
@@ -2550,7 +2537,12 @@ const DNekScalBlkMatSharedPtr ExpList::GenBlockMatrix(
         case StdRegions::eInvMass:
         case StdRegions::eHelmholtz:
         case StdRegions::eLaplacian:
+        case StdRegions::eCoeffsToEquiSpaced:
+        case StdRegions::eEquiSpacedToCoeffs:
+        case StdRegions::eCoeffsToGLL:
+        case StdRegions::eGLLToCoeffs:
         case StdRegions::eInvHybridDGHelmholtz:
+
         {
             // set up an array of integers for block matrix construction
             for (i = 0; i < n_exp; ++i)
@@ -2751,6 +2743,16 @@ void ExpList::GeneralMatrixOp(const GlobalMatrixKey &gkey,
                 inarray + m_coeff_offset[i],
                 tmp_outarray = outarray + m_coeff_offset[i], mkey);
         }
+    }
+
+    // if GJPData is defined add this term
+    if (GetGJPData() && GetGJPData()->IsImplicit())
+    {
+        NekDouble scale =
+            1.0 * gkey.GetConstFactors().find(StdRegions::eFactorGJP)->second;
+        Array<OneD, NekDouble> inphys(GetTotPoints());
+        BwdTrans(inarray, inphys);
+        GetGJPData()->Apply(inphys, outarray, NullNekDouble1DArray, scale);
     }
 }
 
@@ -5176,7 +5178,7 @@ GlobalLinSysKey ExpList::v_HelmSolve(
     [[maybe_unused]] Array<OneD, NekDouble> &outarray,
     [[maybe_unused]] const StdRegions::ConstFactorMap &factors,
     [[maybe_unused]] const StdRegions::VarCoeffMap &varcoeff,
-    [[maybe_unused]] const MultiRegions::VarFactorsMap &varfactors,
+    [[maybe_unused]] const StdRegions::VarFactorsMap &varfactors,
     [[maybe_unused]] const Array<OneD, const NekDouble> &dirForcing,
     [[maybe_unused]] const bool PhysSpaceForcing)
 {
@@ -5189,7 +5191,7 @@ GlobalLinSysKey ExpList::v_LinearAdvectionDiffusionReactionSolve(
     [[maybe_unused]] Array<OneD, NekDouble> &outarray,
     [[maybe_unused]] const StdRegions::ConstFactorMap &factors,
     [[maybe_unused]] const StdRegions::VarCoeffMap &varcoeff,
-    [[maybe_unused]] const MultiRegions::VarFactorsMap &varfactors,
+    [[maybe_unused]] const StdRegions::VarFactorsMap &varfactors,
     [[maybe_unused]] const Array<OneD, const NekDouble> &dirForcing,
     [[maybe_unused]] const bool PhysSpaceForcing)
 {
@@ -5203,7 +5205,7 @@ GlobalLinSysKey ExpList::v_LinearAdvectionReactionSolve(
     [[maybe_unused]] Array<OneD, NekDouble> &outarray,
     [[maybe_unused]] const StdRegions::ConstFactorMap &factors,
     [[maybe_unused]] const StdRegions::VarCoeffMap &varcoeff,
-    [[maybe_unused]] const MultiRegions::VarFactorsMap &varfactors,
+    [[maybe_unused]] const StdRegions::VarFactorsMap &varfactors,
     [[maybe_unused]] const Array<OneD, const NekDouble> &dirForcing,
     [[maybe_unused]] const bool PhysSpaceForcing)
 {
@@ -5349,6 +5351,20 @@ void ExpList::v_FillBndCondFromField(
 void ExpList::v_FillBndCondFromField(
     [[maybe_unused]] const int nreg,
     [[maybe_unused]] const Array<OneD, NekDouble> coeffs)
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This method is not defined or valid for this class type");
+}
+
+void ExpList::v_AvgAssemble([[maybe_unused]] bool useComm)
+{
+    v_AvgAssemble(m_coeffs, m_coeffs, useComm);
+}
+
+void ExpList::v_AvgAssemble(
+    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
+    [[maybe_unused]] Array<OneD, NekDouble> &outarray,
+    [[maybe_unused]] bool useComm)
 {
     NEKERROR(ErrorUtil::efatal,
              "This method is not defined or valid for this class type");
@@ -5765,6 +5781,11 @@ void ExpList::v_EvaluateBoundaryConditions(
              "This method is not defined or valid for this class type");
 }
 
+void ExpList::v_SetBCsToHomogeneous(void)
+{
+    NEKERROR(ErrorUtil::efatal,
+             "This method is not defined or valid for this class type");
+}
 /**
  */
 map<int, RobinBCInfoSharedPtr> ExpList::v_GetRobinBCInfo(void)
@@ -5863,7 +5884,7 @@ void ExpList::CreateCollections(Collections::ImplementationType ImpType)
         (colOpt.GetMaxCollectionSize() > 0 ? colOpt.GetMaxCollectionSize()
                                            : 2 * m_exp->size());
 
-    vector<StdRegions::StdExpansionSharedPtr> collExp;
+    vector<LocalRegions::ExpansionSharedPtr> collExp;
     LocalRegions::ExpansionSharedPtr exp = (*m_exp)[0];
     Collections::OperatorImpMap impTypes = colOpt.GetOperatorImpMap(exp);
 

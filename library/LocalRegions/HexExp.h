@@ -58,40 +58,16 @@ public:
     LOCAL_REGIONS_EXPORT ~HexExp() override = default;
 
 protected:
-    //------------------------------
-    //    Integration Method
-    //------------------------------
-    LOCAL_REGIONS_EXPORT NekDouble
-    v_Integral(const Array<OneD, const NekDouble> &inarray) override;
-
-    //-----------------------------
-    // Differentiation Methods
-    //-----------------------------
-    LOCAL_REGIONS_EXPORT void v_PhysDirectionalDeriv(
-        const Array<OneD, const NekDouble> &inarray,
-        const Array<OneD, const NekDouble> &direction,
-        Array<OneD, NekDouble> &out) override;
-
     //---------------------------------------
     // Inner product functions
     //---------------------------------------
     LOCAL_REGIONS_EXPORT void v_IProductWRTDerivBase(
         const int dir, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
-
     LOCAL_REGIONS_EXPORT void v_AlignVectorToCollapsedDir(
         const int dir, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, Array<OneD, NekDouble>> &outarray) override;
-
     LOCAL_REGIONS_EXPORT void v_IProductWRTDirectionalDerivBase(
-        const Array<OneD, const NekDouble> &direction,
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray) override
-    {
-        IProductWRTDirectionalDerivBase_SumFac(direction, inarray, outarray);
-    }
-
-    LOCAL_REGIONS_EXPORT void v_IProductWRTDirectionalDerivBase_SumFac(
         const Array<OneD, const NekDouble> &direction,
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray) override;
@@ -115,9 +91,6 @@ protected:
     //---------------------------------------
     // Helper functions
     //---------------------------------------
-    LOCAL_REGIONS_EXPORT LibUtilities::ShapeType v_DetShapeType()
-        const override;
-
     LOCAL_REGIONS_EXPORT StdRegions::StdExpansionSharedPtr v_GetStdExp(
         void) const override;
 
@@ -211,11 +184,6 @@ private:
     void v_LaplacianMatrixOp_MatFree_Kernel(
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray, Array<OneD, NekDouble> &wsp) override;
-
-    void v_NormalTraceDerivFactors(
-        Array<OneD, Array<OneD, NekDouble>> &factors,
-        Array<OneD, Array<OneD, NekDouble>> &d0factors,
-        Array<OneD, Array<OneD, NekDouble>> &d1factors) override;
 };
 
 typedef std::shared_ptr<HexExp> HexExpSharedPtr;

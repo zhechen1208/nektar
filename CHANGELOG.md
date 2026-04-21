@@ -17,11 +17,34 @@ v5.10.0
 - Remove v_IProductWRTBase_SumFac and v_IProductWRTDerivBase_SumFac member functions from LocalRegion and StdRegion (!2263)
 - Tidy redundant use of orientation in FwdTransBndConstrained (!2361)
 - Added UnitTest for the LinearADR operator in Collections (!1831)
+- Remove v_PhysDeriv_s and v_PhysDeriv_n (!2364)
 - Add support for pybind11 v3.0 (2332)
+- Updated GJP feature to ensure symmetric and works in 3D (2366)
 - fix for ReOrientTraceMap to accurately reflect eDir1FwdDir2_Dir2BwdDir1 & eDir1BwdDir2_Dir2FwdDir1 (!2362)
+- fix to make Continuous Galerkin initial conditions consistent in serial and parallel (!2387)
 - Tidy PhysDeriv in StdRegion and LocalRegion (!2367)
 - Add Flexible option for Conjugate Gradient and GMRES (!2376)
 - Tidy v_FwdTrans, v_IProductWRTBase, v_MultiplyByStdQuadratureMetric, v_StdPhysEvaluate, v_PhysEvaluate, v_StdPhysDeriv, v_PhysDeriv inheritance in StdRegion and LocalRegion (!2381)
+- Remove Vmath SIMD (!2365) 
+- Update GMRES with improved restart capabilities (LGMRES) (!2402)
+- Tidy v_FwdTrans, v_Integral, v_GetStdExp, v_GetLinStdExp virtual functions (!!2384)
+- Remove AdvectionFR, DiffusionLFR, and DiffusioLFRNS (!2425)
+- Fix NoCollection IProductWRTDerivBase for embedded case (!2454)
+- Tidy PhysDirectionalDeriv implementation in LocalRegions (!2473)
+- Fix LOR preconditioner in parallel (!2514)
+- Fix memory leak with Scotch graph initialization (!2518)
+
+**IncNavierStokesSolver**
+- Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
+- Remove Vmath SIMD (!2365) 
+- Fix non-zero Dirichlet BCs with flow rate for inc NS Solver (!2399)
+- Added an option to modify the number of decimal point print out in a constant-rate setup (!2491)
+
+**CI**
+- Add PROCESSORS property to tests to enforce correct parallelism (!2445)
+
+**AcousticSolver**
+- Use native c++ random number generator instead of boost (!2379)
 
 v5.9.0
 ------
@@ -88,6 +111,7 @@ v5.8.0
 - Remove deprecated version of v_SetCoeffsToOrientation functions (!1954)
 - Fix issue with Dirichlet BCs when using variable P (!1972)
 - Patch for implicit-function error in scotch-6.0.4 (!1938)
+- LOR preconditioner added, can be used with wither conjugate gradient or GMRES (!1888)
 - Tidy virtual inheritance in NodalTriExp (!1979)
 - Fix partial overload virtual function in AssemblyMap, StdRegions, and LocalRegions (!1978)
 - Fix partial overload virtual function v_PhysEvaluate (!1980)
@@ -129,6 +153,11 @@ v5.8.0
 - Add high-order pyramid and prism support from gmsh (!1956)
 - Industrial Pipeline Mesh Curving and CAD-Mesh link Reconstruction for all type of elements (!2057)
 
+**IncNavierStokesSolver**
+- LOR preconditioner for IncNS solver, mainly used for Pressure preconditioning (!1888)
+  
+**Miscellaneous**
+- Added LinMeshGraph executable for splitting meshes using user specified splits (!1888) 
 **Python**
 - Transition bindings to use pybind11 (!1950)
 
@@ -153,6 +182,9 @@ v5.7.0
 - Fix fieldconvert filter incorrect boundary values (!1789)
 - Fix numerical precision issues with filters OutputStartTime (!1789)
 - Fix AdaptiveSFD for MPI (!1821)
+- Fix deadlock by scotch with multi-threading support (!1853)
+- Fix IterativeStaticCond when using absolute tolerance (!1850)
+- Replaced ASSERTL0 with NEKERROR(efatal) and ASSERTL1 with NEKERROR(ewarning) (!1843)
 - Fix interpolation on manifold (!1840)
 - Fix IterativeStaticCond when using absolute tolerance (!1850)
 - Fix deadlock by scotch with multi-threading support (!1853)
@@ -437,12 +469,10 @@ v5.4.0
 - Corrected workspace size in triangle BwdTrans (!1610)
 - Reactivate Reactivate Movement_fixed_3D_stacked_cylinders_curved_hdf5_par test except on ARM MacOS (!1536)
 - Updated the PETSc version to v3.19.3 for THIRDPARTY_USE_PETSC, enabled local PETSc version usage (!1618)
-
 - Rename communicator in LinearAlgebra (!1612)
 - Add IProductWRTDerivBase operator for 3DH1D problems (!1483)
 - Full support of mixed-order elements in DG (!1606)
 - Refactoring collections for allowing variable output size inside the collections' operators, introduced PhysInterp1DScaled in Collections (!1620)
-
 - Use default keyword for destructor in Driver (!1624)
 - Add additional test for SDC time-integration(!1621)
 - Fix to compiler flags for MSVC (!1604)

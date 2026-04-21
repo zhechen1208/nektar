@@ -416,16 +416,6 @@ public:
         return v_DetShapeType();
     }
 
-    std::shared_ptr<StdExpansion> GetStdExp() const
-    {
-        return v_GetStdExp();
-    }
-
-    std::shared_ptr<StdExpansion> GetLinStdExp(void) const
-    {
-        return v_GetLinStdExp();
-    }
-
     int GetShapeDimension() const
     {
         return v_GetShapeDimension();
@@ -523,9 +513,6 @@ public:
     /** \brief This function integrates the specified function over the
      *  domain
      *
-     *  This function is a wrapper around the virtual function
-     *  \a v_Integral()
-     *
      *  Based on the values of the function evaluated at the quadrature
      *  points (which are stored in \a inarray), this function calculates
      *  the integral of this function over the domain.  This is
@@ -552,7 +539,10 @@ public:
      */
     NekDouble Integral(const Array<OneD, const NekDouble> &inarray)
     {
-        return v_Integral(inarray);
+        const int nqtot = GetTotPoints();
+        Array<OneD, NekDouble> tmp(GetTotPoints());
+        v_MultiplyByQuadratureMetric(inarray, tmp);
+        return Vmath::Vsum(nqtot, tmp, 1);
     }
 
     /** \brief This function fills the array \a outarray with the
@@ -961,18 +951,6 @@ public:
         v_PhysDeriv(dir, inarray, outarray);
     }
 
-    void PhysDeriv_s(const Array<OneD, const NekDouble> &inarray,
-                     Array<OneD, NekDouble> &out_ds)
-    {
-        v_PhysDeriv_s(inarray, out_ds);
-    }
-
-    void PhysDeriv_n(const Array<OneD, const NekDouble> &inarray,
-                     Array<OneD, NekDouble> &out_dn)
-    {
-        v_PhysDeriv_n(inarray, out_dn);
-    }
-
     void PhysDirectionalDeriv(const Array<OneD, const NekDouble> &inarray,
                               const Array<OneD, const NekDouble> &direction,
                               Array<OneD, NekDouble> &outarray)
@@ -1089,6 +1067,13 @@ public:
         return v_PhysEvaluateBasis(coords, mode);
     }
 
+    inline void ReOrientTracePhysMap(const StdRegions::Orientation orient,
+                                     Array<OneD, int> &idmap, const int nq0,
+                                     const int nq1, bool Forwards = true)
+    {
+        v_ReOrientTracePhysMap(orient, idmap, nq0, nq1, Forwards);
+    }
+
     /**
      * \brief Convert local cartesian coordinate \a xi into local
      * collapsed coordinates \a eta
@@ -1115,9 +1100,9 @@ public:
      **/
     void PhysInterp(std::shared_ptr<StdExpansion> fromExp,
                     const Array<OneD, const NekDouble> &fromData,
-                    Array<OneD, NekDouble> &toData)
+                    Array<OneD, NekDouble> &toData, bool Transpose = false)
     {
-        v_PhysInterp(fromExp, fromData, toData);
+        v_PhysInterp(fromExp, fromData, toData, Transpose);
     }
 
     STD_REGIONS_EXPORT virtual int v_CalcNumberOfCoefficients(
@@ -1228,6 +1213,14 @@ public:
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray, int npset = -1);
 
+    STD_REGIONS_EXPORT void PhysInterpToGLL(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray, int npset = -1);
+
+    void PhysInterpToPoints(const Array<OneD, const NekDouble> &inarray,
+                            Array<OneD, NekDouble> &outarray, int npset,
+                            MatrixType distrib);
+
     /** \brief This function provides the connectivity of
      *   local simplices (triangles or tets) to connect the
      *   equispaced data points provided by
@@ -1253,6 +1246,10 @@ public:
      */
     STD_REGIONS_EXPORT void EquiSpacedToCoeffs(
         const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray);
+
+    STD_REGIONS_EXPORT void EquiSpacedToPhys(
+        const int nequi, const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray);
 
     template <class T> std::shared_ptr<T> as()
@@ -1308,14 +1305,6 @@ protected:
     **/
     STD_REGIONS_EXPORT DNekBlkMatSharedPtr
     CreateStdStaticCondMatrix(const StdMatrixKey &mkey);
-
-    void IProductWRTDirectionalDerivBase_SumFac(
-        const Array<OneD, const NekDouble> &direction,
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray)
-    {
-        v_IProductWRTDirectionalDerivBase_SumFac(direction, inarray, outarray);
-    }
 
     // The term _MatFree denotes that the action of the
     // MatrixOperation is done withouth actually using the
@@ -1598,12 +1587,6 @@ protected:
     STD_REGIONS_EXPORT virtual LibUtilities::ShapeType v_DetShapeType()
         const = 0;
 
-    STD_REGIONS_EXPORT virtual std::shared_ptr<StdExpansion> v_GetStdExp()
-        const;
-
-    STD_REGIONS_EXPORT virtual std::shared_ptr<StdExpansion> v_GetLinStdExp(
-        void) const;
-
     STD_REGIONS_EXPORT virtual int v_GetShapeDimension() const = 0;
 
     STD_REGIONS_EXPORT virtual bool v_IsCollocatedBasis() const = 0;
@@ -1650,21 +1633,10 @@ protected:
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray);
 
-    STD_REGIONS_EXPORT virtual NekDouble v_Integral(
-        const Array<OneD, const NekDouble> &inarray);
-
     STD_REGIONS_EXPORT virtual void v_PhysDeriv(
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &out_d1, Array<OneD, NekDouble> &out_d2,
         Array<OneD, NekDouble> &out_d3);
-
-    STD_REGIONS_EXPORT virtual void v_PhysDeriv_s(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &out_ds);
-
-    STD_REGIONS_EXPORT virtual void v_PhysDeriv_n(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &out_dn);
 
     STD_REGIONS_EXPORT virtual void v_PhysDeriv(
         const int dir, const Array<OneD, const NekDouble> &inarray,
@@ -1711,7 +1683,7 @@ protected:
     STD_REGIONS_EXPORT virtual void v_PhysInterp(
         std::shared_ptr<StdExpansion> FromExp,
         const Array<OneD, const NekDouble> &fromData,
-        Array<OneD, NekDouble> &toData);
+        Array<OneD, NekDouble> &toData, bool Transpose);
 
     STD_REGIONS_EXPORT
     virtual void v_FillMode(const int mode, Array<OneD, NekDouble> &outarray);
@@ -1767,11 +1739,6 @@ protected:
         NekDouble &outarray);
 
     STD_REGIONS_EXPORT virtual void v_MultiplyByQuadratureMetric(
-        const Array<OneD, const NekDouble> &inarray,
-        Array<OneD, NekDouble> &outarray);
-
-    STD_REGIONS_EXPORT virtual void v_IProductWRTDirectionalDerivBase_SumFac(
-        const Array<OneD, const NekDouble> &direction,
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray);
 
@@ -1840,6 +1807,11 @@ protected:
 
     STD_REGIONS_EXPORT virtual void v_GetSimplexEquiSpacedConnectivity(
         Array<OneD, int> &conn, bool standard = true);
+
+    STD_REGIONS_EXPORT virtual void v_ReOrientTracePhysMap(
+        [[maybe_unused]] const StdRegions::Orientation orient,
+        [[maybe_unused]] Array<OneD, int> &idmap, const int nq0,
+        [[maybe_unused]] const int nq1, bool Forwards);
 };
 
 typedef std::shared_ptr<StdExpansion> StdExpansionSharedPtr;

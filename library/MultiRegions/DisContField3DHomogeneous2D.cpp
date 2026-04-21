@@ -176,7 +176,7 @@ GlobalLinSysKey DisContField3DHomogeneous2D::v_HelmSolve(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray, const StdRegions::ConstFactorMap &factors,
     const StdRegions::VarCoeffMap &varcoeff,
-    const MultiRegions::VarFactorsMap &varfactors,
+    const StdRegions::VarFactorsMap &varfactors,
     const Array<OneD, const NekDouble> &dirForcing, const bool PhysSpaceForcing)
 {
     int n, m;
@@ -353,6 +353,17 @@ void DisContField3DHomogeneous2D::v_EvaluateBoundaryConditions(
                 m_bndCondExpansions[n]->GetNcoeffs(),
                 m_bndCondExpansions[n]->GetCoeffs(),
                 m_bndCondExpansions[n]->UpdateCoeffs());
+        }
+    }
+}
+
+void DisContField3DHomogeneous2D::v_SetBCsToHomogeneous(void)
+{
+    for (int n = 0; n < m_nz; ++n)
+    {
+        for (int m = 0; m < m_ny; ++m)
+        {
+            m_lines[m + (n * m_ny)]->SetBCsToHomogeneous();
         }
     }
 }

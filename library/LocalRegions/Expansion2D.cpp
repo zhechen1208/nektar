@@ -94,7 +94,7 @@ DNekScalMatSharedPtr Expansion2D::CreateMatrix(const MatrixKey &mkey)
 
             ASSERTL1(mkey.ConstFactorExists(StdRegions::eFactorGJP),
                      "Need to specify eFactorGJP to construct "
-                     "a HelmholtzGJP matrix");
+                     "a MassGJP matrix");
 
             NekDouble factor = mkey.GetConstFactor(StdRegions::eFactorGJP);
 
@@ -788,6 +788,66 @@ void Expansion2D::v_PhysDeriv(const Array<OneD, const NekDouble> &inarray,
             Vmath::Smul(nqtot, df[4][0], diff0, 1, out_d2, 1);
             Blas::Daxpy(nqtot, df[5][0], diff1, 1, out_d2, 1);
         }
+    }
+}
+
+void Expansion2D::v_PhysDirectionalDeriv(
+    const Array<OneD, const NekDouble> &inarray,
+    const Array<OneD, const NekDouble> &direction,
+    Array<OneD, NekDouble> &outarray)
+{
+    int nquad0 = m_base[0]->GetNumPoints();
+    int nquad1 = m_base[1]->GetNumPoints();
+    int nqtot  = nquad0 * nquad1;
+
+    const Array<TwoD, const NekDouble> &df = m_geomFactors->GetDerivFactors();
+
+    Array<OneD, NekDouble> diff0(2 * nqtot);
+    Array<OneD, NekDouble> diff1(diff0 + nqtot);
+
+    // diff0 = du/d_xi, diff1 = du/d_eta
+    v_StdPhysDeriv(inarray, diff0, diff1, NullNekDouble1DArray);
+
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
+    {
+        Array<OneD, Array<OneD, NekDouble>> tangmat(2);
+
+        // D^v_xi = v_x*d_xi/dx + v_y*d_xi/dy + v_z*d_xi/dz
+        // D^v_eta = v_x*d_eta/dx + v_y*d_eta/dy + v_z*d_eta/dz
+        for (int i = 0; i < 2; ++i)
+        {
+            tangmat[i] = Array<OneD, NekDouble>(nqtot, 0.0);
+            for (int k = 0; k < (m_geom->GetCoordim()); ++k)
+            {
+                Vmath::Vvtvp(nqtot, &df[2 * k + i][0], 1, &direction[k * nqtot],
+                             1, &tangmat[i][0], 1, &tangmat[i][0], 1);
+            }
+        }
+
+        /// D_v = D^v_xi * du/d_xi + D^v_eta * du/d_eta
+        Vmath::Vmul(nqtot, &tangmat[0][0], 1, &diff0[0], 1, &outarray[0], 1);
+        Vmath::Vvtvp(nqtot, &tangmat[1][0], 1, &diff1[0], 1, &outarray[0], 1,
+                     &outarray[0], 1);
+    }
+    else
+    {
+        Array<OneD, Array<OneD, NekDouble>> tangmat(2);
+
+        for (int i = 0; i < 2; ++i)
+        {
+            tangmat[i] = Array<OneD, NekDouble>(nqtot, 0.0);
+            for (int k = 0; k < (m_geom->GetCoordim()); ++k)
+            {
+                Vmath::Svtvp(nqtot, df[2 * k + i][0], &direction[k * nqtot], 1,
+                             &tangmat[i][0], 1, &tangmat[i][0], 1);
+            }
+        }
+
+        /// D_v = D^v_xi * du/d_xi + D^v_eta * du/d_eta
+        Vmath::Vmul(nqtot, &tangmat[0][0], 1, &diff0[0], 1, &outarray[0], 1);
+
+        Vmath::Vvtvp(nqtot, &tangmat[1][0], 1, &diff1[0], 1, &outarray[0], 1,
+                     &outarray[0], 1);
     }
 }
 
@@ -2051,8 +2111,7 @@ DNekMatSharedPtr Expansion2D::v_GenMatrix(const StdRegions::StdMatrixKey &mkey)
                             n = norm[d];
                         }
 
-                        GetTracePhysVals(t, traceExp[t], Deriv[d], val,
-                                         v_GetTraceOrient(t));
+                        GetLocTracePhysVals(t, traceExp[t], Deriv[d], val);
 
                         Vmath::Vvtvp(tracepts[t], n, 1, val, 1,
                                      tmp  = dphidn[t] + i * tracepts[t], 1,
@@ -2067,9 +2126,11 @@ DNekMatSharedPtr Expansion2D::v_GenMatrix(const StdRegions::StdMatrixKey &mkey)
                 NekDouble h, p;
                 TraceNormLen(t, h, p);
 
-                // scaling from GJP paper
+                // scaling of trace
+                ASSERTL1(mkey.HasVarFactors(StdRegions::eFactorGJPTraceWeight),
+                         "Cannot find TraceWeights in key");
                 NekDouble scale =
-                    (p == 1) ? 0.02 * h * h : 0.8 * pow(p + 1, -4.0) * h * h;
+                    mkey.GetVarFactors(StdRegions::eFactorGJPTraceWeight)[t];
 
                 for (int i = 0; i < m_ncoeffs; ++i)
                 {
@@ -2389,31 +2450,25 @@ void Expansion2D::v_SetUpPhysNormals(const int edge)
     v_ComputeTraceNormal(edge);
 }
 
-void Expansion2D::v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
-                                         Array<OneD, int> &idmap, const int nq0,
-                                         [[maybe_unused]] const int nq1,
-                                         [[maybe_unused]] bool Forwards)
+void Expansion2D::v_ReOrientTracePhysVals(
+    const StdRegions::Orientation orient,
+    const Array<OneD, const NekDouble> &in, Array<OneD, NekDouble> &out,
+    const int nq0, [[maybe_unused]] const int nq1,
+    [[maybe_unused]] bool Forwards)
 {
-    if (idmap.size() != nq0)
-    {
-        idmap = Array<OneD, int>(nq0);
-    }
     switch (orient)
     {
         case StdRegions::eForwards:
             // Fwd
             for (int i = 0; i < nq0; ++i)
             {
-                idmap[i] = i;
+                out[i] = in[i];
             }
             break;
         case StdRegions::eBackwards:
         {
             // Bwd
-            for (int i = 0; i < nq0; ++i)
-            {
-                idmap[i] = nq0 - 1 - i;
-            }
+            Vmath::Reverse(nq0, &in[0], 1, &out[0], 1);
         }
         break;
         default:
@@ -2516,5 +2571,123 @@ void Expansion2D::v_TraceNormLen(const int traceid, NekDouble &h, NekDouble &p)
     int dirn = (geom->GetDir(traceid) == 0) ? 1 : 0;
 
     p = (NekDouble)(GetBasisNumModes(dirn) - 1);
+}
+
+/** @brief: This method gets all of the factors which are
+    required as part of the Gradient Jump Penalty (GJP)
+    stabilisation and involves the product of the normal and
+    geometric factors along the element trace.
+*/
+void Expansion2D::v_NormalTraceDerivFactors(
+    Array<OneD, Array<OneD, NekDouble>> &d0factors,
+    Array<OneD, Array<OneD, NekDouble>> &d1factors,
+    [[maybe_unused]] Array<OneD, Array<OneD, NekDouble>> &d2factors)
+{
+    const Array<TwoD, const NekDouble> &df  = m_geomFactors->GetDerivFactors();
+    const Array<OneD, const NekDouble> &Jac = m_geomFactors->GetJac();
+
+    unsigned ntrace = GetNtraces();
+
+    if (d0factors.size() != ntrace)
+    {
+        d0factors = Array<OneD, Array<OneD, NekDouble>>(ntrace);
+        d1factors = Array<OneD, Array<OneD, NekDouble>>(ntrace);
+    }
+
+    Array<OneD, ExpansionSharedPtr> traceExp(ntrace);
+    Array<OneD, unsigned> nq_edge(ntrace);
+    unsigned nq_max = 0;
+    for (int i = 0; i < ntrace; ++i)
+    {
+        // Note we are using GenTraceExp to ensure we have local trace expansion
+        // not ont from shared trace which can happe if we use GetTraceExp since
+        // it can be set in DisContField::SetupDG
+        v_GenTraceExp(i, traceExp[i]);
+        nq_edge[i] = traceExp[i]->GetTotPoints();
+        if (d0factors[i].size() != nq_edge[i])
+        {
+            d0factors[i] = Array<OneD, NekDouble>(nq_edge[i]);
+            d1factors[i] = Array<OneD, NekDouble>(nq_edge[i]);
+        }
+        nq_max = max(nq_max, nq_edge[i]);
+    }
+    Array<OneD, NekDouble> norm(nq_max);
+
+    const std::map<int, NormalVector> &normals = GetTraceNormals();
+
+    int ncoords = normals.find(0)->second.size();
+
+    if (m_geomFactors->GetGtype() == SpatialDomains::eDeformed)
+    {
+        Array<OneD, Array<OneD, NekDouble>> fac(2);
+        for (int i = 0; i < 2; ++i)
+        {
+            fac[i] = Array<OneD, NekDouble>(nq_max);
+        }
+        Array<OneD, NekDouble> jac(nq_max);
+        // construct local copy of df multipled by jacobian so that
+        // interpolation is of a polynomial function to be accurate
+        Array<OneD, Array<OneD, NekDouble>> dfdj(2 * ncoords);
+        unsigned nqtot = GetTotPoints();
+        for (unsigned i = 0; i < 2 * ncoords; ++i)
+        {
+            dfdj[i] = Array<OneD, NekDouble>(nqtot);
+            Vmath::Vmul(nqtot, &(df[i][0]), 1, &(Jac[0]), 1, &(dfdj[i][0]), 1);
+        }
+
+        // needs checking for 3D coords
+        for (unsigned e = 0; e < ntrace; ++e)
+        {
+            // edge "e"
+            v_GetLocTracePhysVals(e, traceExp[e], &(Jac[0]), jac);
+            Vmath::Sdiv(nq_edge[e], 1.0, jac, 1, jac, 1);
+            v_GetLocTracePhysVals(e, traceExp[e], &(dfdj[0][0]), fac[0]);
+            v_GetLocTracePhysVals(e, traceExp[e], &(dfdj[1][0]), fac[1]);
+
+            norm = normals.find(e)->second[0];
+            for (int i = 0; i < nq_edge[e]; ++i)
+            {
+                d0factors[e][i] = fac[0][i] * norm[i] * jac[i];
+                d1factors[e][i] = fac[1][i] * norm[i] * jac[i];
+            }
+            // needs checking for 3D coords
+            for (int n = 1; n < ncoords; ++n)
+            {
+                v_GetLocTracePhysVals(e, traceExp[e], &(dfdj[2 * n][0]),
+                                      fac[0]);
+                v_GetLocTracePhysVals(e, traceExp[e], &(dfdj[2 * n + 1][0]),
+                                      fac[1]);
+
+                norm = normals.find(e)->second[n];
+                for (int i = 0; i < nq_edge[e]; ++i)
+                {
+                    d0factors[e][i] += fac[0][i] * norm[i] * jac[i];
+                    d1factors[e][i] += fac[1][i] * norm[i] * jac[i];
+                }
+            }
+        }
+    }
+    else
+    {
+        for (unsigned e = 0; e < ntrace; ++e)
+        {
+            norm = normals.find(e)->second[0];
+            for (int i = 0; i < nq_edge[e]; ++i)
+            {
+                d0factors[e][i] = df[0][0] * norm[i];
+                d1factors[e][i] = df[1][0] * norm[i];
+            }
+
+            for (int n = 1; n < ncoords; ++n)
+            {
+                norm = normals.find(e)->second[n];
+                for (int i = 0; i < nq_edge[e]; ++i)
+                {
+                    d0factors[e][i] += df[2 * n][0] * norm[i];
+                    d1factors[e][i] += df[2 * n + 1][0] * norm[i];
+                }
+            }
+        }
+    }
 }
 } // namespace Nektar::LocalRegions

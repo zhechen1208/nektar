@@ -62,20 +62,6 @@ public:
     LOCAL_REGIONS_EXPORT ~TriExp() override = default;
 
 protected:
-    //-------------------------------
-    // Integration Methods
-    //-------------------------------
-    LOCAL_REGIONS_EXPORT NekDouble
-    v_Integral(const Array<OneD, const NekDouble> &inarray) override;
-
-    //----------------------------
-    // Differentiation Methods
-    //----------------------------
-    LOCAL_REGIONS_EXPORT void v_PhysDirectionalDeriv(
-        const Array<OneD, const NekDouble> &inarray,
-        const Array<OneD, const NekDouble> &direction,
-        Array<OneD, NekDouble> &out) override;
-
     //---------------------------------------
     // Transforms
     //---------------------------------------
@@ -202,10 +188,10 @@ protected:
         Array<OneD, NekDouble> &array,
         const StdRegions::StdMatrixKey &mkey) override;
 
-    LOCAL_REGIONS_EXPORT void v_NormalTraceDerivFactors(
-        Array<OneD, Array<OneD, NekDouble>> &factors,
-        Array<OneD, Array<OneD, NekDouble>> &d0factors,
-        Array<OneD, Array<OneD, NekDouble>> &d1factors) override;
+    void v_GetLocTracePhysVals(const int edge,
+                               const StdRegions::StdExpansionSharedPtr &EdgeExp,
+                               const NekDouble *inarray,
+                               Array<OneD, NekDouble> &outarray) override;
 
 private:
     LibUtilities::NekManager<MatrixKey, DNekScalMat, MatrixKey::opLess>

@@ -77,6 +77,9 @@ protected:
     void v_FillBndCondFromField(const int nreg,
                                 const Array<OneD, NekDouble> coeffs) override;
 
+    /// Template method virtual forwarded for AvgAssemble()
+    void v_AvgAssemble(bool useComm) override;
+
     /// Template method virtual forwarded for LocalToGlobal()
     void v_LocalToGlobal(bool useComm) override;
 
@@ -89,7 +92,7 @@ protected:
                                 Array<OneD, NekDouble> &outarray,
                                 const StdRegions::ConstFactorMap &factors,
                                 const StdRegions::VarCoeffMap &varcoeff,
-                                const MultiRegions::VarFactorsMap &varfactors,
+                                const StdRegions::VarFactorsMap &varfactors,
                                 const Array<OneD, const NekDouble> &dirForcing,
                                 const bool PhysSpaceForcing) override;
 

@@ -36,6 +36,7 @@
 #include <cstdlib>
 
 #include <LibUtilities/BasicUtils/SessionReader.h>
+#include <LibUtilities/BasicUtils/Timer.h>
 #include <LibUtilities/Communication/Comm.h>
 #include <LibUtilities/Memory/NekMemoryManager.hpp>
 #include <MultiRegions/ContField.h>
@@ -97,6 +98,17 @@ int main(int argc, char *argv[])
         LibUtilities::BasisKey bkey0 =
             expansions.begin()->second->m_basisKeyVector[0];
 
+        //----------------------------------------------
+        // if GJPStabilisation set to False bool will be true and
+        // if not false so negate/revese bool
+        bool useGJPStabilisation = false;
+        vSession->MatchSolverInfo("GJPStabilisation", "False",
+                                  useGJPStabilisation, true);
+        useGJPStabilisation = !useGJPStabilisation;
+        double GJPJumpScale = 1.0;
+        vSession->LoadParameter("GJPJumpScale", GJPJumpScale, 1.0);
+        //----------------------------------------------
+
         if (vSession->GetComm()->GetRank() == 0)
         {
             cout << "Solving 3D Helmholtz:" << endl;
@@ -105,9 +117,15 @@ int main(int argc, char *argv[])
                  << endl;
             cout << "  - Solver type  : "
                  << vSession->GetSolverInfo("GlobalSysSoln") << endl;
-            cout << "  - Lambda       : " << factors[StdRegions::eFactorLambda]
+            cout << "  - Lambda        : " << factors[StdRegions::eFactorLambda]
                  << endl;
-            cout << "  - No. modes    : " << bkey0.GetNumModes() << endl;
+            cout << "  - No. modes     : " << bkey0.GetNumModes() << endl;
+            if (useGJPStabilisation)
+            {
+                cout << "  - GJP Stab Type : "
+                     << vSession->GetSolverInfo("GJPStabilisation") << endl;
+                cout << "  - GJP Scale     : " << GJPJumpScale << endl;
+            }
             cout << endl;
         }
         //----------------------------------------------
@@ -119,6 +137,16 @@ int main(int argc, char *argv[])
         //----------------------------------------------
 
         Timing("Read files and define exp ..");
+
+        //----------------------------------------------
+        // Set up GJP if requested
+        if (useGJPStabilisation)
+        {
+            Exp->InitGJPData();
+            factors[StdRegions::eFactorGJP] =
+                GJPJumpScale * factors[StdRegions::eFactorLambda];
+        }
+        //----------------------------------------------
 
         //----------------------------------------------
         // Set up coordinates of mesh for Forcing function evaluation
@@ -183,12 +211,25 @@ int main(int argc, char *argv[])
         Fce->SetPhys(fce);
         //----------------------------------------------
 
+        // Timer info for the HelmSolv
+        Nektar::LibUtilities::Timer timer;
+        NekDouble CPUtime;
+        timer.Start();
         //----------------------------------------------
         // Helmholtz solution taking physical forcing after setting
         // initial condition to zero
         Vmath::Zero(Exp->GetNcoeffs(), Exp->UpdateCoeffs(), 1);
         Exp->HelmSolve(Fce->GetPhys(), Exp->UpdateCoeffs(), factors, varcoeffs);
         //----------------------------------------------
+        timer.Stop();
+        if (vSession->GetComm()->GetRank() == 0)
+        {
+            CPUtime = timer.Elapsed().count();
+            cout << "-------------------------------------------" << endl;
+            cout << "Total Computation Time = " << CPUtime << "s" << endl;
+            cout << "-------------------------------------------" << endl;
+        }
+
         Timing("Helmholtz Solve ..");
 
 #ifdef TIMING

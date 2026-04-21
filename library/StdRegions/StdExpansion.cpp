@@ -135,7 +135,7 @@ NekDouble StdExpansion::L2(const Array<OneD, const NekDouble> &phys,
         Vmath::Vmul(ntot, wsp, 1, wsp, 1, wsp, 1);
     }
 
-    val = v_Integral(wsp);
+    val = Integral(wsp);
 
     return (val < 0.0) ? 0.0 : sqrt(val);
 }
@@ -168,7 +168,7 @@ NekDouble StdExpansion::H1(const Array<OneD, const NekDouble> &phys,
         Vmath::Vvtvp(ntot, wsp_deriv, 1, wsp_deriv, 1, sum, 1, sum, 1);
     }
 
-    val = sqrt(v_Integral(sum));
+    val = sqrt(Integral(sum));
 
     return val;
 }
@@ -255,7 +255,7 @@ DNekMatSharedPtr StdExpansion::CreateGeneralMatrix(const StdMatrixKey &mkey)
         {
             StdMatrixKey masskey(eMass, mkey.GetShapeType(), *this,
                                  NullConstFactorMap, NullVarCoeffMap,
-                                 mkey.GetNodalPointsType());
+                                 NullVarFactorsMap, mkey.GetNodalPointsType());
             DNekMatSharedPtr mmat = GetStdMatrix(masskey);
 
             returnval = MemoryManager<DNekMat>::AllocateSharedPtr(
@@ -267,7 +267,7 @@ DNekMatSharedPtr StdExpansion::CreateGeneralMatrix(const StdMatrixKey &mkey)
         {
             StdMatrixKey tmpkey(eNBasisTrans, mkey.GetShapeType(), *this,
                                 NullConstFactorMap, NullVarCoeffMap,
-                                mkey.GetNodalPointsType());
+                                NullVarFactorsMap, mkey.GetNodalPointsType());
             DNekMatSharedPtr tmpmat = GetStdMatrix(tmpkey);
             returnval               = MemoryManager<DNekMat>::AllocateSharedPtr(
                 *tmpmat); // Populate  matrix.
@@ -427,7 +427,7 @@ DNekMatSharedPtr StdExpansion::CreateGeneralMatrix(const StdMatrixKey &mkey)
             GenStdMatBwdDeriv(2, returnval);
         }
         break;
-        case eEquiSpacedToCoeffs:
+        case eCoeffsToEquiSpaced:
         {
             // check to see if equispaced basis
             int nummodes    = m_base[0]->GetNumModes();
@@ -462,7 +462,64 @@ DNekMatSharedPtr StdExpansion::CreateGeneralMatrix(const StdMatrixKey &mkey)
                 Vmath::Vcopy(m_ncoeffs, &emode[0], 1,
                              returnval->GetRawPtr() + i * m_ncoeffs, 1);
             }
-            // invert matrix
+        }
+        break;
+        case eEquiSpacedToCoeffs:
+        {
+            StdMatrixKey key(eCoeffsToEquiSpaced, mkey.GetShapeType(), *this,
+                             NullConstFactorMap);
+            DNekMatSharedPtr mat = GetStdMatrix(key);
+
+            returnval = MemoryManager<DNekMat>::AllocateSharedPtr(*mat); //
+
+            returnval->Invert();
+        }
+        break;
+        case eCoeffsToGLL:
+        {
+            // check to see if equispaced basis
+            int nummodes    = m_base[0]->GetNumModes();
+            bool equispaced = true;
+            for (int i = 1; i < m_base.size(); ++i)
+            {
+                if (m_base[i]->GetNumModes() != nummodes)
+                {
+                    equispaced = false;
+                }
+            }
+
+            ASSERTL0(equispaced,
+                     "Currently need to have same num modes in all "
+                     "directionmodes to use EquiSpacedToCoeff method");
+
+            int ntot = GetTotPoints();
+            Array<OneD, NekDouble> qmode(ntot);
+            Array<OneD, NekDouble> emode(m_ncoeffs);
+
+            returnval =
+                MemoryManager<DNekMat>::AllocateSharedPtr(m_ncoeffs, m_ncoeffs);
+            for (int i = 0; i < m_ncoeffs; ++i)
+            {
+                // Get mode at quadrature points
+                FillMode(i, qmode);
+
+                // interpolate to equi spaced
+                PhysInterpToGLL(qmode, emode, nummodes);
+
+                // fill matrix
+                Vmath::Vcopy(m_ncoeffs, &emode[0], 1,
+                             returnval->GetRawPtr() + i * m_ncoeffs, 1);
+            }
+        }
+        break;
+        case eGLLToCoeffs:
+        {
+            StdMatrixKey key(eCoeffsToGLL, mkey.GetShapeType(), *this,
+                             NullConstFactorMap);
+            DNekMatSharedPtr mat = GetStdMatrix(key);
+
+            returnval = MemoryManager<DNekMat>::AllocateSharedPtr(*mat); //
+
             returnval->Invert();
         }
         break;
@@ -1149,7 +1206,7 @@ void StdExpansion::LinearAdvectionDiffusionReactionMatrixOp_MatFree(
         Array<OneD, NekDouble> lap(m_ncoeffs);
         StdMatrixKey mkeylap(eLaplacian, DetShapeType(), *this,
                              mkey.GetConstFactors(), mkey.GetVarCoeffs(),
-                             mkey.GetNodalPointsType());
+                             mkey.GetVarFactors(), mkey.GetNodalPointsType());
         LaplacianMatrixOp(inarray, lap, mkeylap);
 
         Vmath::Vadd(m_ncoeffs, lap, 1, outarray, 1, outarray,
@@ -1166,7 +1223,7 @@ void StdExpansion::HelmholtzMatrixOp_MatFree_GenericImpl(
     StdMatrixKey mkeymass(eMass, DetShapeType(), *this);
     StdMatrixKey mkeylap(eLaplacian, DetShapeType(), *this,
                          mkey.GetConstFactors(), mkey.GetVarCoeffs(),
-                         mkey.GetNodalPointsType());
+                         mkey.GetVarFactors(), mkey.GetNodalPointsType());
 
     MassMatrixOp(inarray, tmp, mkeymass);
     LaplacianMatrixOp(inarray, outarray, mkeylap);
@@ -1261,7 +1318,8 @@ void StdExpansion::v_LocCollapsedToLocCoord(
 void StdExpansion::v_PhysInterp(
     [[maybe_unused]] std::shared_ptr<StdExpansion> FromExp,
     [[maybe_unused]] const Array<OneD, const NekDouble> &fromData,
-    [[maybe_unused]] Array<OneD, NekDouble> &toData)
+    [[maybe_unused]] Array<OneD, NekDouble> &toData,
+    [[maybe_unused]] bool Traspose)
 {
     ASSERTL0(false, "This function is not valid or not defined");
 }
@@ -1283,23 +1341,7 @@ LibUtilities::PointsKey StdExpansion::v_GetTracePointsKey(
 
 const LibUtilities::PointsKey StdExpansion::v_GetNodalPointsKey() const
 {
-    ASSERTL0(false, "This function is not valid or not defined");
-
     return LibUtilities::NullPointsKey;
-}
-
-std::shared_ptr<StdExpansion> StdExpansion::v_GetStdExp(void) const
-{
-    ASSERTL0(false, "This method is not defined for this expansion");
-    StdExpansionSharedPtr returnval;
-    return returnval;
-}
-
-std::shared_ptr<StdExpansion> StdExpansion::v_GetLinStdExp(void) const
-{
-    ASSERTL0(false, "This method is not defined for this expansion");
-    StdExpansionSharedPtr returnval;
-    return returnval;
 }
 
 bool StdExpansion::v_IsBoundaryInteriorExpansion() const
@@ -1362,9 +1404,19 @@ void StdExpansion::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
         v_IProductWRTBase(inarray, outarray);
 
         // get Mass matrix inverse
-        StdMatrixKey masskey(eInvMass, v_DetShapeType(), *this);
+        LibUtilities::PointsType nodalPointsType =
+            (v_GetNodalPointsKey() == LibUtilities::NullPointsKey)
+                ? LibUtilities::eNoPointsType
+                : v_GetNodalPointsKey().GetPointsType();
+
+        // get Mass matrix inverse
+        StdMatrixKey masskey(StdRegions::eInvMass, DetShapeType(), *this,
+                             StdRegions::NullConstFactorMap,
+                             StdRegions::NullVarCoeffMap,
+                             StdRegions::NullVarFactorsMap, nodalPointsType);
         DNekMatSharedPtr matsys = GetStdMatrix(masskey);
 
+        // copy inarray in case inarray == outarray
         NekVector<NekDouble> in(m_ncoeffs, outarray, eCopy);
         NekVector<NekDouble> out(m_ncoeffs, outarray, eWrapper);
 
@@ -1383,18 +1435,6 @@ void StdExpansion::v_FwdTransBndConstrained(
 }
 
 /**
- * @brief Integrates the specified function over the domain.
- * @see StdRegions#StdExpansion#Integral.
- */
-NekDouble StdExpansion::v_Integral(
-    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray)
-{
-    NEKERROR(ErrorUtil::efatal, "This function is only valid for "
-                                "local expansions");
-    return 0;
-}
-
-/**
  * @brief Calculate the derivative of the physical points
  * @see StdRegions#StdExpansion#PhysDeriv
  */
@@ -1405,21 +1445,6 @@ void StdExpansion::v_PhysDeriv(
     [[maybe_unused]] Array<OneD, NekDouble> &out_d3)
 {
     v_StdPhysDeriv(inarray, out_d1, out_d2, out_d3);
-}
-
-void StdExpansion::v_PhysDeriv_s(
-    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
-    [[maybe_unused]] Array<OneD, NekDouble> &out_ds)
-{
-    NEKERROR(ErrorUtil::efatal, "This function is only valid for "
-                                "local expansions");
-}
-void StdExpansion::v_PhysDeriv_n(
-    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
-    [[maybe_unused]] Array<OneD, NekDouble> &out_dn)
-{
-    NEKERROR(ErrorUtil::efatal, "This function is only valid for "
-                                "local expansions");
 }
 
 /**
@@ -1641,14 +1666,6 @@ void StdExpansion::v_MultiplyByStdQuadratureMetric(
              "Method does not exist for this shape or library");
 }
 
-void StdExpansion::v_IProductWRTDirectionalDerivBase_SumFac(
-    [[maybe_unused]] const Array<OneD, const NekDouble> &direction,
-    [[maybe_unused]] const Array<OneD, const NekDouble> &inarray,
-    [[maybe_unused]] Array<OneD, NekDouble> &outarray)
-{
-    NEKERROR(ErrorUtil::efatal, "Method does not exist for this shape");
-}
-
 void StdExpansion::v_MassMatrixOp(const Array<OneD, const NekDouble> &inarray,
                                   Array<OneD, NekDouble> &outarray,
                                   const StdMatrixKey &mkey)
@@ -1789,9 +1806,22 @@ DNekMatSharedPtr StdExpansion::v_BuildInverseTransformationMatrix(
     return NullDNekMatSharedPtr;
 }
 
+void StdExpansion::PhysInterpToGLL(const Array<OneD, const NekDouble> &inarray,
+                                   Array<OneD, NekDouble> &outarray, int npset)
+{
+    PhysInterpToPoints(inarray, outarray, npset, ePhysInterpToGLL);
+}
+
 void StdExpansion::PhysInterpToSimplexEquiSpaced(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray, int npset)
+{
+    PhysInterpToPoints(inarray, outarray, npset, ePhysInterpToEquiSpaced);
+}
+
+void StdExpansion::PhysInterpToPoints(
+    const Array<OneD, const NekDouble> &inarray,
+    Array<OneD, NekDouble> &outarray, int npset, MatrixType distrib)
 {
     LibUtilities::ShapeType shape = DetShapeType();
     DNekMatSharedPtr intmat;
@@ -1807,7 +1837,7 @@ void StdExpansion::PhysInterpToSimplexEquiSpaced(
             np     = std::max(np, nqbase);
         }
 
-        StdMatrixKey Ikey(ePhysInterpToEquiSpaced, shape, *this);
+        StdMatrixKey Ikey(distrib, shape, *this);
         intmat = GetStdMatrix(Ikey);
     }
     else
@@ -1816,7 +1846,7 @@ void StdExpansion::PhysInterpToSimplexEquiSpaced(
 
         ConstFactorMap cmap;
         cmap[eFactorConst] = np;
-        StdMatrixKey Ikey(ePhysInterpToEquiSpaced, shape, *this, cmap);
+        StdMatrixKey Ikey(distrib, shape, *this, cmap);
         intmat = GetStdMatrix(Ikey);
     }
 
@@ -1837,6 +1867,15 @@ void StdExpansion::v_GetSimplexEquiSpacedConnectivity(
                      LibUtilities::ShapeTypeMap[DetShapeType()]));
 }
 
+void StdExpansion::v_ReOrientTracePhysMap(
+    [[maybe_unused]] const StdRegions::Orientation orient,
+    [[maybe_unused]] Array<OneD, int> &idmap, [[maybe_unused]] const int nq0,
+    [[maybe_unused]] const int nq1, [[maybe_unused]] bool Forwards)
+{
+    NEKERROR(ErrorUtil::efatal,
+             "Method does not exist for this shape or library");
+}
+
 void StdExpansion::EquiSpacedToCoeffs(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray)
@@ -1854,6 +1893,28 @@ void StdExpansion::EquiSpacedToCoeffs(
 
     NekVector<NekDouble> in(m_ncoeffs, inarray, eWrapper);
     NekVector<NekDouble> out(m_ncoeffs, outarray, eWrapper);
+    out = (*intmat) * in;
+}
+
+void StdExpansion::EquiSpacedToPhys(const int nequi,
+                                    const Array<OneD, const NekDouble> &inarray,
+                                    Array<OneD, NekDouble> &outarray)
+{
+    LibUtilities::ShapeType shape = DetShapeType();
+
+    // inarray has to be consistent with NumModes definition
+    // There is also a check in GetStdMatrix to see if all
+    // modes are of the same size
+    ConstFactorMap cmap;
+
+    std::vector<unsigned int> nequivec(3, nequi);
+    cmap[eFactorConst] = nequi;
+    StdMatrixKey Ikey(eEquiSpacedToPhys, shape, *this, cmap);
+    DNekMatSharedPtr intmat = GetStdMatrix(Ikey);
+
+    NekVector<NekDouble> in(GetNumberOfCoefficients(shape, nequivec), inarray,
+                            eWrapper);
+    NekVector<NekDouble> out(GetTotPoints(), outarray, eWrapper);
     out = (*intmat) * in;
 }
 

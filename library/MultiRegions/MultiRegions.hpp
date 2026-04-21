@@ -107,19 +107,24 @@ enum GJPStabilisationType
 {
     eNoGJPStabilisation,
     eExplicitGJPStabilisation,
+    eFullImplicitGJPStabilisation,
     eSemiImplicitGJPStabilisation
 };
 
 enum LinSysIterSolver
 {
-    eNoLinSysIterSolver, ///< No Solution type specified
-    eConjugateGradient,  ///< Conjugate Gradient
-    eGMRES,              ///< GMRES
-    eGMRESLoc            ///< GMRES in Local storage
+    eNoLinSysIterSolver,   ///< No Solution type specified
+    eConjugateGradient,    ///< Conjugate Gradient
+    eConjugateGradientLoc, ///< Conjugate Gradient in Local Storage
+    eGMRES,                ///< GMRES
+    eGMRESLoc,             ///< GMRES in Local storage
+    eDirectEigenValues ///< Compute and output eigenvalues of global matrix via
+                       ///< dgeev
 };
 
 const char *const LinSysIterSolverMap[] = {
-    "NoLinSysIterSolver", "ConjugateGradient", "GMRES", "GMRESLoc"};
+    "NoLinSysIterSolver", "ConjugateGradient", "ConjugateGradientLoc", "GMRES",
+    "GMRESLoc",           "EvsDirect"};
 
 // let's keep this for linking to external
 // sparse libraries

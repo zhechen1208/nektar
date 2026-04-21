@@ -153,6 +153,8 @@ protected:
     std::ofstream m_flowrateStream;
     /// Interval at which to record flowrate data
     int m_flowrateSteps;
+    /// Decimal precision of flow rate (alpha)
+    int m_flowrateStepsPrecision;
     /// Value of aii_dt used to compute Stokes flowrate solution.
     NekDouble m_flowrateAiidt;
 
@@ -234,7 +236,7 @@ protected:
                          const Array<OneD, Array<OneD, NekDouble>> &vel =
                              NullNekDoubleArrayOfArray);
     void AppendSVVFactors(StdRegions::ConstFactorMap &factors,
-                          MultiRegions::VarFactorsMap &varFactorsMap);
+                          StdRegions::VarFactorsMap &varFactorsMap);
 
     void ComputeGJPNormalVelocity(
         const Array<OneD, const Array<OneD, NekDouble>> &inarray,

@@ -34,7 +34,6 @@ SET(BasicUtilsHeaders
     ./BasicUtils/Thread.h
     ./BasicUtils/ThreadStd.h
     ./BasicUtils/Vmath.hpp
-    ./BasicUtils/VmathSIMD.hpp
     ./BasicUtils/VmathArray.hpp
     ./BasicUtils/Smath.hpp
     ./BasicUtils/Metis.hpp
@@ -204,9 +203,11 @@ SET(LinearAlgebraHeaders
 ./LinearAlgebra/NekLinSysIter.h
 ./LinearAlgebra/NekLinSysIterCG.h
 ./LinearAlgebra/NekLinSysIterCGLoc.h
+./LinearAlgebra/NekLinSysIterEvsDirect.h
 ./LinearAlgebra/NekLinSysIterFixedpointJacobi.h
 ./LinearAlgebra/NekLinSysIterGMRES.h
 ./LinearAlgebra/NekLinSysIterGMRESLoc.h
+./LinearAlgebra/NekLinSysIterEvsDirect.h
 ./LinearAlgebra/NekMatrixFwd.hpp
 ./LinearAlgebra/NekMatrix.hpp
 ./LinearAlgebra/NekNonlinSysIter.h
@@ -240,7 +241,9 @@ SET(LinearAlgebraSources
 ./LinearAlgebra/NekLinSysIterGMRESLoc.cpp
 ./LinearAlgebra/NekLinSysIterCG.cpp
 ./LinearAlgebra/NekLinSysIterCGLoc.cpp
+./LinearAlgebra/NekLinSysIterEvsDirect.cpp
 ./LinearAlgebra/NekLinSysIterFixedpointJacobi.cpp
+./LinearAlgebra/NekLinSysIterEvsDirect.cpp
 ./LinearAlgebra/NekNonlinSysIter.cpp
 ./LinearAlgebra/NekNonlinSysIterNewton.cpp
 ./LinearAlgebra/NekSys.cpp

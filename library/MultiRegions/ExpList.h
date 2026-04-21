@@ -62,14 +62,13 @@ class AssemblyMapCG;
 class InterfaceMapDG;
 class GlobalLinSysKey;
 class GlobalMatrix;
+class GJPStabilisation;
 
 enum Direction
 {
     eX,
     eY,
     eZ,
-    eS,
-    eN
 };
 
 enum ExpansionType
@@ -312,8 +311,8 @@ public:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff = StdRegions::NullVarCoeffMap,
-        const MultiRegions::VarFactorsMap &varfactors =
-            MultiRegions::NullVarFactorsMap,
+        const StdRegions::VarFactorsMap &varfactors =
+            StdRegions::NullVarFactorsMap,
         const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray,
         const bool PhysSpaceForcing                    = true);
 
@@ -323,8 +322,8 @@ public:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff = StdRegions::NullVarCoeffMap,
-        const MultiRegions::VarFactorsMap &varfactors =
-            MultiRegions::NullVarFactorsMap,
+        const StdRegions::VarFactorsMap &varfactors =
+            StdRegions::NullVarFactorsMap,
         const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray,
         const bool PhysSpaceForcing                    = true);
 
@@ -334,8 +333,8 @@ public:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff = StdRegions::NullVarCoeffMap,
-        const MultiRegions::VarFactorsMap &varfactors =
-            MultiRegions::NullVarFactorsMap,
+        const StdRegions::VarFactorsMap &varfactors =
+            StdRegions::NullVarFactorsMap,
         const Array<OneD, const NekDouble> &dirForcing = NullNekDouble1DArray,
         const bool PhysSpaceForcing                    = true);
     ///
@@ -458,6 +457,13 @@ public:
     /// stored in expansion
     inline void FillBndCondFromField(const int nreg,
                                      const Array<OneD, NekDouble> coeffs);
+    /// Assemble the average global coefficients \f$\boldsymbol{\hat{u}}_g\f$
+    /// from the local coefficients \f$\boldsymbol{\hat{u}}_l\f$ .
+    // inline
+    MULTI_REGIONS_EXPORT inline void AvgAssemble(bool useComm = true);
+    MULTI_REGIONS_EXPORT inline void AvgAssemble(
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray, bool useComm = true);
     /// Gathers the global coefficients \f$\boldsymbol{\hat{u}}_g\f$
     /// from the local coefficients \f$\boldsymbol{\hat{u}}_l\f$.
     // inline
@@ -860,6 +866,9 @@ public:
         const NekDouble time = 0.0, const std::string varName = "",
         const NekDouble = NekConstants::kNekUnsetDouble,
         const NekDouble = NekConstants::kNekUnsetDouble);
+    /// Set boundary conditions to be homogeneous
+    inline void SetBCsToHomogeneous(void);
+
     // Routines for continous matrix solution
     /// This function calculates the result of the multiplication of a
     /// matrix of type specified by \a mkey with a vector given by \a
@@ -1000,6 +1009,12 @@ public:
     {
         return v_GetPlane(n);
     }
+
+    inline const std::shared_ptr<GJPStabilisation> GetGJPData(void)
+    {
+        return v_GetGJPData();
+    }
+
     MULTI_REGIONS_EXPORT void CreateCollections(
         Collections::ImplementationType ImpType = Collections::eNoImpType);
     MULTI_REGIONS_EXPORT void ClearGlobalLinSysManager(void);
@@ -1065,6 +1080,11 @@ public:
                                                 "expansion ID map.")
         return it->second;
     }
+
+    void MultiplyByBlockMatrix(const GlobalMatrixKey &gkey,
+                               const Array<OneD, const NekDouble> &inarray,
+                               Array<OneD, NekDouble> &outarray,
+                               bool Transpose = false);
 
     /// This function returns collections
     MULTI_REGIONS_EXPORT inline const Collections::CollectionVector &
@@ -1189,9 +1209,7 @@ protected:
     /// matrices of the type \a mtype.
     const DNekScalBlkMatSharedPtr GenBlockMatrix(const GlobalMatrixKey &gkey);
     const DNekScalBlkMatSharedPtr &GetBlockMatrix(const GlobalMatrixKey &gkey);
-    void MultiplyByBlockMatrix(const GlobalMatrixKey &gkey,
-                               const Array<OneD, const NekDouble> &inarray,
-                               Array<OneD, NekDouble> &outarray);
+
     /// Generates a global matrix from the given key and map.
     std::shared_ptr<GlobalMatrix> GenGlobalMatrix(
         const GlobalMatrixKey &mkey,
@@ -1290,7 +1308,7 @@ protected:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff,
-        const MultiRegions::VarFactorsMap &varfactors,
+        const StdRegions::VarFactorsMap &varfactors,
         const Array<OneD, const NekDouble> &dirForcing,
         const bool PhysSpaceForcing);
 
@@ -1299,7 +1317,7 @@ protected:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff,
-        const MultiRegions::VarFactorsMap &varfactors,
+        const StdRegions::VarFactorsMap &varfactors,
         const Array<OneD, const NekDouble> &dirForcing,
         const bool PhysSpaceForcing);
 
@@ -1308,7 +1326,7 @@ protected:
         Array<OneD, NekDouble> &outarray,
         const StdRegions::ConstFactorMap &factors,
         const StdRegions::VarCoeffMap &varcoeff,
-        const MultiRegions::VarFactorsMap &varfactors,
+        const StdRegions::VarFactorsMap &varfactors,
         const Array<OneD, const NekDouble> &dirForcing,
         const bool PhysSpaceForcing);
 
@@ -1320,6 +1338,9 @@ protected:
     virtual void v_FillBndCondFromField(const int nreg,
                                         const Array<OneD, NekDouble> coeffs);
     virtual void v_Reset();
+    virtual void v_AvgAssemble(bool UseComm);
+    virtual void v_AvgAssemble(const Array<OneD, const NekDouble> &inarray,
+                               Array<OneD, NekDouble> &outarray, bool UseComm);
     virtual void v_LocalToGlobal(bool UseComm);
     virtual void v_LocalToGlobal(const Array<OneD, const NekDouble> &inarray,
                                  Array<OneD, NekDouble> &outarray,
@@ -1520,6 +1541,8 @@ protected:
         const NekDouble x2_in = NekConstants::kNekUnsetDouble,
         const NekDouble x3_in = NekConstants::kNekUnsetDouble);
 
+    virtual void v_SetBCsToHomogeneous(void);
+
     virtual std::map<int, RobinBCInfoSharedPtr> v_GetRobinBCInfo(void);
 
     virtual void v_GetPeriodicEntities(PeriodicMap &periodicVerts,
@@ -1548,6 +1571,12 @@ protected:
         const Array<OneD, const NekDouble> &FwdFlux,
         const Array<OneD, const NekDouble> &BwdFlux,
         Array<OneD, NekDouble> &outarray);
+
+    virtual const std::shared_ptr<GJPStabilisation> v_GetGJPData(void)
+    {
+        // default is to return empty pointer
+        return nullptr; // std::shared_ptr<GJPStabilisation>();
+    }
 
 private:
     /// Definition of the total number of degrees of freedom and
@@ -1805,7 +1834,7 @@ inline GlobalLinSysKey ExpList::HelmSolve(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray, const StdRegions::ConstFactorMap &factors,
     const StdRegions::VarCoeffMap &varcoeff,
-    const MultiRegions::VarFactorsMap &varfactors,
+    const StdRegions::VarFactorsMap &varfactors,
     const Array<OneD, const NekDouble> &dirForcing, const bool PhysSpaceForcing)
 {
     return v_HelmSolve(inarray, outarray, factors, varcoeff, varfactors,
@@ -1818,7 +1847,7 @@ inline GlobalLinSysKey ExpList::LinearAdvectionDiffusionReactionSolve(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray, const StdRegions::ConstFactorMap &factors,
     const StdRegions::VarCoeffMap &varcoeff,
-    const MultiRegions::VarFactorsMap &varfactors,
+    const StdRegions::VarFactorsMap &varfactors,
     const Array<OneD, const NekDouble> &dirForcing, const bool PhysSpaceForcing)
 {
     return v_LinearAdvectionDiffusionReactionSolve(
@@ -1830,7 +1859,7 @@ inline GlobalLinSysKey ExpList::LinearAdvectionReactionSolve(
     const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> &outarray, const StdRegions::ConstFactorMap &factors,
     const StdRegions::VarCoeffMap &varcoeff,
-    const MultiRegions::VarFactorsMap &varfactors,
+    const StdRegions::VarFactorsMap &varfactors,
     const Array<OneD, const NekDouble> &dirForcing, const bool PhysSpaceForcing)
 {
     return v_LinearAdvectionReactionSolve(inarray, outarray, factors, varcoeff,
@@ -2038,6 +2067,15 @@ inline void ExpList::FillBndCondFromField(const int nreg,
                                           const Array<OneD, NekDouble> coeffs)
 {
     v_FillBndCondFromField(nreg, coeffs);
+}
+inline void ExpList::AvgAssemble(bool useComm)
+{
+    v_AvgAssemble(useComm);
+}
+inline void ExpList::AvgAssemble(const Array<OneD, const NekDouble> &inarray,
+                                 Array<OneD, NekDouble> &outarray, bool useComm)
+{
+    v_AvgAssemble(inarray, outarray, useComm);
 }
 inline void ExpList::LocalToGlobal(bool useComm)
 {
@@ -2355,6 +2393,12 @@ inline void ExpList::EvaluateBoundaryConditions(const NekDouble time,
 {
     v_EvaluateBoundaryConditions(time, varName, x2_in, x3_in);
 }
+
+inline void ExpList::SetBCsToHomogeneous(void)
+{
+    v_SetBCsToHomogeneous();
+}
+
 inline void ExpList::SetUpPhysNormals()
 {
     v_SetUpPhysNormals();

@@ -89,8 +89,9 @@ public:
 
     inline SpatialDomains::Geometry3D *GetGeom3D() const;
 
-    LOCAL_REGIONS_EXPORT void v_ReOrientTracePhysMap(
-        const StdRegions::Orientation orient, Array<OneD, int> &idmap,
+    LOCAL_REGIONS_EXPORT void v_ReOrientTracePhysVals(
+        const StdRegions::Orientation orient,
+        const Array<OneD, const NekDouble> &in, Array<OneD, NekDouble> &out,
         const int nq0, const int nq1, bool Forwards) override;
 
     LOCAL_REGIONS_EXPORT void v_NormVectorIProductWRTBase(
@@ -113,17 +114,41 @@ public:
     LOCAL_REGIONS_EXPORT DNekScalMatSharedPtr
     CreateMatrix(const MatrixKey &mkey);
 
+    inline void GetTracePhysVals(
+        const int trace, const StdRegions::StdExpansionSharedPtr &TraceExp,
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray,
+        StdRegions::Orientation orient = StdRegions::eNoOrientation)
+    {
+        v_GetTracePhysVals(trace, TraceExp, inarray, outarray, orient);
+    }
+
+    inline void GetLocTracePhysVals(
+        const int trace, const StdRegions::StdExpansionSharedPtr &TraceExp,
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray)
+    {
+        v_GetLocTracePhysVals(trace, TraceExp, inarray.data(), outarray);
+    }
+
 protected:
     std::map<int, NormalVector> m_faceNormals;
     void v_DGDeriv(const int dir, const Array<OneD, const NekDouble> &incoeffs,
                    Array<OneD, ExpansionSharedPtr> &FaceExp,
                    Array<OneD, Array<OneD, NekDouble>> &faceCoeffs,
                    Array<OneD, NekDouble> &out_d) override;
+    //-----------------------------
+    // Differentiation Methods
+    //-----------------------------
     LOCAL_REGIONS_EXPORT void v_PhysDeriv(
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &out_d0, Array<OneD, NekDouble> &out_d1,
         Array<OneD, NekDouble> &out_d2) override;
     using StdExpansion3D::v_PhysDeriv;
+    LOCAL_REGIONS_EXPORT void v_PhysDirectionalDeriv(
+        const Array<OneD, const NekDouble> &inarray,
+        const Array<OneD, const NekDouble> &direction,
+        Array<OneD, NekDouble> &out) override;
 
     LOCAL_REGIONS_EXPORT void v_IProductWRTBase(
         const Array<OneD, const NekDouble> &inarray,
@@ -146,6 +171,11 @@ protected:
                             const Array<OneD, const NekDouble> &inarray,
                             Array<OneD, NekDouble> &outarray,
                             StdRegions::Orientation orient) override;
+
+    void v_GetLocTracePhysVals(const int face,
+                               const StdRegions::StdExpansionSharedPtr &FaceExp,
+                               const NekDouble *inarray,
+                               Array<OneD, NekDouble> &outarray) override;
 
     void v_GenTraceExp(const int traceid, ExpansionSharedPtr &exp) override;
 
@@ -170,6 +200,11 @@ protected:
 
     LOCAL_REGIONS_EXPORT void v_TraceNormLen(const int traceid, NekDouble &h,
                                              NekDouble &p) override;
+
+    LOCAL_REGIONS_EXPORT void v_NormalTraceDerivFactors(
+        Array<OneD, Array<OneD, NekDouble>> &d0factors,
+        Array<OneD, Array<OneD, NekDouble>> &d1factors,
+        Array<OneD, Array<OneD, NekDouble>> &d2factors) override;
 
 private:
     // Do not add members here since it may lead to conflicts.

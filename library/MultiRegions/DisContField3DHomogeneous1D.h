@@ -122,7 +122,7 @@ protected:
                                 Array<OneD, NekDouble> &outarray,
                                 const StdRegions::ConstFactorMap &factors,
                                 const StdRegions::VarCoeffMap &varcoeff,
-                                const MultiRegions::VarFactorsMap &varfactors,
+                                const StdRegions::VarFactorsMap &varfactors,
                                 const Array<OneD, const NekDouble> &dirForcing,
                                 const bool PhysSpaceForcing) override;
 
@@ -197,6 +197,8 @@ protected:
         const NekDouble time = 0.0, const std::string varName = "",
         const NekDouble x2_in = NekConstants::kNekUnsetDouble,
         const NekDouble x3_in = NekConstants::kNekUnsetDouble) override;
+
+    void v_SetBCsToHomogeneous(void) override;
 
     const Array<OneD, const MultiRegions::ExpListSharedPtr> &v_GetBndCondExpansions(
         void) override;

@@ -250,37 +250,6 @@ void StdExpansion2D::v_IProductWRTBase(
     }
 }
 
-//////////////////////////////
-// Integration Methods
-//////////////////////////////
-
-NekDouble StdExpansion2D::Integral(const Array<OneD, const NekDouble> &inarray,
-                                   const Array<OneD, const NekDouble> &w0,
-                                   const Array<OneD, const NekDouble> &w1)
-{
-    int i;
-    NekDouble Int = 0.0;
-    int nquad0    = m_base[0]->GetNumPoints();
-    int nquad1    = m_base[1]->GetNumPoints();
-    Array<OneD, NekDouble> tmp(nquad0 * nquad1);
-
-    // multiply by integration constants
-    for (i = 0; i < nquad1; ++i)
-    {
-        Vmath::Vmul(nquad0, &inarray[0] + i * nquad0, 1, w0.data(), 1,
-                    &tmp[0] + i * nquad0, 1);
-    }
-
-    for (i = 0; i < nquad0; ++i)
-    {
-        Vmath::Vmul(nquad1, &tmp[0] + i, nquad0, w1.data(), 1, &tmp[0] + i,
-                    nquad0);
-    }
-    Int = Vmath::Vsum(nquad0 * nquad1, tmp, 1);
-
-    return Int;
-}
-
 void StdExpansion2D::IProductWRTBaseKernel(
     const Array<OneD, const NekDouble> &base0,
     const Array<OneD, const NekDouble> &base1,
@@ -567,13 +536,56 @@ void StdExpansion2D::v_GetTraceToElementMap(const int eid,
 
 void StdExpansion2D::v_PhysInterp(std::shared_ptr<StdExpansion> fromExp,
                                   const Array<OneD, const NekDouble> &fromData,
-                                  Array<OneD, NekDouble> &toData)
+                                  Array<OneD, NekDouble> &toData,
+                                  bool Transpose)
 {
+    if (Transpose)
+    {
+        LibUtilities::Interp2D(fromExp->GetBasis(0)->GetPointsKey(),
+                               fromExp->GetBasis(1)->GetPointsKey(), fromData,
+                               m_base[1]->GetPointsKey(),
+                               m_base[0]->GetPointsKey(), toData);
+    }
+    else
+    {
+        LibUtilities::Interp2D(fromExp->GetBasis(0)->GetPointsKey(),
+                               fromExp->GetBasis(1)->GetPointsKey(), fromData,
+                               m_base[0]->GetPointsKey(),
+                               m_base[1]->GetPointsKey(), toData);
+    }
+}
 
-    LibUtilities::Interp2D(fromExp->GetBasis(0)->GetPointsKey(),
-                           fromExp->GetBasis(1)->GetPointsKey(), fromData,
-                           m_base[0]->GetPointsKey(), m_base[1]->GetPointsKey(),
-                           toData);
+void StdExpansion2D::v_ReOrientTracePhysMap(
+    const StdRegions::Orientation orient, Array<OneD, int> &idmap,
+    const int nq0, [[maybe_unused]] const int nq1,
+    [[maybe_unused]] bool Forwards)
+{
+    if (idmap.size() != nq0)
+    {
+        idmap = Array<OneD, int>(nq0);
+    }
+    switch (orient)
+    {
+        case StdRegions::eForwards:
+            // Fwd
+            for (int i = 0; i < nq0; ++i)
+            {
+                idmap[i] = i;
+            }
+            break;
+        case StdRegions::eBackwards:
+        {
+            // Bwd
+            for (int i = 0; i < nq0; ++i)
+            {
+                idmap[i] = nq0 - 1 - i;
+            }
+        }
+        break;
+        default:
+            ASSERTL0(false, "Unknown orientation");
+            break;
+    }
 }
 
 } // namespace Nektar::StdRegions

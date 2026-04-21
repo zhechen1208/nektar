@@ -74,7 +74,7 @@ void StdNodalTetExp::NodalToModal(const Array<OneD, const NekDouble> &inarray,
                                   Array<OneD, NekDouble> &outarray)
 {
     StdMatrixKey Nkey(eInvNBasisTrans, DetShapeType(), *this,
-                      NullConstFactorMap, NullVarCoeffMap,
+                      NullConstFactorMap, NullVarCoeffMap, NullVarFactorsMap,
                       m_nodalPointsKey.GetPointsType());
     DNekMatSharedPtr inv_vdm = GetStdMatrix(Nkey);
 
@@ -89,7 +89,7 @@ void StdNodalTetExp::NodalToModalTranspose(
     Array<OneD, NekDouble> &outarray)
 {
     StdMatrixKey Nkey(eInvNBasisTrans, DetShapeType(), *this,
-                      NullConstFactorMap, NullVarCoeffMap,
+                      NullConstFactorMap, NullVarCoeffMap, NullVarFactorsMap,
                       m_nodalPointsKey.GetPointsType());
     DNekMatSharedPtr inv_vdm = GetStdMatrix(Nkey);
 
@@ -102,7 +102,8 @@ void StdNodalTetExp::ModalToNodal(const Array<OneD, const NekDouble> &inarray,
                                   Array<OneD, NekDouble> &outarray)
 {
     StdMatrixKey Nkey(eNBasisTrans, DetShapeType(), *this, NullConstFactorMap,
-                      NullVarCoeffMap, m_nodalPointsKey.GetPointsType());
+                      NullVarCoeffMap, NullVarFactorsMap,
+                      m_nodalPointsKey.GetPointsType());
     DNekMatSharedPtr vdm = GetStdMatrix(Nkey);
 
     // Multiply out matrix
@@ -161,23 +162,6 @@ void StdNodalTetExp::v_BwdTrans(const Array<OneD, const NekDouble> &inarray,
     Array<OneD, NekDouble> tmp(m_ncoeffs);
     NodalToModal(inarray, tmp);
     StdTetExp::v_BwdTrans(tmp, outarray);
-}
-
-void StdNodalTetExp::v_FwdTrans(const Array<OneD, const NekDouble> &inarray,
-                                Array<OneD, NekDouble> &outarray)
-{
-    v_IProductWRTBase(inarray, outarray);
-
-    // get Mass matrix inverse
-    StdMatrixKey masskey(eInvMass, DetShapeType(), *this, NullConstFactorMap,
-                         NullVarCoeffMap, m_nodalPointsKey.GetPointsType());
-    DNekMatSharedPtr matsys = GetStdMatrix(masskey);
-
-    // copy inarray in case inarray == outarray
-    NekVector<NekDouble> in(m_ncoeffs, outarray, eCopy);
-    NekVector<NekDouble> out(m_ncoeffs, outarray, eWrapper);
-
-    out = (*matsys) * in;
 }
 
 //---------------------------------------

@@ -60,12 +60,6 @@ public:
     LOCAL_REGIONS_EXPORT ~PyrExp() override = default;
 
 protected:
-    //-------------------------------
-    // Integration Methods
-    //-------------------------------
-    LOCAL_REGIONS_EXPORT NekDouble
-    v_Integral(const Array<OneD, const NekDouble> &inarray) override;
-
     //---------------------------------------
     // Inner product functions
     //---------------------------------------
@@ -130,10 +124,6 @@ protected:
     LOCAL_REGIONS_EXPORT void v_DropLocStaticCondMatrix(
         const MatrixKey &mkey) override;
     LOCAL_REGIONS_EXPORT void v_ComputeLaplacianMetric() override;
-    LOCAL_REGIONS_EXPORT void v_NormalTraceDerivFactors(
-        Array<OneD, Array<OneD, NekDouble>> &d0factors,
-        Array<OneD, Array<OneD, NekDouble>> &d1factors,
-        Array<OneD, Array<OneD, NekDouble>> &d2factors) override;
 
 private:
     LibUtilities::NekManager<MatrixKey, DNekScalMat, MatrixKey::opLess>

@@ -80,6 +80,19 @@ public:
                                           ExpansionSharedPtr &f);
     LOCAL_REGIONS_EXPORT ExpansionSharedPtr GetTraceExp(const int traceid);
 
+    LOCAL_REGIONS_EXPORT ExpansionSharedPtr GetLocTraceExp(const int traceid);
+
+    LOCAL_REGIONS_EXPORT StdRegions::StdExpansionSharedPtr GetStdExp() const
+    {
+        return v_GetStdExp();
+    }
+
+    LOCAL_REGIONS_EXPORT StdRegions::StdExpansionSharedPtr GetLinStdExp(
+        void) const
+    {
+        return v_GetLinStdExp();
+    }
+
     LOCAL_REGIONS_EXPORT DNekScalMatSharedPtr
     GetLocMatrix(const LocalRegions::MatrixKey &mkey);
 
@@ -206,19 +219,31 @@ public:
         v_GetTracePhysVals(trace, TraceExp, inarray, outarray, orient);
     }
 
+    inline void GetLocTracePhysVals(
+        const int trace, const StdRegions::StdExpansionSharedPtr &TraceExp,
+        const Array<OneD, const NekDouble> &inarray,
+        Array<OneD, NekDouble> &outarray)
+    {
+        v_GetLocTracePhysVals(trace, TraceExp, inarray.data(), outarray);
+    }
+
     inline void GetTracePhysMap(const int edge, Array<OneD, int> &outarray)
     {
         v_GetTracePhysMap(edge, outarray);
     }
 
-    inline void ReOrientTracePhysMap(const StdRegions::Orientation orient,
-                                     Array<OneD, int> &idmap, const int nq0,
-                                     const int nq1, bool Forwards = true)
+    inline void ReOrientTracePhysVals(const StdRegions::Orientation orient,
+                                      const Array<OneD, const NekDouble> &in,
+                                      Array<OneD, NekDouble> &out,
+                                      const int nq0, const int nq1,
+                                      bool Forwards = true)
     {
-        v_ReOrientTracePhysMap(orient, idmap, nq0, nq1, Forwards);
+        v_ReOrientTracePhysVals(orient, in, out, nq0, nq1, Forwards);
     }
 
     LOCAL_REGIONS_EXPORT const NormalVector &GetTraceNormal(const int id);
+    LOCAL_REGIONS_EXPORT const std::map<int, NormalVector> &GetTraceNormals(
+        void);
 
     inline void ComputeTraceNormal(const int id)
     {
@@ -328,6 +353,12 @@ protected:
     {
     }
 
+    LOCAL_REGIONS_EXPORT virtual StdRegions::StdExpansionSharedPtr v_GetStdExp()
+        const;
+
+    LOCAL_REGIONS_EXPORT virtual StdRegions::StdExpansionSharedPtr v_GetLinStdExp(
+        void) const;
+
     int v_GetCoordim() const override
     {
         return m_geom->GetCoordim();
@@ -398,11 +429,17 @@ protected:
         const Array<OneD, const NekDouble> &inarray,
         Array<OneD, NekDouble> &outarray, StdRegions::Orientation orient);
 
+    virtual void v_GetLocTracePhysVals(
+        const int trace, const StdRegions::StdExpansionSharedPtr &TraceExp,
+        const NekDouble *inarray, Array<OneD, NekDouble> &outarray);
+
     virtual void v_GetTracePhysMap(const int edge, Array<OneD, int> &outarray);
 
-    virtual void v_ReOrientTracePhysMap(const StdRegions::Orientation orient,
-                                        Array<OneD, int> &idmap, const int nq0,
-                                        const int nq1, bool Forwards);
+    virtual void v_ReOrientTracePhysVals(const StdRegions::Orientation orient,
+                                         const Array<OneD, const NekDouble> &in,
+                                         Array<OneD, NekDouble> &out,
+                                         const int nq0, const int nq1,
+                                         bool Forwards);
 
     virtual void v_ComputeTraceNormal(const int id);
 
@@ -448,6 +485,9 @@ inline void Expansion::GenGeomFactors()
     m_geomFactors                        = m_geom->GenGeomFactors(keyTgt);
 }
 
+// This returns a local trace expansion which might be replaced by a global
+// trace (for example by the DG trace which could be of a different order or
+// Dirichlet BCs)
 inline ExpansionSharedPtr Expansion::GetTraceExp(const int traceid)
 {
     ASSERTL1(traceid < GetNtraces(), "Trace is out of range.");
@@ -464,6 +504,19 @@ inline ExpansionSharedPtr Expansion::GetTraceExp(const int traceid)
         // Generate trace exp
         v_GenTraceExp(traceid, returnval);
     }
+
+    return returnval;
+}
+
+// Generate a local Trace expansion
+inline ExpansionSharedPtr Expansion::GetLocTraceExp(const int traceid)
+{
+    ASSERTL1(traceid < GetNtraces(), "Trace is out of range.");
+
+    ExpansionSharedPtr returnval;
+
+    // Generate local trace exp
+    v_GenTraceExp(traceid, returnval);
 
     return returnval;
 }
