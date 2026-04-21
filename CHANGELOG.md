@@ -34,6 +34,7 @@ v5.10.0
 - Fix LOR preconditioner in parallel (!2514)
 - Fix memory leak with Scotch graph initialization (!2518)
 - Fix memory leak with GS in AssemblyMapDG initialization (!2519)
+- Use static linkage for FFTW to avoid problem with MKL (!2474)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
