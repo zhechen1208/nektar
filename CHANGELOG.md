@@ -49,6 +49,9 @@ v5.10.0
 **AcousticSolver**
 - Use native c++ random number generator instead of boost (!2379)
 
+**ADRSolver**
+- Renable Movement_fixed_3D_stacked_cylinders_curved_hdf5_par unit test (!2523)
+
 v5.9.0
 ------
 **Library**
