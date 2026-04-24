@@ -952,6 +952,7 @@ void SessionReader::SetParameter(const std::string &pName, int &pVar)
 {
     std::string vName   = boost::to_upper_copy(pName);
     m_parameters[vName] = pVar;
+    m_interpreter->SetParameter(pName, pVar);
 }
 
 /**
@@ -961,6 +962,7 @@ void SessionReader::SetParameter(const std::string &pName, unsigned int &pVar)
 {
     std::string vName   = boost::to_upper_copy(pName);
     m_parameters[vName] = pVar;
+    m_interpreter->SetParameter(pName, pVar);
 }
 
 /**
@@ -970,6 +972,7 @@ void SessionReader::SetParameter(const std::string &pName, size_t &pVar)
 {
     std::string vName   = boost::to_upper_copy(pName);
     m_parameters[vName] = pVar;
+    m_interpreter->SetParameter(pName, pVar);
 }
 
 /**
@@ -979,6 +982,7 @@ void SessionReader::SetParameter(const std::string &pName, NekDouble &pVar)
 {
     std::string vName   = boost::to_upper_copy(pName);
     m_parameters[vName] = pVar;
+    m_interpreter->SetParameter(pName, pVar);
 }
 
 /**
@@ -2613,6 +2617,7 @@ void SessionReader::CmdLineOverride()
 
             try
             {
+                m_interpreter->SetParameter(lhs, std::stod(rhs));
                 m_parameters[lhsUpper] = std::stod(rhs);
             }
             catch (...)
