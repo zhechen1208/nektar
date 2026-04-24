@@ -36,6 +36,7 @@ v5.10.0
 - Fix memory leak with GS in AssemblyMapDG initialization (!2519)
 - Use static linkage for FFTW to avoid problem with MKL (!2474)
 - Fix unitialized variables in Collection and DriverParareal (!2521)
+- Remove MPI Finalize from Field destructor in FieldUtils (!2522)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
