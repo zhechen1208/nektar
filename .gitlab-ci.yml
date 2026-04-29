@@ -79,6 +79,7 @@ include:
   image: docker:28.5.0-dind
   variables:
     GIT_STRATEGY: clone
+    USE_NINJA: true
   script:
     - OS_DISTRO=$(echo $CI_JOB_NAME | cut -d- -f 1)
     - OS_VERSION=$(echo $CI_JOB_NAME | cut -d- -f 2)
@@ -109,6 +110,7 @@ include:
       -e "CCACHE_DIR=$CCACHE_DIR"
       -e "LD_PRELOAD=$LD_PRELOAD"
       -e "PYTHON_EXECUTABLE=$PYTHON_EXECUTABLE"
+      -e "USE_NINJA=$USE_NINJA"
       $ENV_IMAGE
       bash -x .gitlab-ci/build-and-test.sh |
       tee log/${OS_VERSION}_${BUILD_TYPE}.log || true
@@ -684,6 +686,7 @@ macos-default-arm-build-and-test:
     - macos-arm
   variables:
     BUILD_TYPE: "default"
+    USE_NINJA: false
   needs: []
 
 macos-full-arm-build-and-test:
@@ -693,6 +696,7 @@ macos-full-arm-build-and-test:
   variables:
     BUILD_TYPE: "full"
     PYTHON_EXECUTABLE: /opt/local/bin/python
+    USE_NINJA: false
   needs: []
 
 macos-default-arm-warnings:
