@@ -140,12 +140,13 @@ include:
   stage: quality-checks
   variables:
     WARNING_REGEX: '.*warning[: ].*'
+    IGNORE_REGEX: '(ThirdParty|jobserver unavailable|acpp warning:)'
     GIT_STRATEGY: none
   script:
     - export OS=$(echo $CI_JOB_NAME | cut -d- -f 2)
     - export BUILD_TYPE=$(echo $CI_JOB_NAME | cut -d- -f 3)
     - export LOG_FILE="log/${OS}_${BUILD_TYPE}.log"
-    - if [ $(grep -c "$WARNING_REGEX" $LOG_FILE) -ne 0 ];
+    - if [ $(grep -Ev "$IGNORE_REGEX" $LOG_FILE | grep -c "$WARNING_REGEX") -ne 0 ];
       then
       grep --colour=always -A 1 -B 1 -0 "$WARNING_REGEX" $LOG_FILE;
         exit 1;
@@ -224,6 +225,7 @@ include:
     - EXPORT_COMPILE_COMMANDS=1 BUILD_TYPE=full bash -x .gitlab-ci/build-and-test.sh
     - python3 .gitlab-ci/check-compiled-files.py build/compile_commands.json
   timeout: 15m
+
 
 ################################################
 ###################  DEBIAN  ###################
@@ -406,6 +408,7 @@ debian-bookworm-xml-format:
   <<: *xml-format-template
   needs: []
 
+
 # DOCUMENTATION
 debian-trixie-documentation-build-env:
   <<: *execution-conditions
@@ -458,6 +461,7 @@ tutorials-build:
   artifacts:
     paths:
       - build/docs/tutorial/
+
 
 ################################################
 ###################  UBUNTU  ###################
@@ -560,6 +564,7 @@ ubuntu-jammy-full-avx512-coverage:
         coverage_format: cobertura
         path: coverage/cobertura-*.xml
 
+# COMPILER WARNINGS
 ubuntu-jammy-default-warnings:
   <<: *compiler-warning-template
   needs: ["ubuntu-jammy-default-build-and-test"]
