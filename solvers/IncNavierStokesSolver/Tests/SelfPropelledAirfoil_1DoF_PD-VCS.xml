@@ -4,36 +4,42 @@
         <E COMPOSITE="C[6,7]" NUMMODES="3" TYPE="MODIFIED" FIELDS="u,v" />
         <E COMPOSITE="C[6,7]" NUMMODES="2" TYPE="MODIFIEDQUADPLUS1" FIELDS="p" />
     </EXPANSIONS>
-
     <CONDITIONS>
         <SOLVERINFO>
-            <I PROPERTY="EQTYPE" VALUE="UnsteadyNavierStokes" />
-            <I PROPERTY="SolverType" VALUE="VCSFSI" />
-            <I PROPERTY="EvolutionOperator" VALUE="Nonlinear"/>
-            <I PROPERTY="AdvectionForm" VALUE="Convective"/>
-            <I PROPERTY="Projection" VALUE="Galerkin" />
-            <I PROPERTY="SpectralVanishingViscosity" VALUE="DGKernel" />
+            <I PROPERTY="SolverType"                    			VALUE="PressDecompVCSFSI" 			/>
+            <I PROPERTY="EQTYPE"                        			VALUE="UnsteadyNavierStokes"     	/>
+            <I PROPERTY="EvolutionOperator"             			VALUE="Nonlinear"                	/>
+            <I PROPERTY="Projection"                    			VALUE="Continuous"                	/>
+            <I PROPERTY="Driver"                        			VALUE="Standard"                 	/>
+            <I PROPERTY="SpectralVanishingViscositySpectralHP"    	VALUE="DGKernel" 					/>
         </SOLVERINFO>
 
         <TIMEINTEGRATIONSCHEME>
             <METHOD> IMEX </METHOD>
-            <ORDER> 2 </ORDER>
+            <ORDER>  2 	  </ORDER>
         </TIMEINTEGRATIONSCHEME>
 
         <PARAMETERS>
-            <P> TimeStep      = 1.0e-3                      </P>
-            <P> NumSteps      = 10               	   </P>
-            <P> IO_InfoSteps  = 10              	   </P>
-            <P> IO_CFLSteps  =  10                         </P>
-            <P> Uinf          = 1.              	   </P>
-            <P> Uinfx         = Uinf         	   </P>
-            <P> Uinfy         = 0          	   </P>
-            <P> Re            = 100.                        </P>
-            <P> Kinvis        = Uinf/Re          	   </P>
-            <P> t0            = 0.0                        </P>
-            <P> freq          = 1.                         </P>
-            <P> amp           = 10.*PI/180.              </P>
-            <P> omega         = 2.*PI*freq                 </P>
+            <P> Re						= 100						</P>
+            <P> MassRatio				= 1							</P>
+            <P> Area					= 0.082209642481			</P>
+            <P> Mass					= MassRatio*Area			</P>
+
+            <P> theta					= 5.*PI/180					</P>
+            <P> freq					= 1							</P>
+            <P> omega					= 2.*PI*freq				</P>
+            <P> Kinvis					= 1.5*sin(theta)*freq/Re	</P>
+
+            <P> NperT					= 10000						</P>
+            <P> NT						= 0.001						</P>
+            <P> TimeStep				= 1/NperT				    </P>
+            <P> NumSteps      			= NperT*NT					</P>
+            <P> IO_InfoSteps			= 10						</P>
+            <P> IO_FiltersInfoSteps		= 10            			</P>
+
+            <P> NewmarkBeta				= 0.25						</P>
+            <P> NewmarkGamma			= 0.5						</P>
+            <P> SVVDiffCoeff			= 0.1						</P>
         </PARAMETERS>
 
         <VARIABLES>
@@ -43,51 +49,49 @@
         </VARIABLES>
 
         <BOUNDARYREGIONS>
-            <B ID="0"> C[1] </B>      <!-- wall -->
-            <B ID="1"> C[2] </B>      <!-- inflow -->
-            <B ID="2"> C[3] </B>      <!-- outflow -->
-            <B ID="3"> C[4] </B>      <!-- Far Field -->
-            <B ID="4"> C[5] </B>      <!-- Far Field -->
+            <B ID="0"> C[1] </B>    <!-- Wall -->
+            <B ID="1"> C[2] </B>  <!-- inlet -->
+            <B ID="2"> C[3] </B>  <!-- outlet -->
+            <B ID="3"> C[4] </B>  <!-- sidedown -->
+            <B ID="4"> C[5] </B>  <!-- sideup -->
         </BOUNDARYREGIONS>
 
         <BOUNDARYCONDITIONS>
             <REGION REF="0">
-                <D VAR="u" USERDEFINEDTYPE="MRFWall" VALUE="0" />
-                <D VAR="v" USERDEFINEDTYPE="MRFWall" VALUE="0" />
-                <N VAR="p" USERDEFINEDTYPE="MRFWall" VALUE="0" />
+                <D VAR="u" USERDEFINEDTYPE="MRFWallPressDecomp" VALUE="0" />
+                <D VAR="v" USERDEFINEDTYPE="MRFWallPressDecomp" VALUE="0" />
+                <N VAR="p" USERDEFINEDTYPE="MRFWallPressDecomp" VALUE="0" />
             </REGION>
-
             <REGION REF="1">
-                <D VAR="u" USERDEFINEDTYPE="MRFFar" VALUE="Uinfx" />
-                <D VAR="v" USERDEFINEDTYPE="MRFFar" VALUE="Uinfy" />
-                <D VAR="p" VALUE="0" />
+                <D VAR="u" USERDEFINEDTYPE="MRFFar" VALUE="0" />
+                <D VAR="v" USERDEFINEDTYPE="MRFFar" VALUE="0" />
+                <N VAR="p" USERDEFINEDTYPE="H" VALUE="0" />
             </REGION>
-
-            <REGION REF="2"> <!-- outflow -->
-                <D VAR="u" USERDEFINEDTYPE="MRFFar" VALUE="Uinfx" />
-                <D VAR="v" USERDEFINEDTYPE="MRFFar" VALUE="Uinfy" />
-                <D VAR="p" VALUE="0" />
+            <REGION REF="2">
+                <D VAR="u" USERDEFINEDTYPE="MRFFar" VALUE="0" />
+                <D VAR="v" USERDEFINEDTYPE="MRFFar" VALUE="0" />
+                <N VAR="p" USERDEFINEDTYPE="H" VALUE="0" />
             </REGION>
-
             <REGION REF="3">
-                <D VAR="u" USERDEFINEDTYPE="MRFFar" VALUE="Uinfx" />
-                <D VAR="v" USERDEFINEDTYPE="MRFFar" VALUE="Uinfy" />
-                <D VAR="p" VALUE="0" />
+                <D VAR="u" USERDEFINEDTYPE="MRFFar" VALUE="0" />
+                <D VAR="v" USERDEFINEDTYPE="MRFFar" VALUE="0" />
+                <N VAR="p" USERDEFINEDTYPE="H" VALUE="0" />
             </REGION>
             <REGION REF="4">
-                <D VAR="u" USERDEFINEDTYPE="MRFFar" VALUE="Uinfx" />
-                <D VAR="v" USERDEFINEDTYPE="MRFFar" VALUE="Uinfy" />
-                <D VAR="p" VALUE="0" />
+                <D VAR="u" USERDEFINEDTYPE="MRFFar" VALUE="0" />
+                <D VAR="v" USERDEFINEDTYPE="MRFFar" VALUE="0" />
+                <N VAR="p" USERDEFINEDTYPE="H" VALUE="0" />
             </REGION>
         </BOUNDARYCONDITIONS>
+
         <FUNCTION NAME="InitialConditions">
-            <F VAR="u,v,p" FILE="MovingRefFrame_Rot_naca0012.rst" />
+            <E VAR="u" VALUE="0" />
+            <E VAR="v" VALUE="0" />
+            <E VAR="p" VALUE="0" />
         </FUNCTION>
 
         <FUNCTION NAME="VelMRF">
-            <E VAR="Theta_z" VALUE="amp*sin(omega*(t-t0))"/>
-            <E VAR="Omega_z" VALUE="amp*omega*cos(omega*(t-t0))"/>
-            <E VAR="DOmega_z" VALUE="-amp*omega*omega*sin(omega*(t-t0))"/>
+            <E VAR="Omega_z" VALUE="theta*omega*cos(omega*t)"/>
         </FUNCTION>
     </CONDITIONS>
 
@@ -97,16 +101,22 @@
     </FORCING>
 
     <RIGIDSOLVER>
-        <FRAMEVELOCITY> VelMRF </FRAMEVELOCITY>
-        <PIVOTPOINT> 0.25, 0.0 </PIVOTPOINT>
+        <FRAMEVELOCITY> 			VelMRF 				</FRAMEVELOCITY>
+        <MASS>     		   			Mass 				</MASS>
+        <MOTIONPRESCRIBED>  		0,1,1 				</MOTIONPRESCRIBED>
+        <PIVOTPOINT> 				0.25,0 				</PIVOTPOINT>
+        <PIVOTDISTANCE> 			0.17 				</PIVOTDISTANCE>
+        <BOUNDARY> 					B[0] 				</BOUNDARY>
+        <OutputFile> 			bodyMotion.mrf 			</OutputFile>
+        <OutputFrequency> 			 1 					</OutputFrequency>
     </RIGIDSOLVER>
 
     <FILTERS>
         <FILTER TYPE="AeroForces">
-            <PARAM NAME="OutputFile">dragLift</PARAM>
-            <PARAM NAME="OutputFrequency">1</PARAM>
-            <PARAM NAME="Boundary"> B[0] </PARAM>
-            <PARAM NAME="MomentPoint">0.25 0.0 0. </PARAM>
+            <PARAM NAME="OutputFile">		DragLiftn.frc			</PARAM>
+            <PARAM NAME="OutputFrequency">		1					</PARAM>
+            <PARAM NAME="Boundary">				B[0]				</PARAM>
+            <PARAM NAME="PivotPoint">			0.25 0 0			</PARAM>
         </FILTER>
     </FILTERS>
 

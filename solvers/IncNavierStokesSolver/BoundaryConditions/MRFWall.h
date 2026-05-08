@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 //
-// File: TransMovingWall.h
+// File: MRFWall.h
 //
 // For more information, please see: http://www.nektar.info
 //
@@ -28,12 +28,12 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 //
-// Description: Translational moving wall boundary condition.
+// Description: Wall boundary condition of moving reference frame.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifndef NEKTAR_SOLVERS_TRANSMOVINGWALL_H
-#define NEKTAR_SOLVERS_TRANSMOVINGWALL_H
+#ifndef NEKTAR_SOLVERS_MRFWALL_H
+#define NEKTAR_SOLVERS_MRFWALL_H
 
 #include <IncNavierStokesSolver/BoundaryConditions/StaticWall.h>
 #include <LibUtilities/BasicUtils/NekFactory.hpp>
@@ -45,10 +45,10 @@
 namespace Nektar
 {
 
-class TransMovingWall : public StaticWall
+class MRFWall : public StaticWall
 {
 public:
-    friend class MemoryManager<TransMovingWall>;
+    friend class MemoryManager<MRFWall>;
 
     static IncBaseConditionSharedPtr create(
         const LibUtilities::SessionReaderSharedPtr pSession,
@@ -57,34 +57,34 @@ public:
         Array<OneD, MultiRegions::ExpListSharedPtr> exp, int nbnd, int spacedim,
         int bnddim)
     {
-        IncBaseConditionSharedPtr p =
-            MemoryManager<TransMovingWall>::AllocateSharedPtr(
-                pSession, pFields, cond, exp, nbnd, spacedim, bnddim);
+        IncBaseConditionSharedPtr p = MemoryManager<MRFWall>::AllocateSharedPtr(
+            pSession, pFields, cond, exp, nbnd, spacedim, bnddim);
         p->Initialise(pSession);
         return p;
     }
 
     static std::string className;
+    ~MRFWall() override = default;
 
 protected:
-    NekDouble m_dt;
-    int m_pressure;
-    NekDouble Fourth_Coeffs[4];
-
-    TransMovingWall(const LibUtilities::SessionReaderSharedPtr pSession,
-                    Array<OneD, MultiRegions::ExpListSharedPtr> pFields,
-                    Array<OneD, SpatialDomains::BoundaryConditionShPtr> cond,
-                    Array<OneD, MultiRegions::ExpListSharedPtr> exp, int nbnd,
-                    int spacedim, int bnddim);
-
-    ~TransMovingWall() override = default;
-
     void v_Initialise(
         const LibUtilities::SessionReaderSharedPtr &pSession) override;
 
     void v_Update(const Array<OneD, const Array<OneD, NekDouble>> &fields,
                   const Array<OneD, const Array<OneD, NekDouble>> &Adv,
                   std::map<std::string, NekDouble> &params) override;
+    int m_pressure;
+    MRFWall(const LibUtilities::SessionReaderSharedPtr pSession,
+            Array<OneD, MultiRegions::ExpListSharedPtr> pFields,
+            Array<OneD, SpatialDomains::BoundaryConditionShPtr> cond,
+            Array<OneD, MultiRegions::ExpListSharedPtr> exp, int nbnd,
+            int spacedim, int bnddim);
+    void AddExtrapAcceVisPressureBCs(
+        const Array<OneD, const Array<OneD, NekDouble>> &fields,
+        Array<OneD, Array<OneD, NekDouble>> &N,
+        std::map<std::string, NekDouble> &params, int npts0);
+    bool m_hasVels;
+    bool m_hasPressure;
 };
 
 } // namespace Nektar

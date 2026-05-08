@@ -48,6 +48,7 @@ v5.10.0
 - Remove Vmath SIMD (!2365) 
 - Fix non-zero Dirichlet BCs with flow rate for inc NS Solver (!2399)
 - Added an option to modify the number of decimal point print out in a constant-rate setup (!2491)
+- Added a stablized velocity correction scheme for fluid-structure interaction of rigid body (!2040)
 
 **CI**
 - Add PROCESSORS property to tests to enforce correct parallelism (!2445)
