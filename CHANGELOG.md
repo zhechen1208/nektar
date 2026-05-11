@@ -61,6 +61,9 @@ v5.10.0
 **ADRSolver**
 - Renable Movement_fixed_3D_stacked_cylinders_curved_hdf5_par unit test (!2523)
 
+**Documentation**
+- Update mailing list URL to point to new mailing list server (!2541)
+
 v5.9.0
 ------
 **Library**
