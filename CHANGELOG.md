@@ -43,6 +43,7 @@ v5.10.0
 - Fix memory leak in ObjectPool (!2513)
 - Fix 3rdparty compilation with ninja/unix makefiles/macos/win (!2537) 
 - Fix Boost, FFTW, VTK, and Zlib thirdparty compilation on macos, fix serial PETsc thirdparty compilation, fix OCE depedencies (!2538)
+- Add scaling factor to limit the Newton step (!2533)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
