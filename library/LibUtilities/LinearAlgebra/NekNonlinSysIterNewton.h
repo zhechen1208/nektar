@@ -84,6 +84,9 @@ protected:
                       const Array<OneD, const NekDouble> &pInput,
                       Array<OneD, NekDouble> &pOutput, const int nDir) override;
 
+    virtual bool v_ApplyNewtonUpdate(const int ntotal,
+                                     const NekDouble oldResNorm);
+
 private:
     NekDouble CalcInexactNewtonForcing(const int &nIteration,
                                        const NekDouble &resnormOld,

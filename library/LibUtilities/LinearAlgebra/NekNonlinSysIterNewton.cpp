@@ -121,8 +121,13 @@ int NekNonlinSysIterNewton::v_SolveSystem(
             m_linsol->SolveSystem(nGlobal, m_Residual, m_DeltSltn, 0);
         m_NtotLinSysIts += ntmpLinSysIts;
 
-        Vmath::Svtvp(nGlobal, -1.0 * m_NewtonScale, m_DeltSltn, 1, m_Solution,
-                     1, m_Solution, 1);
+        NekDouble oldResNorm = sqrt(m_SysResNorm);
+        bool accepted        = v_ApplyNewtonUpdate(nGlobal, oldResNorm);
+        if (!accepted)
+        {
+            WARNINGL0(false, "Newton step rejected.");
+            break;
+        }
     }
 
     if ((!m_converged || m_verbose) && m_root && m_FlagWarnings)
@@ -140,6 +145,14 @@ int NekNonlinSysIterNewton::v_SolveSystem(
     }
 
     return NttlNonlinIte;
+}
+
+bool NekNonlinSysIterNewton::v_ApplyNewtonUpdate(
+    const int ntotal, [[maybe_unused]] const NekDouble oldResNorm)
+{
+    Vmath::Svtvp(ntotal, -1.0 * m_NewtonScale, m_DeltSltn, 1, m_Solution, 1,
+                 m_Solution, 1);
+    return true;
 }
 
 NekDouble NekNonlinSysIterNewton::CalcInexactNewtonForcing(
