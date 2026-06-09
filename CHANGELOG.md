@@ -46,6 +46,7 @@ v5.10.0
 - Add scaling factor to limit the Newton step (!2533)
 - Acctivate the inexact forcing in the Newton process (!2534)
 - Fix Arpack, Cwipi, GSMPI, Lapack, LST, Metis, OCE, TetGen, Triangle, TinyXML, and Zlib compilation for CMake 4.0 and above (!2559)
+- Enable HDF5 by default (!2163)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
