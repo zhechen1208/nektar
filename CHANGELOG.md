@@ -48,6 +48,7 @@ v5.10.0
 - Fix Arpack, Cwipi, GSMPI, Lapack, LST, Metis, OCE, TetGen, Triangle, TinyXML, and Zlib compilation for CMake 4.0 and above (!2559)
 - Enable HDF5 by default (!2163)
 - Add the ApplyNewtonUpdate method to the NekNonlinSysIterNewton the derived Newton implementations can use (!2551)
+- Add Newton iteration with globalisation via linesearch and Armijo suficiend residual decrease (!2552) 
 - Add new interfaces in SimdLib to support interleaving/deinterleaving on unaligned inputs, and also variable-length virtual SIMD type (!2565)
 - Fix search for Boost 1.89 and above (!2567)
 
