@@ -61,7 +61,6 @@ public:
         if (pSession->DefinesSolverInfo("NonlinearSolver"))
         {
             SolverType = pSession->GetSolverInfo("NonlinearSolver");
-            //<I PROPERTY="NonlinearSolver" VALUE="NewtonBacktrack" />
         }
         ASSERTL0(
             LibUtilities::GetNekNonlinSysIterFactory().ModuleExists(SolverType),
