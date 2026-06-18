@@ -52,6 +52,7 @@ v5.10.0
 - Add Newton iteration with globalisation via linesearch and Armijo suficiend residual decrease (!2552) 
 - Add new interfaces in SimdLib to support interleaving/deinterleaving on unaligned inputs, and also variable-length virtual SIMD type (!2565)
 - Fix search for Boost 1.89 and above (!2567)
+- Add tests for different Newton method globalisation techniques (!2576)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
