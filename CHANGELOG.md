@@ -53,6 +53,7 @@ v5.10.0
 - Add new interfaces in SimdLib to support interleaving/deinterleaving on unaligned inputs, and also variable-length virtual SIMD type (!2565)
 - Fix search for Boost 1.89 and above (!2567)
 - Add tests for different Newton method globalisation techniques (!2576)
+- Add pseudo inverse feature to Nektar matrix; introduce the pseudo inverse of BwdTrans matrix and allow interpolation between any coefficient spaces (!2569)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
