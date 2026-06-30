@@ -120,6 +120,7 @@ ADD_NEKTAR_TEST(NonlinSysIterDemo_LinearSys_Newton)
 ADD_NEKTAR_TEST(NonlinSysIterDemo_LinearSys_NewtonScale)
 ADD_NEKTAR_TEST(NonlinSysIterDemo_LinearSys_NewtonBacktrack)
 ADD_NEKTAR_TEST(NonlinSysIterDemo_LinearSys_NewtonTrustRegion)
+ADD_NEKTAR_TEST(NonlinSysIterDemo_LinearSys_NewtonHookstep)
 
 IF(NEKTAR_USE_MPI)
     ADD_NEKTAR_TEST(MPIInit)
