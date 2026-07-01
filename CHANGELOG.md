@@ -78,6 +78,9 @@ v5.10.0
 **Documentation**
 - Update mailing list URL to point to new mailing list server (!2541)
 
+**Miscellaneous**
+-  Update to clang-format-18 and clang-tidy-18 (!2587)
+
 v5.9.0
 ------
 **Library**
@@ -190,6 +193,8 @@ v5.8.0
   
 **Miscellaneous**
 - Added LinMeshGraph executable for splitting meshes using user specified splits (!1888) 
+- Deprecate use of TimeIntegrationMethod in SolverInfo (!2059)
+
 **Python**
 - Transition bindings to use pybind11 (!1950)
 
@@ -199,9 +204,6 @@ v5.8.0
 **PulseWaveSolver**
 - Added ability to output history points (and other filters) (!2000)
 
-**Miscellaneous**
-- Deprecate use of TimeIntegrationMethod in SolverInfo (!2059)
-	
 v5.7.0
 -----
 **Library**

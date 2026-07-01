@@ -82,7 +82,7 @@ private:
     ForcingIncNSSyntheticEddy(
         const LibUtilities::SessionReaderSharedPtr &pSession,
         const std::weak_ptr<EquationSystem> &pEquation);
-    ~ForcingIncNSSyntheticEddy(void) override{};
+    ~ForcingIncNSSyntheticEddy(void) override {};
 };
 
 } // namespace Nektar::SolverUtils
