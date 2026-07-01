@@ -413,6 +413,7 @@ v5.5.0
 **Documentation**
 - Update instructions for VS2022 (!1714)
 - Update ADRSolver user guide (!1730)
+- Add entry on Newton methods (!2577)
 
 **ShallowWaterSolver**
 - Reduce memory footprint of the Peregrine solver(!1680)
