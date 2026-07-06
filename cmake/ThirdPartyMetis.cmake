@@ -29,6 +29,18 @@ IF (NEKTAR_USE_METIS)
         "NEKTAR_USE_METIS" OFF)
 
     IF (THIRDPARTY_BUILD_METIS)
+        THIRDPARTY_LIBRARY(METIS_LIBRARY STATIC metis DESCRIPTION "Metis library")
+
+        IF(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
+            UNSET(PATCH CACHE)
+            FIND_PROGRAM(PATCH patch)
+            IF(NOT PATCH)
+	        MESSAGE(FATAL_ERROR
+	            "'patch' tool for modifying files not found. Cannot build metis.")
+            ENDIF()
+	    SET(METIS_PATCH_COMMAND ${PATCH} -p1 -f < ${PROJECT_SOURCE_DIR}/cmake/thirdparty-patches/metis-5.1.0-cmake4.0.patch)
+        ENDIF()
+
         EXTERNALPROJECT_ADD(
             metis-5.1.0
             PREFIX ${TPSRC}
@@ -40,8 +52,10 @@ IF (NEKTAR_USE_METIS)
             BINARY_DIR ${TPBUILD}/metis-5.1.0
             TMP_DIR ${TPBUILD}/metis-5.1.0-tmp
             INSTALL_DIR ${TPDIST}
+            BUILD_BYPRODUCTS ${METIS_LIBRARY}
+	    PATCH_COMMAND ${METIS_PATCH_COMMAND}
             CONFIGURE_COMMAND ${CMAKE_COMMAND}
-                -G ${CMAKE_GENERATOR}
+                ${NEKTAR_EXTERNAL_PROJECT_CMAKE_GENERATOR_ARGS}
                 -DCMAKE_C_COMPILER:FILEPATH=${CMAKE_C_COMPILER}
                 -DCMAKE_CXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER}
                 -DCMAKE_INSTALL_PREFIX:PATH=${TPDIST}
@@ -73,7 +87,6 @@ IF (NEKTAR_USE_METIS)
             )
         ENDIF ()
 
-        THIRDPARTY_LIBRARY(METIS_LIBRARY STATIC metis DESCRIPTION "Metis library")
         MARK_AS_ADVANCED(METIS_LIBRARY)
         MESSAGE(STATUS "Build Metis: ${METIS_LIBRARY}")
         SET(METIS_CONFIG_INCLUDE_DIR ${TPINC})

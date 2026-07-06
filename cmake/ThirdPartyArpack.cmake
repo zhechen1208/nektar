@@ -31,6 +31,18 @@ IF (NEKTAR_USE_ARPACK)
     IF(THIRDPARTY_BUILD_ARPACK)
     	INCLUDE(ExternalProject)
 
+        THIRDPARTY_LIBRARY(ARPACK_LIBRARY SHARED arpack DESCRIPTION "ARPACK library")
+
+        IF(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
+            UNSET(PATCH CACHE)
+            FIND_PROGRAM(PATCH patch)
+            IF(NOT PATCH)
+	        MESSAGE(FATAL_ERROR
+	            "'patch' tool for modifying files not found. Cannot build lst.")
+            ENDIF()
+	    SET(ARPACK_PATCH_COMMAND ${PATCH} -p1 -f < ${PROJECT_SOURCE_DIR}/cmake/thirdparty-patches/arpack-ng-1.0-cmake4.0.patch)
+        ENDIF()
+
     	EXTERNALPROJECT_ADD(
             arpack-ng-1.0
             PREFIX ${TPSRC}
@@ -42,16 +54,17 @@ IF (NEKTAR_USE_ARPACK)
             BINARY_DIR ${TPBUILD}/arpack-ng-1.0
             TMP_DIR ${TPBUILD}/arpack-ng-1.0-tmp
             INSTALL_DIR ${TPDIST}
+            BUILD_BYPRODUCTS ${ARPACK_LIBRARY}
+	    PATCH_COMMAND ${ARPACK_PATCH_COMMAND}
             CONFIGURE_COMMAND ${CMAKE_COMMAND}
-                -G ${CMAKE_GENERATOR}
-                -DCMAKE_Fortran_COMPILER:FILEPATH=${CMAKE_Fortran_COMPILER}
-                -DCMAKE_INSTALL_PREFIX:PATH=${TPDIST}
-                -DCMAKE_INSTALL_LIBDIR:PATH=${TPDIST}/lib
-                -DBUILD_SHARED_LIBS:STRING=ON
+                ${NEKTAR_EXTERNAL_PROJECT_CMAKE_GENERATOR_ARGS}
+                "-DCMAKE_Fortran_COMPILER:FILEPATH=${CMAKE_Fortran_COMPILER}"
+                "-DCMAKE_Fortran_FLAGS=-w -O3 -fallow-argument-mismatch"
+                "-DCMAKE_INSTALL_PREFIX:PATH=${TPDIST}"
+                "-DCMAKE_INSTALL_LIBDIR:PATH=${TPDIST}/lib"
+                "-DBUILD_SHARED_LIBS:STRING=ON"
                 ${TPSRC}/arpack-ng-1.0
             )
-
-        THIRDPARTY_LIBRARY(ARPACK_LIBRARY SHARED arpack DESCRIPTION "ARPACK library")
 
         INCLUDE_DIRECTORIES(${TPDIST}/include)
 
@@ -62,5 +75,4 @@ IF (NEKTAR_USE_ARPACK)
 
     ADD_DEPENDENCIES(thirdparty arpack-ng-1.0)
 ENDIF()
-
 

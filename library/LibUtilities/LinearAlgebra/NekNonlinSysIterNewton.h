@@ -63,18 +63,31 @@ public:
 
     LIB_UTILITIES_EXPORT NekNonlinSysIterNewton(
         const LibUtilities::SessionReaderSharedPtr &pSession,
-        const LibUtilities::CommSharedPtr &vRowComm, const int nscale,
+        const LibUtilities::CommSharedPtr &vRowComm, const int nDimen,
         const NekSysKey &pKey);
     LIB_UTILITIES_EXPORT ~NekNonlinSysIterNewton() override = default;
 
 protected:
-    bool m_InexactNewtonForcing = false;
+    NekDouble m_NewtonScale;
+
+    bool m_inexactNewtonForcing = false;
+    // Classic bounded Eisenstat-Walker style forcing
+    NekDouble m_forcingEtaInit = 1.0e-2;
+    NekDouble m_forcingEtaMin  = 1.0e-6;
+    NekDouble m_forcingEtaMax  = 5.0e-2;
+    NekDouble m_forcingGamma   = 0.9;
+    NekDouble m_forcingAlpha   = 1.5;
+
+    bool m_haveUpdatedResidual = false;
 
     void v_InitObject() override;
 
     int v_SolveSystem(const int nGlobal,
                       const Array<OneD, const NekDouble> &pInput,
                       Array<OneD, NekDouble> &pOutput, const int nDir) override;
+
+    virtual bool v_ApplyNewtonUpdate(const int ntotal,
+                                     const NekDouble oldResNorm);
 
 private:
     NekDouble CalcInexactNewtonForcing(const int &nIteration,

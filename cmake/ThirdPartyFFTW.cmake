@@ -10,12 +10,24 @@ OPTION(NEKTAR_USE_FFTW
     "Use FFTW routines for performing the Fast Fourier Transform." OFF)
 
 IF (NEKTAR_USE_FFTW)
+    # Use static linkage to avoid issue with MKL
+    SET(ORIG_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
+
+    # Define static suffixes based on the platform
+    IF(WIN32)
+        SET(CMAKE_FIND_LIBRARY_SUFFIXES ".lib")
+    ELSE()
+        SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+    ENDIF()
+
     # Set some common FFTW search paths for the library.
     SET(FFTW_SEARCH_PATHS $ENV{LD_LIBRARY_PATH} $ENV{FFTW_HOME}/lib)
     FIND_LIBRARY(FFTW_LIBRARY NAMES fftw3 fftw3f PATHS ${FFTW_SEARCH_PATHS})
 
     FIND_PATH(FFTW_INCLUDE_DIR NAMES fftw3.h CACHE FILEPATH 
         "FFTW include directory.")
+
+    SET(CMAKE_FIND_LIBRARY_SUFFIXES ${ORIG_SUFFIXES})
 
     IF (FFTW_LIBRARY AND FFTW_INCLUDE_DIR)
         SET(BUILD_FFTW OFF)
@@ -29,6 +41,41 @@ IF (NEKTAR_USE_FFTW)
 
     IF (THIRDPARTY_BUILD_FFTW)
         INCLUDE(ExternalProject)
+        THIRDPARTY_LIBRARY(FFTW_LIBRARY STATIC fftw3 DESCRIPTION "FFTW library")
+
+        IF(APPLE)
+            UNSET(PATCH CACHE)
+            FIND_PROGRAM(PATCH patch)
+            IF(NOT PATCH)
+                MESSAGE(FATAL_ERROR
+                    "'patch' tool for modifying files not found. Cannot build fftw3.")
+            ENDIF()
+            SET(FFTW_PATCH_COMMAND 
+	        cp ${PROJECT_SOURCE_DIR}/cmake/thirdparty-patches/config.guess . &&
+	        cp ${PROJECT_SOURCE_DIR}/cmake/thirdparty-patches/config.sub . &&
+                ${PATCH} -p0 -f < ${PROJECT_SOURCE_DIR}/cmake/thirdparty-patches/fftw-3.2.2.patch)
+            IF(NOT CMAKE_OSX_SYSROOT)
+                EXECUTE_PROCESS(
+                    COMMAND xcrun --sdk macosx --show-sdk-path
+                    OUTPUT_VARIABLE MACOSX_SDK_PATH
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                )
+            ELSE()
+                SET(MACOSX_SDK_PATH ${CMAKE_OSX_SYSROOT})
+            ENDIF()
+
+            MESSAGE(STATUS "macOS SDK for FFTW: ${MACOSX_SDK_PATH}")
+            SET(FFTW_CONFIG SDKROOT=${CMAKE_OSX_SYSROOT}; 
+                "CFLAGS=-O3 -isysroot ${MACOSX_SDK_PATH} -arch arm64";
+                "CPPFLAGS=-isysroot ${MACOSX_SDK_PATH}";
+                "LDFLAGS=-isysroot ${MACOSX_SDK_PATH} -arch arm64";)
+        ELSE()
+            SET(FFTW_PATCH_COMMAND 
+	        cp ${PROJECT_SOURCE_DIR}/cmake/thirdparty-patches/config.guess . &&
+	        cp ${PROJECT_SOURCE_DIR}/cmake/thirdparty-patches/config.sub .)
+            SET(FFTW_CONFIG "CFLAGS=-w"; "CPPFLAGS=-w")
+        ENDIF()
+        MARK_AS_ADVANCED(PATCH)
         EXTERNALPROJECT_ADD(
             fftw-3.2.2
             URL ${TPURL}/fftw-3.2.2.tar.gz
@@ -39,22 +86,24 @@ IF (NEKTAR_USE_FFTW)
             BINARY_DIR ${TPBUILD}/fftw-3.2.2
             TMP_DIR ${TPBUILD}/fftw-3.2.2-tmp
             INSTALL_DIR ${TPDIST}
+            BUILD_BYPRODUCTS ${FFTW_LIBRARY}
+	    PATCH_COMMAND ${FFTW_PATCH_COMMAND}
             CONFIGURE_COMMAND
                 CC=${CMAKE_C_COMPILER}
                 ${TPSRC}/fftw-3.2.2/configure
+                ${FFTW_CONFIG}
                 --prefix=${TPDIST}
                 --libdir=${TPDIST}/lib
                 --quiet
+                --enable-static
                 --enable-shared
                 --disable-dependency-tracking
         )
 
-        SET(FFTW_LIBRARY fftw3 CACHE FILEPATH
-            "FFTW library" FORCE)
         SET(FFTW_INCLUDE_DIR ${TPDIST}/include CACHE FILEPATH
             "FFTW include" FORCE)
 
-        MESSAGE(STATUS "Build FFTW: ${TPDIST}/lib/lib${FFTW_LIBRARY}.so")
+        MESSAGE(STATUS "Build FFTW: ${TPDIST}/lib/${FFTW_LIBRARY}")
         SET(FFTW_CONFIG_INCLUDE_DIR ${TPINC})
     ELSE ()
         ADD_CUSTOM_TARGET(fftw-3.2.2 ALL)

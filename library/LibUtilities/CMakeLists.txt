@@ -212,6 +212,9 @@ SET(LinearAlgebraHeaders
 ./LinearAlgebra/NekMatrix.hpp
 ./LinearAlgebra/NekNonlinSysIter.h
 ./LinearAlgebra/NekNonlinSysIterNewton.h
+./LinearAlgebra/NekNonlinSysIterNewtonHookStep.h
+./LinearAlgebra/NekNonlinSysIterNewtonTrustRegion.h
+./LinearAlgebra/NekNonlinSysIterNewtonBacktrack.h
 ./LinearAlgebra/NekPoint.hpp
 ./LinearAlgebra/NekSys.h
 ./LinearAlgebra/NekTypeDefs.hpp
@@ -246,6 +249,9 @@ SET(LinearAlgebraSources
 ./LinearAlgebra/NekLinSysIterEvsDirect.cpp
 ./LinearAlgebra/NekNonlinSysIter.cpp
 ./LinearAlgebra/NekNonlinSysIterNewton.cpp
+./LinearAlgebra/NekNonlinSysIterNewtonHookStep.cpp
+./LinearAlgebra/NekNonlinSysIterNewtonTrustRegion.cpp
+./LinearAlgebra/NekNonlinSysIterNewtonBacktrack.cpp
 ./LinearAlgebra/NekSys.cpp
 ./LinearAlgebra/NekVector.cpp
 ./LinearAlgebra/ScaledMatrix.cpp
@@ -407,10 +413,8 @@ ENDIF ()
 
 # FFTW
 IF( NEKTAR_USE_FFTW )
-TARGET_LINK_LIBRARIES(LibUtilities LINK_PUBLIC ${FFTW_LIBRARY})
-ADD_DEPENDENCIES(LibUtilities fftw-3.2.2)
-SET_SOURCE_FILES_PROPERTIES(./FFT/NekFFTW.cpp
-PROPERTY COMPILE_FLAGS "-I${FFTW_INCLUDE_DIR}")
+    TARGET_LINK_LIBRARIES(LibUtilities LINK_PRIVATE ${FFTW_LIBRARY})
+    ADD_DEPENDENCIES(LibUtilities fftw-3.2.2)
 ENDIF( NEKTAR_USE_FFTW )
 
 # ARPACK

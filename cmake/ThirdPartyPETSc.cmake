@@ -55,8 +55,13 @@ IF (NEKTAR_USE_PETSC)
                 SET(PETSC_CXX_COMPILER "${MPI_CXX_COMPILER}")
                 SET(PETSC_Fortran_COMPILER "${MPI_Fortran_COMPILER}")
             ENDIF (NOT MPI_BUILTIN)
+            SET(PETSC_NO_MPI "")
+            SET(DOWNLOAD_HYPRE --download-hypre)
+            SET(DOWNLOAD_ML --download-ml)
         ELSE (NEKTAR_USE_MPI)
             SET(PETSC_NO_MPI "--with-mpi=0")
+            SET(DOWNLOAD_HYPRE "")
+            SET(DOWNLOAD_ML "")
         ENDIF (NEKTAR_USE_MPI)
 
         IF(CMAKE_Fortran_COMPILER AND NEKTAR_USE_MPI)
@@ -94,6 +99,11 @@ IF (NEKTAR_USE_PETSC)
             SET(PETSC_Fortran_COMPILER "0")
         ENDIF()
 
+        THIRDPARTY_LIBRARY(PETSC_LIBRARIES SHARED petsc
+            DESCRIPTION "PETSc library")
+
+        find_program(MAKE_EXECUTABLE NAMES gmake make mingw32-make REQUIRED)
+
         EXTERNALPROJECT_ADD(
             petsc-3.19.3
             DEPENDS ${PETSC_DEPS}
@@ -106,14 +116,19 @@ IF (NEKTAR_USE_PETSC)
             BINARY_DIR ${TPBUILD}/petsc-3.19.3
             URL https://www.nektar.info/thirdparty/petsc-3.19.3.tar.gz 
             URL_MD5 "b493f0c19c067994ce7e9b5f4d13216c"
+            BUILD_BYPRODUCTS ${PETSC_LIBRARIES}
+            PATCH_COMMAND ${PATCH} -p1 -f < ${PROJECT_SOURCE_DIR}/cmake/thirdparty-patches/petsc-3.19.3.patch
             CONFIGURE_COMMAND
                 OMPI_FC=${CMAKE_Fortran_COMPILER}
                 OMPI_CC=${CMAKE_C_COMPILER}
                 OMPI_CXX=${CMAKE_CXX_COMPILER}
                 ${Python3_EXECUTABLE} ./configure
                 MAKEFLAGS=$MAKEFLAGS
-                CFLAGS="-w"
-                CXXFLAGS="-w"
+                CFLAGS="-Wno-error=implicit-function-declaration"
+                CXXFLAGS="-Wno-error=implicit-function-declaration"
+                COPTFLAGS="-O3"
+                CXXOPTFLAGS="-O3"
+                HIPOPTFLAGS="-O3"
                 --with-fc=${PETSC_Fortran_COMPILER}
                 --with-cc=${PETSC_C_COMPILER}
                 --with-cxx=${PETSC_CXX_COMPILER}
@@ -124,20 +139,19 @@ IF (NEKTAR_USE_PETSC)
                 --with-ssl=0
                 --prefix=${TPDIST}
                 --with-petsc-arch=c-opt
-                --download-hypre
-                --download-ml
+                ${DOWNLOAD_HYPRE}
+                ${DOWNLOAD_ML}
                 --with-debugging=0
                 --with-pkg-config
                 ${PETSC_MUMPS}
                 ${PETSC_NO_MPI}
-            BUILD_COMMAND $(MAKE)
-            TEST_COMMAND $(MAKE)
-                PETSC_DIR=${TPDIST} PETSC_ARCH= check)
+            BUILD_COMMAND ${MAKE_EXECUTABLE}
+            #TEST_COMMAND ${MAKE_EXECUTABLE}
+            #    PETSC_DIR=${TPDIST} PETSC_ARCH= check
+            )
 
         MESSAGE("TPDist: ${TPDIST}")
         MESSAGE("TPBuild: ${TPBUILD}")
-        THIRDPARTY_LIBRARY(PETSC_LIBRARIES SHARED petsc
-            DESCRIPTION "PETSc library")
         SET(PETSC_INCLUDE_DIRS ${TPDIST}/include CACHE FILEPATH
             "PETSc includes" FORCE)
         MESSAGE(STATUS "Build PETSc: ${PETSC_LIBRARIES}")

@@ -28,23 +28,58 @@ v5.10.0
 - Remove Vmath SIMD (!2365) 
 - Update GMRES with improved restart capabilities (LGMRES) (!2402)
 - Tidy v_FwdTrans, v_Integral, v_GetStdExp, v_GetLinStdExp virtual functions (!!2384)
+- Add missing meta data to checkpoint filter (!2412)
 - Remove AdvectionFR, DiffusionLFR, and DiffusioLFRNS (!2425)
 - Fix NoCollection IProductWRTDerivBase for embedded case (!2454)
 - Tidy PhysDirectionalDeriv implementation in LocalRegions (!2473)
 - Fix LOR preconditioner in parallel (!2514)
 - Fix memory leak with Scotch graph initialization (!2518)
+- Fix memory leak with GS in AssemblyMapDG initialization (!2519)
+- Use static linkage for FFTW to avoid problem with MKL (!2474)
+- Fix unitialized variables in Collection and DriverParareal (!2521)
+- Remove MPI Finalize from Field destructor in FieldUtils (!2522)
+- Enforce command-in-line override of parameters in expression (!2525)
+- Fix ThirdParty build for Arpack, FFTW, LST, OCE, PETSc, TinyXML, VTK (!2530)
+- Fix memory leak in ObjectPool (!2513)
+- Fix 3rdparty compilation with ninja/unix makefiles/macos/win (!2537) 
+- Fix Boost, FFTW, VTK, and Zlib thirdparty compilation on macos, fix serial PETsc thirdparty compilation, fix OCE depedencies (!2538)
+- Add scaling factor to limit the Newton step (!2533)
+- Acctivate the inexact forcing in the Newton process (!2534)
+- Fix Arpack, Cwipi, GSMPI, Lapack, LST, Metis, OCE, TetGen, Triangle, TinyXML, and Zlib compilation for CMake 4.0 and above (!2559)
+- Enable HDF5 by default (!2163)
+- Add the ApplyNewtonUpdate method to the NekNonlinSysIterNewton the derived Newton implementations can use (!2551)
+- Add Newton globalisation via the Hook step approach using GMRES information with fallback and oportunistic explore (!2554)
+- Add Neton globalisation via linesearch (Backtracking) with a trust region concept and a heuristic residuum decrease model
+- Add Newton iteration with globalisation via linesearch and Armijo suficiend residual decrease (!2552) 
+- Add new interfaces in SimdLib to support interleaving/deinterleaving on unaligned inputs, and also variable-length virtual SIMD type (!2565)
+- Fix search for Boost 1.89 and above (!2567)
+- Add tests for different Newton method globalisation techniques (!2576)
+- Add pseudo inverse feature to Nektar matrix; introduce the pseudo inverse of BwdTrans matrix and allow interpolation between any coefficient spaces (!2569)
 
 **IncNavierStokesSolver**
 - Added an option to process Reynolds Stress fields at a higher polynomial order (!2303)
 - Remove Vmath SIMD (!2365) 
 - Fix non-zero Dirichlet BCs with flow rate for inc NS Solver (!2399)
 - Added an option to modify the number of decimal point print out in a constant-rate setup (!2491)
+- Added a stablized velocity correction scheme for fluid-structure interaction of rigid body (!2040)
 
 **CI**
 - Add PROCESSORS property to tests to enforce correct parallelism (!2445)
+- Allow multiple tests per `.tst` file (!2509)
+- Enable use of ninja for build system (!2511)
+- Fix dockerhub-build-workbook (!2561)
 
 **AcousticSolver**
 - Use native c++ random number generator instead of boost (!2379)
+
+**ADRSolver**
+- Renable Movement_fixed_3D_stacked_cylinders_curved_hdf5_par unit test (!2523)
+
+**Documentation**
+- Update mailing list URL to point to new mailing list server (!2541)
+
+**Miscellaneous**
+-  Update to clang-format-18 and clang-tidy-18 (!2587)
 
 v5.9.0
 ------
@@ -158,6 +193,8 @@ v5.8.0
   
 **Miscellaneous**
 - Added LinMeshGraph executable for splitting meshes using user specified splits (!1888) 
+- Deprecate use of TimeIntegrationMethod in SolverInfo (!2059)
+
 **Python**
 - Transition bindings to use pybind11 (!1950)
 
@@ -167,9 +204,6 @@ v5.8.0
 **PulseWaveSolver**
 - Added ability to output history points (and other filters) (!2000)
 
-**Miscellaneous**
-- Deprecate use of TimeIntegrationMethod in SolverInfo (!2059)
-	
 v5.7.0
 -----
 **Library**
@@ -379,6 +413,7 @@ v5.5.0
 **Documentation**
 - Update instructions for VS2022 (!1714)
 - Update ADRSolver user guide (!1730)
+- Add entry on Newton methods (!2577)
 
 **ShallowWaterSolver**
 - Reduce memory footprint of the Peregrine solver(!1680)

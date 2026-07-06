@@ -17,15 +17,26 @@ echo "  - EXPORT_COMPILE_COMMANDS : $EXPORT_COMPILE_COMMANDS"
 echo "  - NUM_CPUS                : $NUM_CPUS"
 echo "  - OS_VERSION              : $OS_VERSION"
 echo "  - PYTHON_EXECUTABLE       : $PYTHON_EXECUTABLE"
+echo "  - USE_NINJA               : $USE_NINJA"
+echo "  - BUILD_DIR               : $BUILD_DIR"
+
+# Use ninja for builds: defaults to true
+if [[ $USE_NINJA == "true" ]]; then
+    CMAKEARGS=(.. "-G" "Ninja")
+    MAKE_EXEC=ninja
+else
+    CMAKEARGS=(.. "-G" "Unix Makefiles")
+    MAKE_EXEC=make
+fi
 
 if [[ $BUILD_TYPE == "default" ]]; then
-    CMAKEARGS=(..
+    CMAKEARGS+=(
                "-DCMAKE_BUILD_TYPE=Release"
                "-DNEKTAR_TEST_ALL=ON"
                "-DNEKTAR_ERROR_ON_WARNINGS=OFF"
-              )
+               )
 elif [[ $BUILD_TYPE == "full" ]]; then
-    CMAKEARGS=(..
+    CMAKEARGS+=(
                "-DCMAKE_BUILD_TYPE:STRING=Debug"
                "-DNEKTAR_FULL_DEBUG:BOOL=ON"
                "-DNEKTAR_TEST_ALL:BOOL=ON"
@@ -46,7 +57,7 @@ elif [[ $BUILD_TYPE == "full" ]]; then
                "-DNEKTAR_TEST_USE_HOSTFILE=ON"
                "-DNEKTAR_UTILITY_EXTRAS=ON"
                "-DNEKTAR_ERROR_ON_WARNINGS=OFF"
-              )
+               )
 
     if [[ $DISABLE_CWIPI != "true" ]]; then
         CMAKEARGS+=("-DNEKTAR_USE_CWIPI:BOOL=ON")
@@ -61,13 +72,13 @@ elif [[ $BUILD_TYPE == "full" ]]; then
         CMAKEARGS+=("-DNEKTAR_USE_ALIGNED_MEM:BOOL=ON")
     fi
 elif [[ $BUILD_TYPE == "performance" ]]; then
-    CMAKEARGS=(..
+    CMAKEARGS+=(
                "-DCMAKE_BUILD_TYPE=Release"
                "-DNEKTAR_BUILD_TESTS=OFF"
                "-DNEKTAR_BUILD_UNIT_TESTS=OFF"
                "-DNEKTAR_BUILD_PERFORMANCE_TESTS=ON"
                "-DNEKTAR_ERROR_ON_WARNINGS=OFF"
-              )
+               )
 fi
 
 if [[ $DO_COVERAGE != "" ]]; then
@@ -77,7 +88,7 @@ fi
 
 if [[ $BUILD_TYPE != "performance" ]]; then
     TEST_JOBS="$NUM_CPUS"
-else 
+else
     TEST_JOBS="1"
 fi
 
@@ -101,7 +112,11 @@ if [[ $PYTHON_EXECUTABLE != "" ]]; then
     CMAKEARGS+=("-DPython3_EXECUTABLE=${PYTHON_EXECUTABLE}")
 fi
 
-rm -rf build && mkdir -p build && (cd build && cmake -G 'Unix Makefiles' "${CMAKEARGS[@]}" ..)
+# Clean setup of build directory
+if [[ $BUILD_DIR == "" ]]; then
+    BUILD_DIR=build
+fi
+rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR && (cd $BUILD_DIR && cmake "${CMAKEARGS[@]}" ..)
 
 if [[ $DISABLE_MCA != "" ]]; then
     export OMPI_MCA_btl_base_warn_component_unused=0
@@ -110,12 +125,12 @@ fi
 if [[ $EXPORT_COMPILE_COMMANDS != "" ]]; then
     # If we are just exporting compile commands for clang-tidy, just build any
     # third-party dependencies that we need.
-    make -C build -j $NUM_CPUS thirdparty 2>&1
+    $MAKE_EXEC -C $BUILD_DIR -j $NUM_CPUS thirdparty 2>&1
     exit_code=$?
 else
     # Otherwise build and test the code.
-    make -C build -j $NUM_CPUS all 2>&1 && make -C build -j $NUM_CPUS install && \
-        (cd build && ctest -j $TEST_JOBS --output-on-failure)
+    $MAKE_EXEC -C $BUILD_DIR -j $NUM_CPUS all 2>&1 && $MAKE_EXEC -C $BUILD_DIR -j $NUM_CPUS install && \
+        (cd $BUILD_DIR && ctest -j $TEST_JOBS --output-on-failure)
     exit_code=$?
 
     # Build coverage
@@ -131,6 +146,6 @@ else
 fi
 
 if [[ $exit_code -ne 0 ]]; then
-    [[ $OS_VERSION != "macos" ]] && rm -rf build/dist
+    [[ $OS_VERSION != "macos" ]] && rm -rf $BUILD_DIR/dist
     exit $exit_code
 fi

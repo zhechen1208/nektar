@@ -78,7 +78,7 @@ struct Command
 class TestData
 {
 public:
-    TestData(const fs::path &pFilename, po::variables_map &pVm);
+    TestData(TiXmlElement *pElmt, po::variables_map &pVm);
     TestData(const TestData &pSrc);
 
     const std::string &GetDescription() const;
@@ -95,19 +95,16 @@ public:
 
     unsigned int GetNumRuns() const;
 
-    void SaveFile();
-
 private:
     po::variables_map m_cmdoptions;
     std::string m_description;
     std::vector<Command> m_commands;
-    TiXmlDocument *m_doc;
     std::vector<TiXmlElement *> m_metrics;
     std::vector<DependentFile> m_files;
     /// @brief The number of times to run the test.
     unsigned int m_runs;
 
-    void Parse(TiXmlDocument *pDoc);
+    void Parse(TiXmlElement *pElmt);
     Command ParseCommand(TiXmlElement *pElmt) const;
 };
 } // namespace Nektar

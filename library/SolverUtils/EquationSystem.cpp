@@ -1111,6 +1111,12 @@ void EquationSystem::v_SetInitialConditions(
         }
     }
 
+    // Update time in field info if required
+    if (m_fieldMetaDataMap.find("Time") != m_fieldMetaDataMap.end())
+    {
+        m_fieldMetaDataMap["Time"] = boost::lexical_cast<std::string>(m_time);
+    }
+
     if (dumpInitialConditions && m_checksteps && m_nchk == 0 &&
         !m_comm->IsParallelInTime())
     {
@@ -1360,12 +1366,6 @@ void EquationSystem::WriteFld(const std::string &outname,
         }
     }
 
-    // Update time in field info if required
-    if (m_fieldMetaDataMap.find("Time") != m_fieldMetaDataMap.end())
-    {
-        m_fieldMetaDataMap["Time"] = boost::lexical_cast<std::string>(m_time);
-    }
-
     // Update step in field info if required
     if (m_fieldMetaDataMap.find("ChkFileNum") != m_fieldMetaDataMap.end())
     {
@@ -1382,13 +1382,13 @@ void EquationSystem::WriteFld(const std::string &outname,
     mapping->Output(fieldMetaDataMap, outname);
 
     // If necessary, add informaton for moving frame reference to metadata
-    // X, Y, Z translational displacements
-    // Theta_x, Theta_y, Theta_z angular displacements
-    // U, V, W translational velocity
-    // Omega_x, Omega_y, Omega_z angular velocity
-    // A_x, A_y, A_z translational acceleration
-    // DOmega_x, DOmega_y, DOmega_z angular acceleration
-    // X0, Y0, Z0 pivot point
+    // X, Y, Z translational displacements [inertial]
+    // Theta_x, Theta_y, Theta_z angular displacements  [inertial]
+    // U, V, W translational velocity  [body]
+    // Omega_x, Omega_y, Omega_z angular velocity  [body]
+    // A_x, A_y, A_z translational acceleration  [body]
+    // DOmega_x, DOmega_y, DOmega_z angular acceleration  [body]
+    // X0, Y0, Z0 pivot point  [body]
     for (size_t i = 0;
          i < m_strFrameData.size() && i < m_movingFrameData.size(); ++i)
     {
