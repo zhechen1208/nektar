@@ -79,11 +79,13 @@ void MRFWallPressDecomp::v_Initialise(
     const LibUtilities::SessionReaderSharedPtr &pSession)
 {
     IncBaseCondition::v_Initialise(pSession);
-    if (!(pSession->GetSolverInfo("SolverType") == "PressDecompVCSFSI"))
+    std::string solverType = pSession->GetSolverInfo("SolverType");
+    if (!(solverType == "PressDecompVCSFSI" || solverType == "VCSFSI"))
     {
         ASSERTL0(false,
                  "The boundary condition MRFWallPressDecomp is only "
-                 "supported for use in the SolverType 'PressDecompVCSFSI'");
+                 "supported for use in the SolverType 'PressDecompVCSFSI' "
+                 "or 'VCSFSI'");
     }
     m_field->GetBndElmtExpansion(m_nbnd, m_bndElmtExps, false);
     if (m_hasPressure)

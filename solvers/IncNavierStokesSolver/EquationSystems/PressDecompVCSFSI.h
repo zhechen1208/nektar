@@ -83,7 +83,8 @@ protected:
 
     // Virtual functions
     void v_DoInitialise(bool dumpInitialConditions = true) override;
-    void v_SolveSolid(NekDouble time) override;
+    bool v_PostIntegrate(int step) override;
+    void CorrectPressureAfterSolid() override;
     void CorrectPressure();
 
     std::map<int, Array<OneD, NekDouble>> m_pCoef; // 0,1,2;3,4,5 six dofs

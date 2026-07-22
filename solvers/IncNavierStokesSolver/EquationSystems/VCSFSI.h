@@ -38,6 +38,7 @@
 #include <IncNavierStokesSolver/EquationSystems/RigidSolver.h>
 #include <IncNavierStokesSolver/EquationSystems/VelocityCorrectionScheme.h>
 #include <SolverUtils/Filters/FilterAeroForces.h>
+#include <fstream>
 namespace Nektar
 {
 class VCSFSI : public VelocityCorrectionScheme
@@ -69,15 +70,53 @@ protected:
     static std::string solverTypeLookupId;
 
     bool m_verbose;
+    bool m_enablePressureDecomposition;
+    bool m_pressureDecompWriteFld;
+    int m_pressureDecompOutputFrequency;
+    int m_pressureDecompOutputIndex;
 
     // Virtual functions
     void v_DoInitialise(bool dumpInitialConditions = true) override;
+    void v_SetUpPressureForcing(
+        const Array<OneD, const Array<OneD, NekDouble>> &fields,
+        Array<OneD, Array<OneD, NekDouble>> &Forcing,
+        NekDouble aiiDt) override;
 
     void v_SolveSolid(NekDouble time) override;
     void InitialiseFilter(Array<OneD, NekDouble> aeroforce);
+    virtual void CorrectPressureAfterSolid();
+    virtual void InitialisePressureDecomposition();
+    virtual void UpdatePressureDecomposition(NekDouble time);
+    virtual void ComputePaFull(NekDouble time);
+    virtual void ComputePq(NekDouble time);
+    virtual void ComputePvis(NekDouble time);
+    virtual void EvaluatePressureComponentForces(NekDouble time);
+    virtual void OutputPressureComponents(NekDouble time);
+    virtual void InitialisePressureComponentForceOutput();
+    virtual void IntegratePressureForce(
+        const Array<OneD, NekDouble> &pressurePhys,
+        Array<OneD, NekDouble> &force) const;
+    void ZeroPressureBoundaryConditions();
 
     RigidSolver m_rigidSolver;
     SolverUtils::FilterAeroForcesSharedPtr m_aeroforceFilter;
+    MultiRegions::ExpListSharedPtr m_pressureDecomp;
+    Array<OneD, NekDouble> m_paCoeff;
+    Array<OneD, NekDouble> m_pqCoeff;
+    Array<OneD, NekDouble> m_pvisCoeff;
+    Array<OneD, NekDouble> m_paPhys;
+    Array<OneD, NekDouble> m_pqPhys;
+    Array<OneD, NekDouble> m_pvisPhys;
+    Array<OneD, NekDouble> m_pressurePoissonRhs;
+    Array<OneD, NekDouble> m_paForce;
+    Array<OneD, NekDouble> m_pqForce;
+    Array<OneD, NekDouble> m_pvisForce;
+    Array<OneD, NekDouble> m_pForce;
+    Array<OneD, NekDouble> m_presForce;
+    std::vector<bool> m_pressureForceBoundaryIsInList;
+    bool m_pressureForceOutputInitialised = false;
+    bool m_pressureForceHasGlobalBoundary = false;
+    std::ofstream m_pressureForceStream;
 };
 
 typedef std::shared_ptr<VCSFSI> VCSFSISharedPtr;

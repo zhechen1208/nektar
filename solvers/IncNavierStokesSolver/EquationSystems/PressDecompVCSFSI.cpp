@@ -68,6 +68,7 @@ void PressDecompVCSFSI::v_InitObject(bool DeclareField)
     m_rigidSolver.InitObject(m_session, m_fields[0], tmp);
     m_rigidSolver.SetMovableDoFs(m_movableDoFs);
     m_MRFABCname = "MRFWallPressDecomp";
+    InitialisePressureDecomposition();
 }
 
 /**
@@ -331,10 +332,21 @@ void PressDecompVCSFSI::CorrectPressure()
     }
 }
 
-void PressDecompVCSFSI::v_SolveSolid(NekDouble time)
+void PressDecompVCSFSI::CorrectPressureAfterSolid()
 {
-    VCSFSI::v_SolveSolid(time);
     CorrectPressure();
+}
+
+bool PressDecompVCSFSI::v_PostIntegrate(int step)
+{
+    if (m_enablePressureDecomposition &&
+        m_pressureDecompOutputFrequency > 0 &&
+        (step + 1) % m_pressureDecompOutputFrequency == 0)
+    {
+        UpdatePressureDecomposition(m_time);
+    }
+
+    return UnsteadySystem::v_PostIntegrate(step);
 }
 
 } // namespace Nektar
