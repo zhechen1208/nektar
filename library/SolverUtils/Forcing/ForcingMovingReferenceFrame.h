@@ -37,11 +37,13 @@
 #define NEKTAR_SOLVERUTILS_FORCINGMOVINGREFERENCEFRAME
 
 #include <LibUtilities/BasicUtils/NekFactory.hpp>
+#include <LibUtilities/BasicUtils/Equation.h>
 #include <LibUtilities/BasicUtils/SharedArray.hpp>
 #include <MultiRegions/ExpList.h>
 #include <SolverUtils/EquationSystem.h>
 #include <SolverUtils/Forcing/Forcing.h>
 #include <string>
+#include <map>
 
 namespace Nektar::SolverUtils
 {
@@ -68,6 +70,17 @@ public:
 
     /// Name of the class
     static std::string classNameBody;
+
+    bool HasPrescribedTranslation() const
+    {
+        return !m_prescribedTranslation.empty();
+    }
+
+    const std::map<int, LibUtilities::EquationSharedPtr> &
+    GetPrescribedTranslation() const
+    {
+        return m_prescribedTranslation;
+    }
 
 protected:
     SOLVER_UTILS_EXPORT void v_InitObject(
@@ -100,6 +113,7 @@ private:
                      const Array<OneD, Array<OneD, NekDouble>> &inarray1,
                      Array<OneD, Array<OneD, NekDouble>> &outarray);
     void UpdateMRFStatus(MultiRegions::ExpListSharedPtr field);
+    void LoadPrescribedTranslation(const TiXmlElement *pForce);
     // pivot point
     Array<OneD, NekDouble> m_pivotPoint;
     // a boolean switch indicating for which direction the velocities are
@@ -113,6 +127,9 @@ private:
     Array<OneD, NekDouble> m_omegaxyz;
     // coordinate vector
     Array<OneD, Array<OneD, NekDouble>> m_coords;
+    // Keys follow the moving-frame metadata layout: U/V/W are 0-2,
+    // X/Y/Z are 6-8, and A_x/A_y/A_z are 12-14.
+    std::map<int, LibUtilities::EquationSharedPtr> m_prescribedTranslation;
     bool m_isH1d;
     bool m_hasPlane0;
     bool m_isH2d;

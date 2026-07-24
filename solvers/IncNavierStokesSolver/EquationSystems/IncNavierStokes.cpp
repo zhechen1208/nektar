@@ -163,15 +163,6 @@ void IncNavierStokes::v_InitObject(bool DeclareField)
     // Note: this must be done before the forcing
     if (DefinedForcing("MovingReferenceFrame"))
     {
-        std::string vSolver = m_session->GetSolverInfo("SolverType");
-        const bool isVCS = boost::iequals(vSolver, "VelocityCorrectionScheme");
-        if (isVCS)
-        {
-            ASSERTL0(false, "The Forcing MovingRefenceFrame is no "
-                            "longer supported for use in the "
-                            "VelocityCorrectionScheme. Please replace the "
-                            "SolverType with VCSFSI or PressDecompVCSFSI.");
-        }
         // 0-5(inertial disp), 6-11(body vel), 12-17(body acce) current
         // 18-21(body pivot)
         m_strFrameData = {

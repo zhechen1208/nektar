@@ -1102,6 +1102,21 @@ void Newmark_BetaSolver::SetNewmarkBeta(NekDouble beta, NekDouble gamma,
     }
 }
 
+void Newmark_BetaSolver::SetPrescribedMotion(NekDouble beta, NekDouble gamma,
+                                              NekDouble dt, int nMotion)
+{
+    m_coeffs    = Array<OneD, NekDouble>(5, 0.);
+    m_coeffs[0] = 1. / (gamma * dt);
+    m_coeffs[1] = 1. / gamma - 1.;
+    m_coeffs[2] = beta * dt / gamma;
+    m_coeffs[3] = dt * (1. - beta / gamma);
+    m_coeffs[4] = (0.5 - beta / gamma) * dt * dt;
+
+    m_rows       = nMotion;
+    m_motionDofs = 0;
+    m_index.clear();
+}
+
 void Newmark_BetaSolver::SolvePrescribed(
     Array<OneD, Array<OneD, NekDouble>> u,
     std::map<int, NekDouble> motionPrescribed)

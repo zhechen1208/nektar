@@ -80,7 +80,7 @@ ForcingMovingReferenceFrame::~ForcingMovingReferenceFrame(void)
 void ForcingMovingReferenceFrame::v_InitObject(
     const Array<OneD, MultiRegions::ExpListSharedPtr> &pFields,
     [[maybe_unused]] const unsigned int &pNumForcingFields,
-    [[maybe_unused]] const TiXmlElement *pForce)
+    const TiXmlElement *pForce)
 {
     m_session->MatchSolverInfo("Homogeneous", "1D", m_isH1d, false);
     m_session->MatchSolverInfo("Homogeneous", "2D", m_isH2d, false);
@@ -97,6 +97,79 @@ void ForcingMovingReferenceFrame::v_InitObject(
     if (m_isH1d)
     {
         m_hasPlane0 = pFields[0]->GetZIDs()[0] == 0;
+    }
+
+    LoadPrescribedTranslation(pForce);
+}
+
+void ForcingMovingReferenceFrame::LoadPrescribedTranslation(
+    const TiXmlElement *pForce)
+{
+    if (!pForce)
+    {
+        return;
+    }
+
+    const TiXmlElement *frameVelocity =
+        pForce->FirstChildElement("FRAMEVELOCITY");
+    if (!frameVelocity)
+    {
+        return;
+    }
+
+    std::string functionName = frameVelocity->GetText();
+    ASSERTL0(m_session->DefinesFunction(functionName),
+             "Function '" + functionName + "' is not defined in the session.");
+
+    const std::vector<std::string> displacement = {"X", "Y", "Z"};
+    const std::vector<std::string> acceleration = {"A_x", "A_y", "A_z"};
+    const std::vector<std::string> omega = {"Omega_x", "Omega_y", "Omega_z"};
+    const std::vector<std::string> theta = {"Theta_x", "Theta_y", "Theta_z"};
+    const std::vector<std::string> dOmega = {"DOmega_x", "DOmega_y", "DOmega_z"};
+
+    bool hasVelocity = false;
+    for (int i = 0; i < m_spacedim; ++i)
+    {
+        const std::string velocity = m_session->GetVariable(i);
+        if (m_session->DefinesFunction(functionName, velocity))
+        {
+            auto function = m_session->GetFunction(functionName, velocity);
+            if (function->GetExpression() != "0")
+            {
+                m_prescribedTranslation[i] = function;
+                hasVelocity                = true;
+            }
+        }
+
+        for (const auto &[name, offset] :
+             {std::make_pair(displacement[i], 6),
+              std::make_pair(acceleration[i], 12)})
+        {
+            if (m_session->DefinesFunction(functionName, name))
+            {
+                m_prescribedTranslation[i + offset] =
+                    m_session->GetFunction(functionName, name);
+            }
+        }
+    }
+
+    ASSERTL0(hasVelocity,
+             "FRAMEVELOCITY must define at least one non-zero translational "
+             "velocity component.");
+
+    for (int i = 0; i < 3; ++i)
+    {
+        for (const auto &name : {omega[i], theta[i], dOmega[i]})
+        {
+            if (m_session->DefinesFunction(functionName, name) &&
+                m_session->GetFunction(functionName, name)->GetExpression() !=
+                    "0")
+            {
+                ASSERTL0(false,
+                         "The lightweight MovingReferenceFrame supports "
+                         "prescribed translation only.");
+            }
+        }
     }
 }
 

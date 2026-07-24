@@ -72,10 +72,13 @@ MRFWall::MRFWall(
 void MRFWall::v_Initialise(const LibUtilities::SessionReaderSharedPtr &pSession)
 {
     IncBaseCondition::v_Initialise(pSession);
-    if (!(pSession->GetSolverInfo("SolverType") == "VCSFSI"))
+    std::string solverType = pSession->GetSolverInfo("SolverType");
+    if (!(solverType == "VCSFSI" ||
+          solverType == "VelocityCorrectionScheme"))
     {
         ASSERTL0(false, "The boundary condition MRFWall is only "
-                        "supported for use in the SolverType 'VCSFSI'");
+                        "supported for use in the SolverType 'VCSFSI' or "
+                        "'VelocityCorrectionScheme'");
     }
     m_field->GetBndElmtExpansion(m_nbnd, m_bndElmtExps, false);
     if (m_hasPressure)

@@ -68,6 +68,8 @@ public:
                         Array<OneD, NekDouble> M, Array<OneD, NekDouble> C,
                         Array<OneD, NekDouble> K, std::set<int> DirDoFs,
                         int solveType);
+    void SetPrescribedMotion(NekDouble beta, NekDouble gamma, NekDouble dt,
+                             int nMotion);
     void SolvePrescribed(Array<OneD, Array<OneD, NekDouble>> u,
                          std::map<int, NekDouble> motionPrescribed);
     void SolveFreeFixMat(Array<OneD, Array<OneD, NekDouble>> u,

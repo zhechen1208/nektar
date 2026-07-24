@@ -36,6 +36,8 @@
 #define NEKTAR_SOLVERS_VELOCITYCORRECTIONSCHEME_H
 
 #include <IncNavierStokesSolver/EquationSystems/IncNavierStokes.h>
+#include <IncNavierStokesSolver/EquationSystems/RigidSolver.h>
+#include <SolverUtils/Forcing/ForcingMovingReferenceFrame.h>
 
 namespace Nektar
 {
@@ -165,6 +167,11 @@ protected:
 
     Array<OneD, Array<OneD, NekDouble>> m_F;
 
+    bool m_usePrescribedTranslationMRF = false;
+    std::map<int, LibUtilities::EquationSharedPtr> m_MRFfuncs;
+    Array<OneD, Array<OneD, NekDouble>> m_MRFmotion;
+    Newmark_BetaSolver m_MRFmotionSolver;
+
     static std::string solverTypeLookupId;
 
     VelocityCorrectionScheme(
@@ -249,6 +256,9 @@ protected:
         const Array<OneD, const Array<OneD, NekDouble>> &inarray,
         StdRegions::VarCoeffMap &varcoeffs);
     void UpdateVelocityBCs(NekDouble time);
+
+    void InitialisePrescribedTranslationMRF();
+    void UpdatePrescribedTranslationMRF(NekDouble time);
 
     void AddMovingFrameDataToParams(
         const std::vector<std::string> &strFrameData,

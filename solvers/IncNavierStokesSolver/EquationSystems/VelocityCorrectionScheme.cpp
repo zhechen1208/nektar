@@ -75,6 +75,7 @@ void VelocityCorrectionScheme::v_InitObject(bool DeclareField)
     int n;
 
     IncNavierStokes::v_InitObject(DeclareField);
+    InitialisePrescribedTranslationMRF();
     m_explicitDiffusion = false;
 
     // Set m_pressure to point to last field of m_fields;
@@ -659,7 +660,73 @@ void VelocityCorrectionScheme::v_DoInitialise(bool dumpInitialConditions)
 
     m_flowrateAiidt = 0.0;
 
+    if (m_usePrescribedTranslationMRF)
+    {
+        // Set the frame state before initial boundary and history setup, as
+        // VCSFSI does through RigidSolver::SetInitialConditions().
+        for (const auto &[index, function] : m_MRFfuncs)
+        {
+            const int group = index < m_spacedim ? 1 : index / 6;
+            const int direction = index % 6;
+            m_MRFmotion[group][direction] =
+                function->Evaluate(0., 0., 0., m_time);
+        }
+
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            m_movingFrameData[i]      = m_MRFmotion[0][i];
+            m_movingFrameData[i + 6]  = m_MRFmotion[1][i];
+            m_movingFrameData[i + 12] = m_MRFmotion[2][i];
+        }
+    }
+
     AdvectionSystem::v_DoInitialise(dumpInitialConditions);
+
+    if (m_usePrescribedTranslationMRF)
+    {
+        bool hasRestartState = true;
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            for (int offset : {0, 6, 12})
+            {
+                if (m_fieldMetaDataMap.find(m_strFrameData[i + offset]) ==
+                    m_fieldMetaDataMap.end())
+                {
+                    hasRestartState = false;
+                }
+            }
+        }
+
+        if (hasRestartState)
+        {
+            for (int i = 0; i < m_spacedim; ++i)
+            {
+                m_MRFmotion[0][i] =
+                    std::stod(m_fieldMetaDataMap[m_strFrameData[i]]);
+                m_MRFmotion[1][i] =
+                    std::stod(m_fieldMetaDataMap[m_strFrameData[i + 6]]);
+                m_MRFmotion[2][i] =
+                    std::stod(m_fieldMetaDataMap[m_strFrameData[i + 12]]);
+            }
+        }
+
+        // Apply explicitly supplied quantities at the restart time, matching
+        // RigidSolver::SetInitialConditions().
+        for (const auto &[index, function] : m_MRFfuncs)
+        {
+            const int group = index < m_spacedim ? 1 : index / 6;
+            const int direction = index % 6;
+            m_MRFmotion[group][direction] =
+                function->Evaluate(0., 0., 0., m_time);
+        }
+
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            m_movingFrameData[i]      = m_MRFmotion[0][i];
+            m_movingFrameData[i + 6]  = m_MRFmotion[1][i];
+            m_movingFrameData[i + 12] = m_MRFmotion[2][i];
+        }
+    }
 
     // Set up Field Meta Data for output files
     m_fieldMetaDataMap["Kinvis"] = boost::lexical_cast<std::string>(m_kinvis);
@@ -863,7 +930,85 @@ void VelocityCorrectionScheme::v_SolveUnsteadyStokesSystem(
 
 void VelocityCorrectionScheme::v_SolveSolid(NekDouble time)
 {
+    if (m_usePrescribedTranslationMRF)
+    {
+        UpdatePrescribedTranslationMRF(time);
+    }
     UpdateVelocityBCs(time);
+}
+
+void VelocityCorrectionScheme::InitialisePrescribedTranslationMRF()
+{
+    for (const auto &forcing : m_forcing)
+    {
+        auto mrf = std::dynamic_pointer_cast<
+            SolverUtils::ForcingMovingReferenceFrame>(forcing);
+        if (!mrf || !mrf->HasPrescribedTranslation())
+        {
+            continue;
+        }
+
+        m_usePrescribedTranslationMRF = true;
+        m_MRFfuncs = mrf->GetPrescribedTranslation();
+        for (const auto &[index, function] : m_MRFfuncs)
+        {
+            if (index < m_spacedim)
+            {
+                m_movableDoFs[index] = true;
+            }
+        }
+        break;
+    }
+
+    if (!m_usePrescribedTranslationMRF)
+    {
+        return;
+    }
+
+    m_MRFmotion = Array<OneD, Array<OneD, NekDouble>>(3);
+    for (int i = 0; i < 3; ++i)
+    {
+        m_MRFmotion[i] = Array<OneD, NekDouble>(m_spacedim, 0.0);
+    }
+    NekDouble beta = 0.25, gamma = 0.51;
+    m_session->LoadParameter("NewmarkBeta", beta, beta);
+    m_session->LoadParameter("NewmarkGamma", gamma, gamma);
+    m_MRFmotionSolver.SetPrescribedMotion(beta, gamma, m_timestep,
+                                           m_spacedim);
+}
+
+void VelocityCorrectionScheme::UpdatePrescribedTranslationMRF(NekDouble time)
+{
+    std::map<int, NekDouble> prescribed;
+
+    // Match RigidSolver::UpdatePrescribed(): a direction with no prescribed
+    // velocity is held at rest. Where a velocity is supplied, omitted
+    // displacement and acceleration remain absent so Newmark derives them.
+    for (int i = 0; i < m_spacedim; ++i)
+    {
+        if (m_MRFfuncs.find(i) == m_MRFfuncs.end())
+        {
+            prescribed[i]                   = 0.0;
+            prescribed[m_spacedim + i]      = 0.0;
+            prescribed[2 * m_spacedim + i]  = 0.0;
+        }
+    }
+
+    for (const auto &[index, function] : m_MRFfuncs)
+    {
+        const int group = index / 6;
+        const int direction = index % 6;
+        prescribed[group * m_spacedim + direction] =
+            function->Evaluate(0., 0., 0., time);
+    }
+
+    m_MRFmotionSolver.SolvePrescribed(m_MRFmotion, prescribed);
+    for (int i = 0; i < m_spacedim; ++i)
+    {
+        m_movingFrameData[i]      = m_MRFmotion[0][i];
+        m_movingFrameData[i + 6]  = m_MRFmotion[1][i];
+        m_movingFrameData[i + 12] = m_MRFmotion[2][i];
+    }
 }
 
 void VelocityCorrectionScheme::UpdateVelocityBCs(NekDouble time)
