@@ -55,6 +55,8 @@ MRFWallPressDecomp::MRFWallPressDecomp(
 {
     classname = "MRFWallPressDecomp";
     m_hasVels = false;
+    m_velocityBasisReady = false;
+    m_velocityBasisNpts0 = 0;
     for (size_t i = 0; i < m_bnddim; ++i)
     {
         if (cond[i]->GetUserDefined() == classname)
@@ -101,6 +103,25 @@ void MRFWallPressDecomp::v_Initialise(
     }
 }
 
+void MRFWallPressDecomp::EnsurePressureRhs()
+{
+    if (m_pressureRhs.size() != m_bnddim)
+    {
+        m_pressureRhs = Array<OneD, Array<OneD, NekDouble>>(m_bnddim);
+    }
+    for (int i = 0; i < m_bnddim; ++i)
+    {
+        if (m_pressureRhs[i].size() != m_npoints)
+        {
+            m_pressureRhs[i] = Array<OneD, NekDouble>(m_npoints, 0.0);
+        }
+        else
+        {
+            Vmath::Zero(m_npoints, m_pressureRhs[i], 1);
+        }
+    }
+}
+
 /// @brief v_Update set correct BCs (in wavespace)
 /// @param fields
 /// @param Adv is in wavespace for 3DH1D
@@ -124,43 +145,220 @@ void MRFWallPressDecomp::v_Update(
     {
         ++m_numCalls;
 
-        Array<OneD, Array<OneD, NekDouble>> rhs(m_bnddim);
-        for (int i = 0; i < m_bnddim; ++i)
-        {
-            rhs[i] = Array<OneD, NekDouble>(m_npoints, 0.);
-        }
+        EnsurePressureRhs();
         // add viscous term and centripetal acceleration
-        AddExtrapCentVisPressureBCs(fields, rhs, params, nptsPlane0);
+        AddExtrapCentVisPressureBCs(fields, m_pressureRhs, params, nptsPlane0);
         m_BndExp[m_pressure]->NormVectorIProductWRTBase(
-            rhs, m_BndExp[m_pressure]->UpdateCoeffs());
+            m_pressureRhs, m_BndExp[m_pressure]->UpdateCoeffs());
     }
     // velocity, do if define velocity
     if (params.find("velocity") != params.end() && m_hasVels && nptsPlane0)
     {
-        Array<OneD, Array<OneD, NekDouble>> velocities(m_bnddim);
-        for (size_t k = 0; k < m_bnddim; ++k)
+        EnsureVelocityCoeffBasis(params, nptsPlane0);
+        ApplyVelocityCoeffBasis(params);
+    }
+}
+
+int MRFWallPressDecomp::GetVelocityBasisDofCount() const
+{
+    return m_bnddim == 3 ? 6 : 3;
+}
+
+int MRFWallPressDecomp::GetVelocityBasisIndex(int component, int dof) const
+{
+    return component * GetVelocityBasisDofCount() + dof;
+}
+
+std::string MRFWallPressDecomp::GetVelocityBasisParamName(int dof) const
+{
+    if (m_bnddim == 3)
+    {
+        switch (dof)
         {
-            if (m_BndExp.find(k) != m_BndExp.end())
-            {
-                velocities[k] = Array<OneD, NekDouble>(nptsPlane0, 0.0);
-            }
+            case 0:
+                return "U";
+            case 1:
+                return "V";
+            case 2:
+                return "W";
+            case 3:
+                return "Omega_x";
+            case 4:
+                return "Omega_y";
+            case 5:
+                return "Omega_z";
+            default:
+                ASSERTL0(false, "Invalid 3D velocity basis dof");
         }
-        RigidBodyVelocity(velocities, params, nptsPlane0);
+    }
+    else
+    {
+        switch (dof)
+        {
+            case 0:
+                return "U";
+            case 1:
+                return "V";
+            case 2:
+                return "Omega_z";
+            default:
+                ASSERTL0(false, "Invalid 2D velocity basis dof");
+        }
+    }
+    return "";
+}
+
+NekDouble MRFWallPressDecomp::GetVelocityBasisParamValue(
+    int dof, const std::map<std::string, NekDouble> &params) const
+{
+    const std::string name = GetVelocityBasisParamName(dof);
+    auto it                = params.find(name);
+    return it == params.end() ? 0.0 : it->second;
+}
+
+MultiRegions::ExpListSharedPtr MRFWallPressDecomp::GetVelocityBoundaryExpansion(
+    int component) const
+{
+    auto it = m_BndExp.find(component);
+    if (it == m_BndExp.end())
+    {
+        return MultiRegions::ExpListSharedPtr();
+    }
+
+    if (it->second->GetExpType() == MultiRegions::e2DH1D)
+    {
+        return it->second->GetPlane(0);
+    }
+    return it->second;
+}
+
+void MRFWallPressDecomp::EnsureVelocityCoeffBasis(
+    std::map<std::string, NekDouble> &params, int npts0)
+{
+    ASSERTL0(npts0 > 0, "Velocity boundary basis requires non-zero points");
+
+    if (m_velocityBasisReady && m_velocityBasisNpts0 == npts0)
+    {
+        bool valid = true;
         for (int k = 0; k < m_bnddim; ++k)
         {
-            if (m_BndExp.find(k) != m_BndExp.end())
+            MultiRegions::ExpListSharedPtr exp =
+                GetVelocityBoundaryExpansion(k);
+            if (!exp)
             {
-                if (m_BndExp[k]->GetExpType() == MultiRegions::e2DH1D)
+                continue;
+            }
+
+            for (int dof = 0; dof < GetVelocityBasisDofCount(); ++dof)
+            {
+                const int idx = GetVelocityBasisIndex(k, dof);
+                if (idx >= m_velocityCoeffBasis.size() ||
+                    m_velocityCoeffBasis[idx].size() != exp->GetNcoeffs())
                 {
-                    m_BndExp[k]->GetPlane(0)->FwdTransBndConstrained(
-                        velocities[k],
-                        m_BndExp[k]->GetPlane(0)->UpdateCoeffs());
+                    valid = false;
+                    break;
                 }
-                else
-                {
-                    m_BndExp[k]->FwdTransBndConstrained(
-                        velocities[k], m_BndExp[k]->UpdateCoeffs());
-                }
+            }
+        }
+        if (valid)
+        {
+            return;
+        }
+    }
+
+    InitialiseCoords(params);
+
+    const int nDofs = GetVelocityBasisDofCount();
+    m_velocityCoeffBasis =
+        Array<OneD, Array<OneD, NekDouble>>(m_bnddim * nDofs);
+    m_velocityBasisNpts0 = npts0;
+
+    for (int k = 0; k < m_bnddim; ++k)
+    {
+        MultiRegions::ExpListSharedPtr exp = GetVelocityBoundaryExpansion(k);
+        if (!exp)
+        {
+            continue;
+        }
+
+        const int nCoeffs = exp->GetNcoeffs();
+        for (int dof = 0; dof < nDofs; ++dof)
+        {
+            m_velocityCoeffBasis[GetVelocityBasisIndex(k, dof)] =
+                Array<OneD, NekDouble>(nCoeffs, 0.0);
+        }
+    }
+
+    Array<OneD, Array<OneD, NekDouble>> velocities(m_bnddim);
+    for (int k = 0; k < m_bnddim; ++k)
+    {
+        if (m_BndExp.find(k) != m_BndExp.end())
+        {
+            velocities[k] = Array<OneD, NekDouble>(npts0, 0.0);
+        }
+    }
+
+    for (int dof = 0; dof < nDofs; ++dof)
+    {
+        for (int k = 0; k < m_bnddim; ++k)
+        {
+            if (velocities[k].size() > 0)
+            {
+                Vmath::Zero(npts0, velocities[k], 1);
+            }
+        }
+
+        std::map<std::string, NekDouble> unitParams;
+        unitParams[GetVelocityBasisParamName(dof)] = 1.0;
+        RigidBodyVelocity(velocities, unitParams, npts0);
+
+        for (int k = 0; k < m_bnddim; ++k)
+        {
+            MultiRegions::ExpListSharedPtr exp =
+                GetVelocityBoundaryExpansion(k);
+            if (!exp)
+            {
+                continue;
+            }
+
+            exp->FwdTransBndConstrained(
+                velocities[k],
+                m_velocityCoeffBasis[GetVelocityBasisIndex(k, dof)]);
+        }
+
+    }
+
+    m_velocityBasisReady = true;
+}
+
+void MRFWallPressDecomp::ApplyVelocityCoeffBasis(
+    std::map<std::string, NekDouble> &params)
+{
+    ASSERTL0(m_velocityBasisReady,
+             "Velocity boundary basis must be built before applying it");
+
+    const int nDofs = GetVelocityBasisDofCount();
+    for (int k = 0; k < m_bnddim; ++k)
+    {
+        MultiRegions::ExpListSharedPtr exp = GetVelocityBoundaryExpansion(k);
+        if (!exp)
+        {
+            continue;
+        }
+
+        Array<OneD, NekDouble> coeffs = exp->UpdateCoeffs();
+        const int nCoeffs             = coeffs.size();
+        Vmath::Zero(nCoeffs, coeffs, 1);
+
+        for (int dof = 0; dof < nDofs; ++dof)
+        {
+            const NekDouble value = GetVelocityBasisParamValue(dof, params);
+            if (value != 0.0)
+            {
+                Vmath::Svtvp(
+                    nCoeffs, value,
+                    m_velocityCoeffBasis[GetVelocityBasisIndex(k, dof)], 1,
+                    coeffs, 1, coeffs, 1);
             }
         }
     }
@@ -170,24 +368,69 @@ void MRFWallPressDecomp::AddCentripetalAcc(
     Array<OneD, Array<OneD, NekDouble>> &N,
     std::map<std::string, NekDouble> &params, int npts0)
 {
-    if (npts0 == 0 || params.find("Omega_z") == params.end())
+    if (npts0 == 0)
     {
         return;
     }
-    // add centripetal acceleration
-    NekDouble Omega = params["Omega_z"];
-    NekDouble Wz2   = Omega * Omega;
-    Vmath::Svtvp(npts0, Wz2, m_coords[0], 1, N[0], 1, N[0], 1);
-    Vmath::Svtvp(npts0, Wz2, m_coords[1], 1, N[1], 1, N[1], 1);
-    if (params.find("U") != params.end())
+    InitialiseCoords(params);
+
+    const auto getParam = [&](const std::string &name) {
+        auto it = params.find(name);
+        return it == params.end() ? 0.0 : it->second;
+    };
+
+    const NekDouble u0 = getParam("U");
+    const NekDouble v0 = getParam("V");
+    const NekDouble w0 = getParam("W");
+    const NekDouble Wx = getParam("Omega_x");
+    const NekDouble Wy = getParam("Omega_y");
+    const NekDouble Wz = getParam("Omega_z");
+
+    if (Wx == 0.0 && Wy == 0.0 && Wz == 0.0)
     {
-        NekDouble mOmegaU0 = -Omega * params["U"];
-        Vmath::Sadd(npts0, mOmegaU0, N[1], 1, N[1], 1);
+        return;
     }
-    if (params.find("V") != params.end())
+
+    if (m_bnddim > 0)
     {
-        NekDouble OmegaV0 = Omega * params["V"];
-        Vmath::Sadd(npts0, OmegaV0, N[0], 1, N[0], 1);
+        Vmath::Svtvp(npts0, Wy * Wy + Wz * Wz, m_coords[0], 1, N[0], 1,
+                     N[0], 1);
+        if (m_spacedim > 1)
+        {
+            Vmath::Svtvp(npts0, -Wx * Wy, m_coords[1], 1, N[0], 1, N[0],
+                         1);
+        }
+        if (m_spacedim > 2)
+        {
+            Vmath::Svtvp(npts0, -Wx * Wz, m_coords[2], 1, N[0], 1, N[0],
+                         1);
+        }
+        Vmath::Sadd(npts0, -Wy * w0 + Wz * v0, N[0], 1, N[0], 1);
+    }
+
+    if (m_bnddim > 1)
+    {
+        Vmath::Svtvp(npts0, -Wx * Wy, m_coords[0], 1, N[1], 1, N[1], 1);
+        if (m_spacedim > 1)
+        {
+            Vmath::Svtvp(npts0, Wx * Wx + Wz * Wz, m_coords[1], 1, N[1],
+                         1, N[1], 1);
+        }
+        if (m_spacedim > 2)
+        {
+            Vmath::Svtvp(npts0, -Wy * Wz, m_coords[2], 1, N[1], 1, N[1],
+                         1);
+        }
+        Vmath::Sadd(npts0, -Wz * u0 + Wx * w0, N[1], 1, N[1], 1);
+    }
+
+    if (m_bnddim > 2)
+    {
+        Vmath::Svtvp(npts0, -Wx * Wz, m_coords[0], 1, N[2], 1, N[2], 1);
+        Vmath::Svtvp(npts0, -Wy * Wz, m_coords[1], 1, N[2], 1, N[2], 1);
+        Vmath::Svtvp(npts0, Wx * Wx + Wy * Wy, m_coords[2], 1, N[2], 1,
+                     N[2], 1);
+        Vmath::Sadd(npts0, -Wx * v0 + Wy * u0, N[2], 1, N[2], 1);
     }
 }
 

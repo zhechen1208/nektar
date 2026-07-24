@@ -175,51 +175,184 @@ void IncBaseCondition::AddRigidBodyAcc(Array<OneD, Array<OneD, NekDouble>> &N,
     {
         return;
     }
-    NekDouble u0 = 0., v0 = 0., Ax = 0., Ay = 0., Omega = 0., DOmega = 0.;
-    if (params.find("U") != params.end())
+    InitialiseCoords(params);
+
+    const auto getParam = [&](const std::string &name) {
+        auto it = params.find(name);
+        return it == params.end() ? 0.0 : it->second;
+    };
+
+    const NekDouble u0 = getParam("U");
+    const NekDouble v0 = getParam("V");
+    const NekDouble w0 = getParam("W");
+    const NekDouble Ax = getParam("A_x");
+    const NekDouble Ay = getParam("A_y");
+    const NekDouble Az = getParam("A_z");
+
+    const NekDouble Wx = getParam("Omega_x");
+    const NekDouble Wy = getParam("Omega_y");
+    const NekDouble Wz = getParam("Omega_z");
+    const NekDouble DWx = getParam("DOmega_x");
+    const NekDouble DWy = getParam("DOmega_y");
+    const NekDouble DWz = getParam("DOmega_z");
+
+    if (m_bnddim > 0)
     {
-        u0 = params["U"];
+        Vmath::Svtvp(npts0, Wy * Wy + Wz * Wz, m_coords[0], 1, N[0], 1,
+                     N[0], 1);
+        if (m_spacedim > 1)
+        {
+            Vmath::Svtvp(npts0, -Wx * Wy + DWz, m_coords[1], 1, N[0], 1,
+                         N[0], 1);
+        }
+        if (m_spacedim > 2)
+        {
+            Vmath::Svtvp(npts0, -Wx * Wz - DWy, m_coords[2], 1, N[0], 1,
+                         N[0], 1);
+        }
+        Vmath::Sadd(npts0, -Ax - Wy * w0 + Wz * v0, N[0], 1, N[0], 1);
     }
-    if (params.find("V") != params.end())
+
+    if (m_bnddim > 1)
     {
-        v0 = params["V"];
+        Vmath::Svtvp(npts0, -Wx * Wy - DWz, m_coords[0], 1, N[1], 1, N[1],
+                     1);
+        if (m_spacedim > 1)
+        {
+            Vmath::Svtvp(npts0, Wx * Wx + Wz * Wz, m_coords[1], 1, N[1], 1,
+                         N[1], 1);
+        }
+        if (m_spacedim > 2)
+        {
+            Vmath::Svtvp(npts0, -Wy * Wz + DWx, m_coords[2], 1, N[1], 1,
+                         N[1], 1);
+        }
+        Vmath::Sadd(npts0, -Ay - Wz * u0 + Wx * w0, N[1], 1, N[1], 1);
     }
-    if (params.find("A_x") != params.end())
+
+    if (m_bnddim > 2)
     {
-        Ax = params["A_x"];
+        Vmath::Svtvp(npts0, -Wx * Wz + DWy, m_coords[0], 1, N[2], 1, N[2],
+                     1);
+        Vmath::Svtvp(npts0, -Wy * Wz - DWx, m_coords[1], 1, N[2], 1, N[2],
+                     1);
+        Vmath::Svtvp(npts0, Wx * Wx + Wy * Wy, m_coords[2], 1, N[2], 1,
+                     N[2], 1);
+        Vmath::Sadd(npts0, -Az - Wx * v0 + Wy * u0, N[2], 1, N[2], 1);
     }
-    if (params.find("A_y") != params.end())
+}
+
+void IncBaseCondition::EnsureVisPressureScratch(const int nq)
+{
+    if (m_visPressureVelocity.size() != m_spacedim)
     {
-        Ay = params["A_y"];
+        m_visPressureVelocity =
+            Array<OneD, Array<OneD, NekDouble>>(m_spacedim);
+        m_visPressureQ = Array<OneD, Array<OneD, NekDouble>>(m_spacedim);
     }
-    if (params.find("Omega_z") != params.end())
+    for (int i = 0; i < m_spacedim; ++i)
     {
-        Omega = params["Omega_z"];
+        if (m_visPressureVelocity[i].size() != nq)
+        {
+            m_visPressureVelocity[i] = Array<OneD, NekDouble>(nq, 0.0);
+        }
+        if (m_visPressureQ[i].size() != nq)
+        {
+            m_visPressureQ[i] = Array<OneD, NekDouble>(nq, 0.0);
+        }
+        else
+        {
+            Vmath::Zero(nq, m_visPressureQ[i], 1);
+        }
     }
-    if (params.find("DOmega_z") != params.end())
+
+    const int nTmp = m_spacedim == 2 ? 3 : 7;
+    if (m_visPressureCurlTmp.size() != nTmp)
     {
-        DOmega = params["DOmega_z"];
+        m_visPressureCurlTmp =
+            Array<OneD, Array<OneD, NekDouble>>(nTmp);
     }
-    Array<OneD, Array<OneD, NekDouble>> acceleration(m_spacedim);
-    for (size_t k = 0; k < m_spacedim; ++k)
+    for (int i = 0; i < nTmp; ++i)
     {
-        acceleration[k] = Array<OneD, NekDouble>(npts0, 0.0);
+        if (m_visPressureCurlTmp[i].size() != nq)
+        {
+            m_visPressureCurlTmp[i] = Array<OneD, NekDouble>(nq, 0.0);
+        }
     }
-    // set up pressure condition
-    if (params.find("Omega_z") != params.end() ||
-        params.find("DOmega_z") != params.end())
+
+    if (m_visPressureTemp.size() != m_npoints)
     {
-        NekDouble Wz2 = Omega * Omega;
-        Vmath::Svtsvtp(npts0, Wz2, m_coords[0], 1, DOmega, m_coords[1], 1, N[0],
-                       1);
-        Vmath::Svtsvtp(npts0, Wz2, m_coords[1], 1, -DOmega, m_coords[0], 1,
-                       N[1], 1);
+        m_visPressureTemp = Array<OneD, NekDouble>(m_npoints, 0.0);
     }
-    Vmath::Sadd(npts0, -Ax + Omega * v0, N[0], 1, N[0], 1);
-    Vmath::Sadd(npts0, -Ay - Omega * u0, N[1], 1, N[1], 1);
-    if (m_bnddim > 2 && params.find("A_z") != params.end())
+}
+
+void IncBaseCondition::CurlCurlWithScratch(
+    Array<OneD, Array<OneD, NekDouble>> &vel,
+    Array<OneD, Array<OneD, NekDouble>> &q)
+{
+    int nq = m_bndElmtExps->GetTotPoints();
+
+    Array<OneD, NekDouble> Vx    = m_visPressureCurlTmp[0];
+    Array<OneD, NekDouble> Uy    = m_visPressureCurlTmp[1];
+    Array<OneD, NekDouble> Dummy = m_visPressureCurlTmp[2];
+
+    bool halfMode = false;
+    if (m_bndElmtExps->GetExpType() == MultiRegions::e3DH1D)
     {
-        Vmath::Sadd(npts0, -params["A_z"], N[2], 1, N[2], 1);
+        m_field->GetSession()->MatchSolverInfo("ModeType", "HalfMode",
+                                               halfMode, false);
+    }
+
+    switch (m_bndElmtExps->GetExpType())
+    {
+        case MultiRegions::e2D:
+        {
+            m_bndElmtExps->PhysDeriv(MultiRegions::eX, vel[1], Vx);
+            m_bndElmtExps->PhysDeriv(MultiRegions::eY, vel[0], Uy);
+
+            Vmath::Vsub(nq, Vx, 1, Uy, 1, Dummy, 1);
+
+            m_bndElmtExps->PhysDeriv(Dummy, q[1], q[0]);
+
+            Vmath::Smul(nq, -1.0, q[1], 1, q[1], 1);
+        }
+        break;
+
+        case MultiRegions::e3D:
+        case MultiRegions::e3DH1D:
+        case MultiRegions::e3DH2D:
+        {
+            Array<OneD, NekDouble> Vz = m_visPressureCurlTmp[3];
+            Array<OneD, NekDouble> Uz = m_visPressureCurlTmp[4];
+            Array<OneD, NekDouble> Wx = m_visPressureCurlTmp[5];
+            Array<OneD, NekDouble> Wy = m_visPressureCurlTmp[6];
+
+            m_bndElmtExps->PhysDeriv(vel[0], Dummy, Uy, Uz);
+            m_bndElmtExps->PhysDeriv(vel[1], Vx, Dummy, Vz);
+            m_bndElmtExps->PhysDeriv(vel[2], Wx, Wy, Dummy);
+
+            Vmath::Vsub(nq, Wy, 1, Vz, 1, q[0], 1);
+            Vmath::Vsub(nq, Uz, 1, Wx, 1, q[1], 1);
+            Vmath::Vsub(nq, Vx, 1, Uy, 1, q[2], 1);
+
+            m_bndElmtExps->PhysDeriv(q[0], Dummy, Uy, Uz);
+            m_bndElmtExps->PhysDeriv(q[1], Vx, Dummy, Vz);
+            m_bndElmtExps->PhysDeriv(q[2], Wx, Wy, Dummy);
+
+            if (halfMode)
+            {
+                Vmath::Neg(nq, Uz, 1);
+                Vmath::Neg(nq, Vz, 1);
+            }
+
+            Vmath::Vsub(nq, Wy, 1, Vz, 1, q[0], 1);
+            Vmath::Vsub(nq, Uz, 1, Wx, 1, q[1], 1);
+            Vmath::Vsub(nq, Vx, 1, Uy, 1, q[2], 1);
+        }
+        break;
+        default:
+            ASSERTL0(false, "Dimension not supported");
+            break;
     }
 }
 
@@ -235,28 +368,23 @@ void IncBaseCondition::AddVisPressureBCs(
     }
     NekDouble kinvis = params["Kinvis"];
     m_bndElmtExps->SetWaveSpace(m_field->GetWaveSpace());
-    Array<OneD, Array<OneD, NekDouble>> Velocity(m_spacedim);
-    Array<OneD, Array<OneD, NekDouble>> Q(m_spacedim);
-    // Loop all boundary conditions
     int nq = m_bndElmtExps->GetTotPoints();
-    for (int i = 0; i < m_spacedim; i++)
-    {
-        Q[i] = Array<OneD, NekDouble>(nq, 0.0);
-    }
+    EnsureVisPressureScratch(nq);
 
     for (int i = 0; i < m_spacedim; i++)
     {
-        m_field->ExtractPhysToBndElmt(m_nbnd, fields[i], Velocity[i]);
+        m_field->ExtractPhysToBndElmt(m_nbnd, fields[i],
+                                      m_visPressureVelocity[i]);
     }
 
-    // CurlCurl
-    m_bndElmtExps->CurlCurl(Velocity, Q);
+    CurlCurlWithScratch(m_visPressureVelocity, m_visPressureQ);
 
-    Array<OneD, NekDouble> temp(m_npoints);
     for (int i = 0; i < m_bnddim; i++)
     {
-        m_field->ExtractElmtToBndPhys(m_nbnd, Q[i], temp);
-        Vmath::Svtvp(m_npoints, -kinvis, temp, 1, N[i], 1, N[i], 1);
+        m_field->ExtractElmtToBndPhys(m_nbnd, m_visPressureQ[i],
+                                      m_visPressureTemp);
+        Vmath::Svtvp(m_npoints, -kinvis, m_visPressureTemp, 1, N[i], 1, N[i],
+                     1);
     }
 }
 
@@ -303,6 +431,7 @@ void IncBaseCondition::RigidBodyVelocity(
     // [V_wall]_xyz = [V_frame]_xyz + [Omega X r]_xyz
     // Note all vectors must be in moving frame coordinates xyz
     // not in inertial frame XYZ
+    InitialiseCoords(params);
 
     // vx = OmegaY*z-OmegaZ*y
     // vy = OmegaZ*x-OmegaX*z
@@ -336,7 +465,7 @@ void IncBaseCondition::RigidBodyVelocity(
         }
         if (params.find("Omega_y") != params.end())
         {
-            NekDouble Wy = params["Omega_x"];
+            NekDouble Wy = params["Omega_y"];
             if (m_BndExp.find(0) != m_BndExp.end())
             {
                 Vmath::Svtvp(npts0, Wy, m_coords[2], 1, velocities[0], 1,

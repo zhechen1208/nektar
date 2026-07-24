@@ -83,6 +83,12 @@ public:
     SOLVER_UTILS_EXPORT bool GetMovingFrameDisp(
         Array<OneD, NekDouble> &vFrameDisp);
 
+    SOLVER_UTILS_EXPORT void SetMovingFrameQuaternion(
+        const Array<OneD, NekDouble> &vFrameQuat);
+
+    SOLVER_UTILS_EXPORT bool GetMovingFrameQuaternion(
+        Array<OneD, NekDouble> &vFrameQuat);
+
     SOLVER_UTILS_EXPORT void SetMovingFramePivot(
         const Array<OneD, NekDouble> &vFramePivot);
 
@@ -125,6 +131,15 @@ protected:
     }
     SOLVER_UTILS_EXPORT virtual bool v_GetMovingFrameDisp(
         [[maybe_unused]] Array<OneD, NekDouble> &vFrameDisp)
+    {
+        return false;
+    }
+    SOLVER_UTILS_EXPORT virtual void v_SetMovingFrameQuaternion(
+        [[maybe_unused]] const Array<OneD, NekDouble> &vFrameQuat)
+    {
+    }
+    SOLVER_UTILS_EXPORT virtual bool v_GetMovingFrameQuaternion(
+        [[maybe_unused]] Array<OneD, NekDouble> &vFrameQuat)
     {
         return false;
     }
@@ -219,6 +234,18 @@ inline void FluidInterface::SetMovingFrameDisp(
     const Array<OneD, NekDouble> &vFrameDisp)
 {
     v_SetMovingFrameDisp(vFrameDisp);
+}
+
+inline void FluidInterface::SetMovingFrameQuaternion(
+    const Array<OneD, NekDouble> &vFrameQuat)
+{
+    v_SetMovingFrameQuaternion(vFrameQuat);
+}
+
+inline bool FluidInterface::GetMovingFrameQuaternion(
+    Array<OneD, NekDouble> &vFrameQuat)
+{
+    return v_GetMovingFrameQuaternion(vFrameQuat);
 }
 
 /**

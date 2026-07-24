@@ -86,9 +86,24 @@ protected:
         std::map<std::string, NekDouble> &params, int npts0);
     void AddCentripetalAcc(Array<OneD, Array<OneD, NekDouble>> &N,
                            std::map<std::string, NekDouble> &params, int npts0);
+    void EnsurePressureRhs();
+    void EnsureVelocityCoeffBasis(std::map<std::string, NekDouble> &params,
+                                  int npts0);
+    void ApplyVelocityCoeffBasis(std::map<std::string, NekDouble> &params);
+    int GetVelocityBasisDofCount() const;
+    int GetVelocityBasisIndex(int component, int dof) const;
+    std::string GetVelocityBasisParamName(int dof) const;
+    NekDouble GetVelocityBasisParamValue(
+        int dof, const std::map<std::string, NekDouble> &params) const;
+    MultiRegions::ExpListSharedPtr GetVelocityBoundaryExpansion(
+        int component) const;
     bool m_hasVels;
     bool m_hasPressure;
     int m_pressure;
+    Array<OneD, Array<OneD, NekDouble>> m_pressureRhs;
+    Array<OneD, Array<OneD, NekDouble>> m_velocityCoeffBasis;
+    bool m_velocityBasisReady;
+    int m_velocityBasisNpts0;
 };
 
 } // namespace Nektar

@@ -37,9 +37,15 @@
 #include <SolverUtils/Core/Misc.h>
 
 #include <boost/algorithm/string.hpp>
+#include <cmath>
 
 namespace Nektar
 {
+namespace
+{
+const int kNumFrameAcceleration = 6;
+} // namespace
+
 std::string PressDecompVCSFSI::className =
     SolverUtils::GetEquationSystemFactory().RegisterCreatorFunction(
         "PressDecompVCSFSI", PressDecompVCSFSI::create);
@@ -63,10 +69,10 @@ PressDecompVCSFSI::PressDecompVCSFSI(
 
 void PressDecompVCSFSI::v_InitObject(bool DeclareField)
 {
-    VelocityCorrectionScheme::v_InitObject(DeclareField);
-    Array<OneD, NekDouble> tmp = m_movingFrameData + 18;
-    m_rigidSolver.InitObject(m_session, m_fields[0], tmp);
-    m_rigidSolver.SetMovableDoFs(m_movableDoFs);
+    // PressDecompVCSFSI inherits from VCSFSI and calls VCSFSI::v_SolveSolid().
+    // Keep the VCSFSI state, including decomposition-output counters,
+    // initialised on every rank before that path is used.
+    VCSFSI::v_InitObject(DeclareField);
     m_MRFABCname = "MRFWallPressDecomp";
 }
 
@@ -83,6 +89,13 @@ void PressDecompVCSFSI::v_DoInitialise(bool dumpInitialConditions)
     VelocityCorrectionScheme::v_DoInitialise(dumpInitialConditions);
     std::set<int> dofs; // 0,1,2;3,4,5 six dofs
     GetMovableDoFs(dofs);
+    if (m_rigidSolver.IsFullFree3D6DoF())
+    {
+        ASSERTL0(dofs.size() == kNumFrameAcceleration &&
+                     *dofs.begin() == 0 && *dofs.rbegin() == 5,
+                 "The 3D pressure-decomposed solver requires all six body "
+                 "frame acceleration potentials for full free 6DoF motion.");
+    }
     SolvePotentials(dofs);
     OutputPotentials();
     m_rigidSolver.SetNewmarkBetaSolver(m_addedMass);
@@ -186,6 +199,18 @@ void PressDecompVCSFSI::CalculateBCs(std::set<int> &dofs,
                 Vmath::Vvtvvtm(npts, &x[1][0], 1, &n[0][0], 1, &x[0][0], 1,
                                &n[1][0], 1, &atmp[0], 1);
             }
+            if (ndim == 3 && dofs.find(3) != dofs.end())
+            {
+                atmp = bcs[3] + offset;
+                Vmath::Vvtvvtm(npts, &x[2][0], 1, &n[1][0], 1, &x[1][0], 1,
+                               &n[2][0], 1, &atmp[0], 1);
+            }
+            if (ndim == 3 && dofs.find(4) != dofs.end())
+            {
+                atmp = bcs[4] + offset;
+                Vmath::Vvtvvtm(npts, &x[0][0], 1, &n[2][0], 1, &x[2][0], 1,
+                               &n[0][0], 1, &atmp[0], 1);
+            }
             offset += npts;
         }
     }
@@ -261,30 +286,37 @@ void PressDecompVCSFSI::CalculateAddedMass(
             value[j] = 0;
         }
     }
-    int NumDofs = m_spacedim + 1;
+    int NumDofs = m_spacedim == 3 ? kNumFrameAcceleration : m_spacedim + 1;
+    const auto mapAddedMassDof = [&](const int dof) {
+        return m_spacedim == 3 ? dof : std::min(dof, m_spacedim);
+    };
     m_addedMass = Array<OneD, NekDouble>(NumDofs * NumDofs, 0.);
     int i       = 0;
     for (auto it : pPhys)
     {
-        int i1 = std::min(it.first, m_spacedim);
+        int i1 = mapAddedMassDof(it.first);
         int j  = 0;
         for (auto jt : pPhys)
         {
-            int j1                         = std::min(jt.first, m_spacedim);
+            int j1                         = mapAddedMassDof(jt.first);
             m_addedMass[i1 + j1 * NumDofs] = value[i + nfld * j];
             ++j;
         }
         ++i;
     }
-    if (m_session->GetComm()->GetRank() == 0)
+    if (m_spacedim == 3)
     {
-        for (int j = 0; j < NumDofs; ++j)
+        for (int row = 0; row < NumDofs; ++row)
         {
-            for (int k = 0; k < NumDofs; ++k)
+            for (int col = row + 1; col < NumDofs; ++col)
             {
-                std::cout << "value[" << j << ", " << k
-                          << "] = " << std::scientific << std::setprecision(7)
-                          << m_addedMass[k + j * NumDofs] << std::endl;
+                const NekDouble aij = m_addedMass[row + col * NumDofs];
+                const NekDouble aji = m_addedMass[col + row * NumDofs];
+                const NekDouble scale =
+                    std::max(1.0, std::max(fabs(aij), fabs(aji)));
+                ASSERTL0(fabs(aij - aji) <= 1.0e-10 * scale,
+                         "The pressure-decomposition added-mass matrix is "
+                         "not symmetric.");
             }
         }
     }
@@ -317,11 +349,13 @@ void PressDecompVCSFSI::SolvePa(int i, Array<OneD, NekDouble> bc,
 /**
  * Correct pressure by adding potential terms
  */
-void PressDecompVCSFSI::CorrectPressure()
+void PressDecompVCSFSI::CorrectPressure(
+    const Array<OneD, NekDouble> &frameAcceleration)
 {
     for (const auto &it : m_pCoef)
     {
-        NekDouble acceleration = m_movingFrameData[it.first + 12];
+        NekDouble acceleration = frameAcceleration[it.first];
+
         if (std::fabs(acceleration) != 0.)
         {
             Vmath::Svtvp(m_pressure->GetNcoeffs(), acceleration, it.second, 1,
@@ -333,8 +367,15 @@ void PressDecompVCSFSI::CorrectPressure()
 
 void PressDecompVCSFSI::v_SolveSolid(NekDouble time)
 {
+    Array<OneD, NekDouble> pressureFrameAcceleration(
+        kNumFrameAcceleration, 0.0);
+
     VCSFSI::v_SolveSolid(time);
-    CorrectPressure();
+    for (int i = 0; i < kNumFrameAcceleration; ++i)
+    {
+        pressureFrameAcceleration[i] = m_movingFrameData[i + 12];
+    }
+    CorrectPressure(pressureFrameAcceleration);
 }
 
 } // namespace Nektar

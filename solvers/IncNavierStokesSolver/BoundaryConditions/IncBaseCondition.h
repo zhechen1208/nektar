@@ -120,6 +120,9 @@ protected:
                            std::map<std::string, NekDouble> &params, int npts0);
     void InitialiseCoords(std::map<std::string, NekDouble> &params);
     void SetNumPointsOnPlane0(int &npointsPlane0);
+    void EnsureVisPressureScratch(const int nq);
+    void CurlCurlWithScratch(Array<OneD, Array<OneD, NekDouble>> &vel,
+                             Array<OneD, Array<OneD, NekDouble>> &q);
 
     int m_spacedim;
     /// bounday dimensionality
@@ -135,6 +138,10 @@ protected:
     MultiRegions::ExpListSharedPtr m_bndElmtExps;
     MultiRegions::ExpListSharedPtr m_field;
     Array<OneD, Array<OneD, Array<OneD, NekDouble>>> m_extrapArray;
+    Array<OneD, Array<OneD, NekDouble>> m_visPressureVelocity;
+    Array<OneD, Array<OneD, NekDouble>> m_visPressureQ;
+    Array<OneD, Array<OneD, NekDouble>> m_visPressureCurlTmp;
+    Array<OneD, NekDouble> m_visPressureTemp;
     int m_pressure;
 
     static NekDouble StifflyStable_Betaq_Coeffs[3][3];

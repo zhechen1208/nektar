@@ -84,7 +84,7 @@ protected:
     // Virtual functions
     void v_DoInitialise(bool dumpInitialConditions = true) override;
     void v_SolveSolid(NekDouble time) override;
-    void CorrectPressure();
+    void CorrectPressure(const Array<OneD, NekDouble> &frameAcceleration);
 
     std::map<int, Array<OneD, NekDouble>> m_pCoef; // 0,1,2;3,4,5 six dofs
     std::string m_MRFABCname;

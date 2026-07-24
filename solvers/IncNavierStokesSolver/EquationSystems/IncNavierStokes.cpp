@@ -52,6 +52,7 @@
 #include <sstream>
 
 #include <LibUtilities/BasicUtils/ParseUtils.h>
+#include <SolverUtils/Core/MovingFrameTransforms.h>
 #include <SolverUtils/Forcing/ForcingMovingReferenceFrame.h>
 #include <tinyxml.h>
 
@@ -173,14 +174,17 @@ void IncNavierStokes::v_InitObject(bool DeclareField)
                             "SolverType with VCSFSI or PressDecompVCSFSI.");
         }
         // 0-5(inertial disp), 6-11(body vel), 12-17(body acce) current
-        // 18-21(body pivot)
+        // 18-20(body pivot), 21-24(quaternion body-to-inertial)
         m_strFrameData = {
             "X",   "Y",   "Z",   "Theta_x",  "Theta_y",  "Theta_z",
             "U",   "V",   "W",   "Omega_x",  "Omega_y",  "Omega_z",
             "A_x", "A_y", "A_z", "DOmega_x", "DOmega_y", "DOmega_z",
-            "X0",  "Y0",  "Z0"};
-        m_movingFrameData = Array<OneD, NekDouble>(21, 0.0);
-        m_aeroForces      = Array<OneD, NekDouble>(12, 0.0); // p; vis
+            "X0",  "Y0",  "Z0",  "Q0",       "Q1",       "Q2",
+            "Q3"};
+        m_movingFrameData = Array<OneD, NekDouble>(
+            SolverUtils::MovingFrame::kFrameDataSizeWithQuat, 0.0);
+        m_movingFrameData[SolverUtils::MovingFrame::kQuaternionOffset] = 1.0;
+        m_aeroForces = Array<OneD, NekDouble>(12, 0.0); // p; vis
         m_movableDoFs.resize(6, false);
     }
     else
@@ -938,6 +942,10 @@ void IncNavierStokes::v_SetMovingFrameDisp(
             "Arrays have different size, cannot set moving frame displacement");
         Array<OneD, NekDouble> temp = m_movingFrameData;
         Vmath::Vcopy(vFrameDisp.size(), vFrameDisp, 1, temp, 1);
+        SolverUtils::MovingFrame::StoreQuaternionInFrameData(
+            SolverUtils::MovingFrame::QuaternionFromEulerZYX(
+                vFrameDisp[3], vFrameDisp[4], vFrameDisp[5]),
+            m_movingFrameData);
     }
 }
 
@@ -953,6 +961,45 @@ bool IncNavierStokes::v_GetMovingFrameDisp(Array<OneD, NekDouble> &vFrameDisp)
             vFrameDisp.size() == 6,
             "Arrays have different size, cannot get moving frame displacement");
         Vmath::Vcopy(vFrameDisp.size(), m_movingFrameData, 1, vFrameDisp, 1);
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+void IncNavierStokes::v_SetMovingFrameQuaternion(
+    const Array<OneD, NekDouble> &vFrameQuat)
+{
+    if (m_movingFrameData.size())
+    {
+        ASSERTL0(vFrameQuat.size() == 4,
+                 "Arrays have different size, cannot set moving frame "
+                 "quaternion");
+        SolverUtils::MovingFrame::StoreQuaternionInFrameData(
+            vFrameQuat, m_movingFrameData);
+        Array<OneD, NekDouble> theta =
+            SolverUtils::MovingFrame::EulerZYXFromQuaternion(vFrameQuat);
+        for (int i = 0; i < 3; ++i)
+        {
+            m_movingFrameData[i + 3] = theta[i];
+        }
+    }
+}
+
+bool IncNavierStokes::v_GetMovingFrameQuaternion(
+    Array<OneD, NekDouble> &vFrameQuat)
+{
+    if (m_movingFrameData.size())
+    {
+        ASSERTL0(vFrameQuat.size() == 4,
+                 "Arrays have different size, cannot get moving frame "
+                 "quaternion");
+        Array<OneD, NekDouble> q =
+            SolverUtils::MovingFrame::QuaternionFromFrameData(
+                m_movingFrameData);
+        Vmath::Vcopy(vFrameQuat.size(), q, 1, vFrameQuat, 1);
         return true;
     }
     else

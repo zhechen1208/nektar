@@ -247,6 +247,12 @@ protected:
 
     bool v_GetMovingFrameDisp(Array<OneD, NekDouble> &vFrameDisp) override;
 
+    void v_SetMovingFrameQuaternion(
+        const Array<OneD, NekDouble> &vFrameQuat) override;
+
+    bool v_GetMovingFrameQuaternion(
+        Array<OneD, NekDouble> &vFrameQuat) override;
+
     void v_SetAeroForce(Array<OneD, NekDouble> forces) override;
 
     void v_GetAeroForce(Array<OneD, NekDouble> forces) override;

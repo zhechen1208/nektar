@@ -39,6 +39,7 @@
 #include <LocalRegions/Expansion3D.h>
 #include <MultiRegions/ExpList.h>
 #include <MultiRegions/ExpList3DHomogeneous1D.h>
+#include <SolverUtils/Core/MovingFrameTransforms.h>
 #include <SolverUtils/Filters/FilterAeroForces.h>
 #include <SolverUtils/Filters/FilterInterfaces.hpp>
 #include <boost/algorithm/string.hpp>
@@ -761,15 +762,28 @@ void FilterAeroForces::CalculateForces(
 
     // update the direction vectors
     // only effective if we use moving reference frame
-    Array<OneD, NekDouble> vFrameDisp(6, 0.);
-    if (fluidEqu->GetMovingFrameDisp(vFrameDisp))
+    Array<OneD, NekDouble> vFrameQuat(4, 0.0);
+    if (fluidEqu->GetMovingFrameQuaternion(vFrameQuat))
     {
-        if (vFrameDisp[5] != 0.)
+        for (int idir = 0; idir < 3; ++idir)
+        {
+            Array<OneD, NekDouble> direction =
+                MovingFrame::RotateInertialToBody(vFrameQuat,
+                                                   m_directions0[idir]);
+            for (int j = 0; j < 3; ++j)
+            {
+                m_directions[idir][j] = direction[j];
+            }
+        }
+    }
+    else
+    {
+        Array<OneD, NekDouble> vFrameDisp(6, 0.);
+        if (fluidEqu->GetMovingFrameDisp(vFrameDisp))
         {
             NekDouble c = cos(vFrameDisp[5]);
             NekDouble s = sin(vFrameDisp[5]);
-            // note: rotation around z-axis is considered only
-            // loop over the directions (ex, ey)
+            // note: legacy path only supports rotation around z-axis
             for (int idir = 0; idir < 2; ++idir)
             {
                 NekDouble x           = m_directions0[idir][0];

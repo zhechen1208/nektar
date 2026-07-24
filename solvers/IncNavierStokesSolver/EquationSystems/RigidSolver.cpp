@@ -39,7 +39,7 @@
 // Rotation is not allowed for 1D, 2DH1D, 3DH2D.
 // Rotation in z direction is allowed for 2D and 3DH1D.
 // Rotation in 3 directions are allowed for 3D.
-// TODO: add suport for 3D rotation using Quaternion
+// Prescribed 3D rotation is represented internally using quaternions.
 ///////////////////////////////////////////////////////////////////////////////
 
 #include <IncNavierStokesSolver/EquationSystems/RigidSolver.h>
@@ -47,11 +47,70 @@
 #include <LibUtilities/BasicUtils/VmathArray.hpp>
 #include <LibUtilities/LinearAlgebra/Lapack.hpp>
 #include <MultiRegions/ExpList.h>
+#include <SolverUtils/Core/MovingFrameTransforms.h>
 #include <SolverUtils/Filters/FilterInterfaces.hpp>
+#include <algorithm>
+#include <array>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/format.hpp>
 
 namespace Nektar
 {
+
+namespace
+{
+
+int AxisIndex(const char axis)
+{
+    switch (axis)
+    {
+        case 'x':
+        case 'X':
+            return 0;
+        case 'y':
+        case 'Y':
+            return 1;
+        case 'z':
+        case 'Z':
+            return 2;
+        default:
+            return -1;
+    }
+}
+
+std::string AxisName(const int axis)
+{
+    static const std::string names[3] = {"x", "y", "z"};
+    return names[axis];
+}
+
+bool IsThetaFrameBody(const std::string &frame)
+{
+    if (boost::iequals(frame, "Body") ||
+        boost::iequals(frame, "BodyFrame"))
+    {
+        return true;
+    }
+    if (boost::iequals(frame, "Lab") ||
+        boost::iequals(frame, "Inertial") ||
+        boost::iequals(frame, "InertialFrame"))
+    {
+        return false;
+    }
+
+    ASSERTL0(false, "Theta frame must be Body, Lab or Inertial.");
+    return false;
+}
+
+std::string GetRequiredElementText(const TiXmlElement *element,
+                                   const std::string &tagName)
+{
+    const char *text = element->GetText();
+    ASSERTL0(text, tagName + " must contain a value.");
+    return text;
+}
+
+} // namespace
 
 void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
                              const MultiRegions::ExpListSharedPtr &pField,
@@ -71,10 +130,19 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
     m_spacedim            = expdim + (isH1d ? 1 : 0) + (isH2d ? 2 : 0);
     m_isRoot              = pField->GetComm()->TreatAsRankZero();
     m_index               = 1;
-    m_currentTime         = -1.;
-    m_extForceXYZ         = Array<OneD, NekDouble>(6, 0.0);
-    m_oldFvis             = Array<OneD, NekDouble>(6, 0.0);
-    TiXmlElement *pSolver = session->GetElement("Nektar/RIGIDSOLVER");
+    m_currentTime              = -1.;
+    m_prescribed3DMRF          = false;
+    m_free3D6DoF               = false;
+    m_hasCustomThetaConvention = false;
+    m_thetaOrder               = Array<OneD, int>(3, 0);
+    m_thetaBodyFrame           = Array<OneD, bool>(3, false);
+    m_thetaOrder[0]            = 2;
+    m_thetaOrder[1]            = 1;
+    m_thetaOrder[2]            = 0;
+    m_extForceXYZ              = Array<OneD, NekDouble>(6, 0.0);
+    m_oldFvis                  = Array<OneD, NekDouble>(6, 0.0);
+    m_quaternion = SolverUtils::MovingFrame::IdentityQuaternion();
+    TiXmlElement *pSolver      = session->GetElement("Nektar/RIGIDSOLVER");
     LoadParameters(session, pSolver);
     InitBodySolver(session, pSolver, pivot);
     CheckParameters();
@@ -82,6 +150,35 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
 
 void RigidSolver::CheckParameters()
 {
+    if (m_free3D6DoF)
+    {
+        ASSERTL0(m_spacedim == 3,
+                 "Full free rigid-body motion is available only in 3D.");
+        ASSERTL0(fabs(m_pivotdistance) < NekConstants::kNekZeroTol,
+                 "Full free 3D rigid-body motion currently requires "
+                 "PIVOTDISTANCE = 0 (the pivot is the centre of mass).");
+        NekDouble restoringTerms = 0.0;
+        for (size_t i = 0; i < m_C.size(); ++i)
+        {
+            restoringTerms += fabs(m_C[i]) + fabs(m_K[i]);
+        }
+        ASSERTL0(restoringTerms < NekConstants::kNekZeroTol,
+                 "Full free 3D 6DoF motion currently requires zero DAMPING "
+                 "and RIGIDITY.");
+        m_inertialPosition = Array<OneD, NekDouble>(3, 0.0);
+        m_inertialVelocity = Array<OneD, NekDouble>(3, 0.0);
+        m_inertialAcceleration = Array<OneD, NekDouble>(3, 0.0);
+        m_solveType = eFree3D6DoF;
+        return;
+    }
+    m_prescribed3DMRF =
+        m_spacedim == 3 && !m_hasFreeMotion && HasFull3DPrescribedOrientation();
+    if (m_prescribed3DMRF)
+    {
+        m_solveType = ePrescribed3DMRF;
+        return;
+    }
+
     // Count free translational DoFs
     int nFreeTrans = 0;
     bool freeX     = false;
@@ -138,8 +235,56 @@ void RigidSolver::CheckParameters()
     }
 }
 
+bool RigidSolver::HasFull3DPrescribedOrientation() const
+{
+    if (m_spacedim != 3)
+    {
+        return false;
+    }
+
+    return m_frameVelFunction.find(3) != m_frameVelFunction.end() ||
+           m_frameVelFunction.find(4) != m_frameVelFunction.end() ||
+           m_frameVelFunction.find(9) != m_frameVelFunction.end() ||
+           m_frameVelFunction.find(10) != m_frameVelFunction.end() ||
+           m_frameVelFunction.find(15) != m_frameVelFunction.end() ||
+           m_frameVelFunction.find(16) != m_frameVelFunction.end() ||
+           m_frameVelFunction.find(
+               SolverUtils::MovingFrame::kQuaternionOffset) !=
+               m_frameVelFunction.end() ||
+           m_frameVelFunction.find(
+               SolverUtils::MovingFrame::kQuaternionOffset + 1) !=
+               m_frameVelFunction.end() ||
+           m_frameVelFunction.find(
+               SolverUtils::MovingFrame::kQuaternionOffset + 2) !=
+               m_frameVelFunction.end() ||
+           m_frameVelFunction.find(
+               SolverUtils::MovingFrame::kQuaternionOffset + 3) !=
+               m_frameVelFunction.end();
+}
+
 void RigidSolver::SetMovableDoFs(std::vector<bool> &moveDoFs)
 {
+    if (m_free3D6DoF)
+    {
+        ASSERTL0(moveDoFs.size() >= 6,
+                 "Full free 3D motion requires six movable-DoF entries.");
+        for (int i = 0; i < 6; ++i)
+        {
+            moveDoFs[i] = true;
+        }
+        return;
+    }
+
+    if (m_prescribed3DMRF)
+    {
+        const int nDoFs = std::min(6, static_cast<int>(moveDoFs.size()));
+        for (int i = 0; i < nDoFs; ++i)
+        {
+            moveDoFs[i] = true;
+        }
+        return;
+    }
+
     for (const auto &it : m_frameVelFunction)
     {
         if (it.first < 6)
@@ -254,7 +399,17 @@ void RigidSolver::LoadParameters(
             ParserFunctionToMap(true, session, FuncName, angularAccepVar[i],
                                 m_frameVelFunction, i + 3 + 12);
         }
+        std::vector<std::string> quatVar = {"Q0", "Q1", "Q2", "Q3"};
+        for (int i = 0; i < 4; ++i)
+        {
+            ParserFunctionToMap(true, session, FuncName, quatVar[i],
+                                m_frameVelFunction,
+                                SolverUtils::MovingFrame::kQuaternionOffset +
+                                    i);
+        }
     }
+
+    LoadThetaConvention(pSolver);
 
     // load external force
     funcNameElmt = pSolver->FirstChildElement("EXTERNALFORCE");
@@ -307,9 +462,27 @@ void RigidSolver::LoadParameters(
         }
         else if (m_spacedim == 3)
         {
-            m_outputStream << "Variables = t, x, ux, ax, y, uy, ay, z, uz, az, "
-                              "theta, omega, domega"
-                           << std::endl;
+            const TiXmlElement *motion =
+                pSolver->FirstChildElement("MOTIONPRESCRIBED");
+            std::vector<std::string> motionValues;
+            if (motion)
+            {
+                ParseUtils::GenerateVector(motion->GetText(), motionValues);
+            }
+            if (HasFull3DPrescribedOrientation() || motionValues.size() == 6)
+            {
+                m_outputStream
+                    << "Variables = t, x, ux, ax, y, uy, ay, z, uz, az, "
+                       "theta_x, omega_x, domega_x, theta_y, omega_y, "
+                       "domega_y, theta_z, omega_z, domega_z"
+                    << std::endl;
+            }
+            else
+            {
+                m_outputStream << "Variables = t, x, ux, ax, y, uy, ay, z, "
+                                  "uz, az, theta, omega, domega"
+                               << std::endl;
+            }
         }
     }
 
@@ -326,6 +499,92 @@ void RigidSolver::LoadParameters(
              "OutputFrequency should be greater than zero.");
 }
 
+void RigidSolver::LoadThetaConvention(const TiXmlElement *pSolver)
+{
+    const TiXmlElement *thetaOrder = pSolver->FirstChildElement("ThetaOrder");
+    if (thetaOrder)
+    {
+        std::string order = GetRequiredElementText(thetaOrder, "ThetaOrder");
+        bool seen[3]     = {false, false, false};
+        int cnt          = 0;
+
+        for (size_t i = 0; i < order.size(); ++i)
+        {
+            const char c = order[i];
+            if (c == ',' || c == ' ' || c == '\t')
+            {
+                continue;
+            }
+
+            const int axis = AxisIndex(c);
+            ASSERTL0(axis >= 0,
+                     "ThetaOrder must contain only x, y and z axes.");
+            ASSERTL0(!seen[axis],
+                     "ThetaOrder must not repeat the same axis.");
+            ASSERTL0(cnt < 3, "ThetaOrder must contain exactly three axes.");
+
+            m_thetaOrder[cnt++] = axis;
+            seen[axis]          = true;
+        }
+
+        ASSERTL0(cnt == 3, "ThetaOrder must contain exactly three axes.");
+        m_hasCustomThetaConvention = true;
+    }
+
+    const TiXmlElement *thetaFrame = pSolver->FirstChildElement("ThetaFrame");
+    if (thetaFrame)
+    {
+        const bool isBody = IsThetaFrameBody(
+            GetRequiredElementText(thetaFrame, "ThetaFrame"));
+        for (int i = 0; i < 3; ++i)
+        {
+            m_thetaBodyFrame[i] = isBody;
+        }
+        m_hasCustomThetaConvention = true;
+    }
+
+    for (int i = 0; i < 3; ++i)
+    {
+        const std::string tagName = "Theta_" + AxisName(i) + "Frame";
+        const TiXmlElement *axisFrame = pSolver->FirstChildElement(tagName);
+        if (axisFrame)
+        {
+            m_thetaBodyFrame[i] = IsThetaFrameBody(
+                GetRequiredElementText(axisFrame, tagName));
+            m_hasCustomThetaConvention = true;
+        }
+    }
+}
+
+Array<OneD, NekDouble> RigidSolver::QuaternionFromConfiguredTheta(
+    const Array<OneD, NekDouble> &theta) const
+{
+    using namespace SolverUtils::MovingFrame;
+
+    if (!m_hasCustomThetaConvention)
+    {
+        return QuaternionFromEulerZYX(theta[0], theta[1], theta[2]);
+    }
+
+    Array<OneD, NekDouble> q = IdentityQuaternion();
+    for (int i = 2; i >= 0; --i)
+    {
+        const int axis = m_thetaOrder[i];
+        const Array<OneD, NekDouble> qAxis =
+            QuaternionFromAxisAngle(axis, theta[axis]);
+
+        if (m_thetaBodyFrame[axis])
+        {
+            q = MultiplyQuaternions(q, qAxis);
+        }
+        else
+        {
+            q = MultiplyQuaternions(qAxis, q);
+        }
+    }
+    return q;
+}
+
 void RigidSolver::InitBodySolver(
     const LibUtilities::SessionReaderSharedPtr session,
     const TiXmlElement *pSolver, Array<OneD, NekDouble> pivot)
@@ -333,6 +592,23 @@ void RigidSolver::InitBodySolver(
     int NumDof = m_spacedim + 1;
     const TiXmlElement *mssgTag;
     std::string mssgStr;
+    std::vector<std::string> prescribedValues;
+    mssgTag = pSolver->FirstChildElement("MOTIONPRESCRIBED");
+    if (mssgTag)
+    {
+        ParseUtils::GenerateVector(mssgTag->GetText(), prescribedValues);
+        if (m_spacedim == 3 && prescribedValues.size() == 6)
+        {
+            m_free3D6DoF = true;
+            for (const auto &value : prescribedValues)
+            {
+                ASSERTL0(EvaluateExpression(session, value) == 0.0,
+                         "The first full free 3D 6DoF implementation requires "
+                         "all MOTIONPRESCRIBED entries to be zero.");
+            }
+            NumDof = 6;
+        }
+    }
     // allocate memory and initialise
     m_vel = Array<OneD, Array<OneD, NekDouble>>(3);
     for (size_t i = 0; i < 3; ++i)
@@ -348,22 +624,43 @@ void RigidSolver::InitBodySolver(
     mssgTag = pSolver->FirstChildElement("MOTIONPRESCRIBED");
     if (mssgTag)
     {
-        std::vector<std::string> values;
-        mssgStr = mssgTag->GetText();
-        ParseUtils::GenerateVector(mssgStr, values);
-        ASSERTL0(values.size() == NumDof,
+        const std::vector<std::string> &values = prescribedValues;
+        const bool full3DPrescribedInput =
+            m_spacedim == 3 && HasFull3DPrescribedOrientation() &&
+            values.size() == 6;
+        ASSERTL0(values.size() == NumDof || full3DPrescribedInput,
                  "MOTIONPRESCRIBED vector should be of size " +
-                     std::to_string(NumDof));
-        for (int i = 0; i < NumDof; ++i)
+                     std::to_string(NumDof) +
+                     (m_spacedim == 3 ? " or 6 for prescribed 3D MRF" : ""));
+        if (m_free3D6DoF)
         {
-            if (EvaluateExpression(session, values[i]) == 0)
+            for (int i = 0; i < NumDof; ++i)
             {
                 m_dirDoFs.erase(i);
             }
         }
+        else if (full3DPrescribedInput)
+        {
+            for (int i = 0; i < 6; ++i)
+            {
+                ASSERTL0(EvaluateExpression(session, values[i]) != 0,
+                         "Full prescribed 3D MRF requires all six "
+                         "MOTIONPRESCRIBED entries to be prescribed.");
+            }
+        }
+        else
+        {
+            for (int i = 0; i < NumDof; ++i)
+            {
+                if (EvaluateExpression(session, values[i]) == 0)
+                {
+                    m_dirDoFs.erase(i);
+                }
+            }
+        }
     }
-    m_hasRotation =
-        m_hasRotation || m_dirDoFs.find(m_spacedim) == m_dirDoFs.end();
+    m_hasRotation = m_hasRotation || m_free3D6DoF ||
+                    m_dirDoFs.find(m_spacedim) == m_dirDoFs.end();
     m_hasFreeMotion = m_dirDoFs.size() < NumDof;
     // read mass matrix
     m_M     = Array<OneD, NekDouble>(NumDof * NumDof, 0.);
@@ -387,9 +684,26 @@ void RigidSolver::InitBodySolver(
         std::vector<std::string> values;
         mssgStr = mssgTag->GetText();
         ParseUtils::GenerateVector(mssgStr, values);
-        ASSERTL0(values.size() == 1, "Inertia should be a scalar.");
-        m_rotaionInertia         = EvaluateExpression(session, values[0]);
-        m_M[NumDof * NumDof - 1] = m_rotaionInertia;
+        ASSERTL0(values.size() == 1 || (m_free3D6DoF && values.size() == 3),
+                 "Inertia should be a scalar, or three principal inertias for "
+                 "full free 3D 6DoF motion.");
+        m_rotaionInertia = EvaluateExpression(session, values[0]);
+        if (m_free3D6DoF)
+        {
+            m_rotationInertia = Array<OneD, NekDouble>(3, 0.0);
+            for (int i = 0; i < 3; ++i)
+            {
+                m_rotationInertia[i] = EvaluateExpression(
+                    session, values[values.size() == 1 ? 0 : i]);
+                ASSERTL0(m_rotationInertia[i] > 0.0,
+                         "All principal moments of inertia must be positive.");
+                m_M[(i + 3) + (i + 3) * NumDof] = m_rotationInertia[i];
+            }
+        }
+        else
+        {
+            m_M[NumDof * NumDof - 1] = m_rotaionInertia;
+        }
     }
     // read damping matrix
     m_C     = Array<OneD, NekDouble>(NumDof * NumDof, 0.);
@@ -473,6 +787,22 @@ void RigidSolver::InitBodySolver(
     {
         m_gamma = session->GetParameter("NewmarkGamma");
     }
+    m_nonlinearTolerance    = 1.0e-10;
+    m_nonlinearMaxIterations = 8;
+    if (session->DefinesParameter("RigidBodyNonlinearTolerance"))
+    {
+        m_nonlinearTolerance =
+            session->GetParameter("RigidBodyNonlinearTolerance");
+    }
+    if (session->DefinesParameter("RigidBodyNonlinearMaxIterations"))
+    {
+        m_nonlinearMaxIterations = static_cast<int>(
+            session->GetParameter("RigidBodyNonlinearMaxIterations"));
+    }
+    ASSERTL0(m_nonlinearTolerance > 0.0,
+             "RigidBodyNonlinearTolerance must be positive.");
+    ASSERTL0(m_nonlinearMaxIterations > 0,
+             "RigidBodyNonlinearMaxIterations must be positive.");
 }
 
 void RigidSolver::UpdatePrescribed(const NekDouble &time,
@@ -541,6 +871,18 @@ void RigidSolver::UpdateFrameVelocity(Array<OneD, NekDouble> &aeroforce,
         return;
     }
 
+    if (m_prescribed3DMRF)
+    {
+        UpdatePrescribedMRFData(time, MRFData);
+        if (m_isRoot && m_index % m_outputFrequency == 0)
+        {
+            WritePrescribedMRFOutput(time, MRFData);
+        }
+        m_currentTime = time;
+        ++m_index;
+        return;
+    }
+
     for (int i = 0; i < 6; ++i)
     {
         aeroforce[i] +=
@@ -559,6 +901,16 @@ void RigidSolver::UpdateFrameVelocity(Array<OneD, NekDouble> &aeroforce,
         }
     }
     SolveBodyMotion(m_vel, aeroforce, Dirs);
+    if (m_free3D6DoF)
+    {
+        UpdateFree3DMRFData(MRFData);
+        if (m_isRoot && m_index % m_outputFrequency == 0)
+        {
+            WriteFree3DMRFOutput(time, MRFData);
+        }
+        ++m_index;
+        return;
+    }
     Array<OneD, Array<OneD, NekDouble>> tmpVel;
     if (m_hasRotation)
     {
@@ -603,6 +955,192 @@ void RigidSolver::UpdateFrameVelocity(Array<OneD, NekDouble> &aeroforce,
     ++m_index;
 }
 
+void RigidSolver::UpdatePrescribedMRFData(const NekDouble &time,
+                                          Array<OneD, NekDouble> &MRFData)
+{
+    using namespace SolverUtils::MovingFrame;
+
+    const auto evaluate = [&](const int idx, const NekDouble defaultValue) {
+        auto it = m_frameVelFunction.find(idx);
+        return it == m_frameVelFunction.end()
+                   ? defaultValue
+                   : it->second->Evaluate(0., 0., 0., time);
+    };
+    const auto hasFunction = [&](const int idx) {
+        return m_frameVelFunction.find(idx) != m_frameVelFunction.end();
+    };
+
+    const NekDouble dt = m_currentTime >= 0.0 ? time - m_currentTime : 0.0;
+
+    Array<OneD, NekDouble> disp(3, 0.0);
+    Array<OneD, NekDouble> velInertial(3, 0.0);
+    Array<OneD, NekDouble> omegaInertial(3, 0.0);
+    Array<OneD, NekDouble> accInertial(3, 0.0);
+    Array<OneD, NekDouble> alphaInertial(3, 0.0);
+    for (int i = 0; i < 3; ++i)
+    {
+        disp[i] = MRFData[i];
+    }
+
+    for (int i = 0; i < 3; ++i)
+    {
+        velInertial[i]   = evaluate(i, 0.0);
+        omegaInertial[i] = evaluate(i + 3, 0.0);
+        accInertial[i]   = evaluate(i + 12, 0.0);
+        alphaInertial[i] = evaluate(i + 15, 0.0);
+
+        if (hasFunction(i + 6))
+        {
+            disp[i] = evaluate(i + 6, disp[i]);
+        }
+        else if (dt > 0.0)
+        {
+            disp[i] += dt * (velInertial[i] + 0.5 * dt * accInertial[i]);
+        }
+    }
+
+    const bool hasQuaternion =
+        hasFunction(kQuaternionOffset) || hasFunction(kQuaternionOffset + 1) ||
+        hasFunction(kQuaternionOffset + 2) ||
+        hasFunction(kQuaternionOffset + 3);
+    const bool hasEuler = hasFunction(9) || hasFunction(10) || hasFunction(11);
+    const bool hasOmega = hasFunction(3) || hasFunction(4) || hasFunction(5);
+    const bool hasAlpha = hasFunction(15) || hasFunction(16) || hasFunction(17);
+
+    // XML angular data are lab-frame inputs; MRFData stores body-frame
+    // components derived through the quaternion state.
+    const Array<OneD, NekDouble> qOld = QuaternionFromFrameData(MRFData);
+    Array<OneD, NekDouble> q          = qOld;
+    if (hasQuaternion)
+    {
+        q = IdentityQuaternion();
+        for (int i = 0; i < 4; ++i)
+        {
+            q[i] = evaluate(kQuaternionOffset + i, q[i]);
+        }
+        q = NormalizeQuaternion(q);
+    }
+    else if (hasEuler)
+    {
+        Array<OneD, NekDouble> thetaInput(3, 0.0);
+        thetaInput[0] = evaluate(9, 0.0);
+        thetaInput[1] = evaluate(10, 0.0);
+        thetaInput[2] = evaluate(11, 0.0);
+        q             = QuaternionFromConfiguredTheta(thetaInput);
+    }
+    else if (dt > 0.0 && hasOmega)
+    {
+        const Array<OneD, NekDouble> omegaBodyForStep =
+            RotateInertialToBody(q, omegaInertial);
+        q = IntegrateQuaternionBodyOmega(q, omegaBodyForStep, dt);
+    }
+    q = MakeQuaternionContinuous(qOld, q);
+
+    const Array<OneD, NekDouble> theta = EulerZYXFromQuaternion(q);
+    const Array<OneD, NekDouble> velBody =
+        RotateInertialToBody(q, velInertial);
+    const Array<OneD, NekDouble> accBodyInertial =
+        RotateInertialToBody(q, accInertial);
+    Array<OneD, NekDouble> omegaBody(3, 0.0);
+    Array<OneD, NekDouble> qdot(4, 0.0);
+    if (hasOmega)
+    {
+        omegaBody = RotateInertialToBody(q, omegaInertial);
+        qdot      = QuaternionDerivativeFromBodyOmega(q, omegaBody);
+    }
+    else if (dt > 0.0)
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            qdot[i] = (q[i] - qOld[i]) / dt;
+        }
+        omegaBody = BodyOmegaFromQuaternionDerivative(q, qdot);
+    }
+
+    Array<OneD, NekDouble> alphaBody(3, 0.0);
+    if (hasAlpha)
+    {
+        alphaBody = RotateInertialToBody(q, alphaInertial);
+    }
+    else if (dt > 0.0)
+    {
+        Array<OneD, NekDouble> omegaBodyOld(3, 0.0);
+        for (int i = 0; i < 3; ++i)
+        {
+            omegaBodyOld[i] = MRFData[i + 9];
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            alphaBody[i] = (omegaBody[i] - omegaBodyOld[i]) / dt;
+        }
+    }
+
+    Array<OneD, NekDouble> omegaCrossVel(3, 0.0);
+    Cross(omegaBody, velBody, omegaCrossVel);
+
+    for (int i = 0; i < 3; ++i)
+    {
+        MRFData[i]      = disp[i];
+        MRFData[i + 3]  = theta[i];
+        MRFData[i + 6]  = velBody[i];
+        MRFData[i + 9]  = omegaBody[i];
+        MRFData[i + 12] = accBodyInertial[i] - omegaCrossVel[i];
+        MRFData[i + 15] = alphaBody[i];
+    }
+    StoreQuaternionInFrameData(q, MRFData);
+}
+
+void RigidSolver::WritePrescribedMRFOutput(
+    const NekDouble &time, const Array<OneD, NekDouble> &MRFData)
+{
+    using namespace SolverUtils::MovingFrame;
+
+    const Array<OneD, NekDouble> q = QuaternionFromFrameData(MRFData);
+    Array<OneD, NekDouble> velBody(3, 0.0);
+    Array<OneD, NekDouble> accBodyFrame(3, 0.0);
+    Array<OneD, NekDouble> omegaBody(3, 0.0);
+    Array<OneD, NekDouble> alphaBody(3, 0.0);
+    for (int i = 0; i < 3; ++i)
+    {
+        velBody[i]      = MRFData[i + 6];
+        omegaBody[i]    = MRFData[i + 9];
+        accBodyFrame[i] = MRFData[i + 12];
+        alphaBody[i]    = MRFData[i + 15];
+    }
+
+    Array<OneD, NekDouble> omegaCrossVel(3, 0.0);
+    Cross(omegaBody, velBody, omegaCrossVel);
+    Array<OneD, NekDouble> accBodyInertial(3, 0.0);
+    for (int i = 0; i < 3; ++i)
+    {
+        accBodyInertial[i] = accBodyFrame[i] + omegaCrossVel[i];
+    }
+
+    const Array<OneD, NekDouble> velInertial =
+        RotateBodyToInertial(q, velBody);
+    const Array<OneD, NekDouble> accInertial =
+        RotateBodyToInertial(q, accBodyInertial);
+    const Array<OneD, NekDouble> omegaInertial =
+        RotateBodyToInertial(q, omegaBody);
+    const Array<OneD, NekDouble> alphaInertial =
+        RotateBodyToInertial(q, alphaBody);
+
+    m_outputStream << boost::format("%25.19e") % time << " ";
+    for (int i = 0; i < m_spacedim; ++i)
+    {
+        m_outputStream << boost::format("%25.19e") % MRFData[i] << " "
+                       << boost::format("%25.19e") % velInertial[i] << " "
+                       << boost::format("%25.19e") % accInertial[i] << " ";
+    }
+    for (int i = 0; i < 3; ++i)
+    {
+        m_outputStream << boost::format("%25.19e") % MRFData[i + 3] << " "
+                       << boost::format("%25.19e") % omegaInertial[i] << " "
+                       << boost::format("%25.19e") % alphaInertial[i] << " ";
+    }
+    m_outputStream << std::endl;
+}
+
 void RigidSolver::UpdateMRFData(Array<OneD, NekDouble> &MRFData)
 {
     /// MRFData:
@@ -610,6 +1148,7 @@ void RigidSolver::UpdateMRFData(Array<OneD, NekDouble> &MRFData)
     /// U, V, W, Omega_x, Omega_y, Omega_z, [body frame 6-11]
     /// A_x, A_y, A_z, DOmega_x, DOmega_y, DOmega_z, [body frame 12-17]
     /// pivot_x, pivot_y, pivot_z, [body frame]
+    /// Q0, Q1, Q2, Q3, [body-to-inertial quaternion]
     for (int i = 0; i < 18; ++i)
     {
         MRFData[i] = 0.0;
@@ -642,6 +1181,107 @@ void RigidSolver::UpdateMRFData(Array<OneD, NekDouble> &MRFData)
         MRFData[11] = m_vel[1][m_spacedim];
         MRFData[17] = m_vel[2][m_spacedim];
     }
+    SolverUtils::MovingFrame::StoreQuaternionInFrameData(
+        SolverUtils::MovingFrame::QuaternionFromEulerZYX(
+            MRFData[3], MRFData[4], MRFData[5]),
+        MRFData);
+}
+
+void RigidSolver::UpdateFree3DMRFData(Array<OneD, NekDouble> &MRFData)
+{
+    using namespace SolverUtils::MovingFrame;
+
+    Array<OneD, NekDouble> velBody(3, 0.0);
+    Array<OneD, NekDouble> accBody(3, 0.0);
+    Array<OneD, NekDouble> omegaBody(3, 0.0);
+    Array<OneD, NekDouble> alphaBody(3, 0.0);
+    for (int i = 0; i < 3; ++i)
+    {
+        velBody[i]   = m_vel[1][i];
+        accBody[i]   = m_vel[2][i];
+        omegaBody[i] = m_vel[1][i + 3];
+        alphaBody[i] = m_vel[2][i + 3];
+    }
+    Array<OneD, NekDouble> omegaCrossVel(3, 0.0);
+    Cross(omegaBody, velBody, omegaCrossVel);
+    Array<OneD, NekDouble> accInertialBody(3, 0.0);
+    for (int i = 0; i < 3; ++i)
+    {
+        accInertialBody[i] = accBody[i] + omegaCrossVel[i];
+    }
+    const Array<OneD, NekDouble> velInertial =
+        RotateBodyToInertial(m_quaternion, velBody);
+    const Array<OneD, NekDouble> accInertial =
+        RotateBodyToInertial(m_quaternion, accInertialBody);
+    for (int i = 0; i < 3; ++i)
+    {
+        m_inertialPosition[i] +=
+            m_timestep * m_inertialVelocity[i] +
+            m_timestep * m_timestep *
+                ((0.5 - m_beta) * m_inertialAcceleration[i] +
+                 m_beta * accInertial[i]);
+        m_inertialVelocity[i]     = velInertial[i];
+        m_inertialAcceleration[i] = accInertial[i];
+        MRFData[i]      = m_inertialPosition[i];
+        MRFData[i + 6]  = velBody[i];
+        MRFData[i + 9]  = omegaBody[i];
+        MRFData[i + 12] = accBody[i];
+        MRFData[i + 15] = alphaBody[i];
+    }
+    const Array<OneD, NekDouble> theta = EulerZYXFromQuaternion(m_quaternion);
+    for (int i = 0; i < 3; ++i)
+    {
+        MRFData[i + 3] = theta[i];
+        m_vel[0][i] = m_inertialPosition[i];
+        m_vel[0][i + 3] = theta[i];
+    }
+    StoreQuaternionInFrameData(m_quaternion, MRFData);
+}
+
+void RigidSolver::WriteFree3DMRFOutput(
+    const NekDouble &time, const Array<OneD, NekDouble> &MRFData)
+{
+    using namespace SolverUtils::MovingFrame;
+    const Array<OneD, NekDouble> q = QuaternionFromFrameData(MRFData);
+    Array<OneD, NekDouble> velocityBody(3, 0.0);
+    Array<OneD, NekDouble> accelerationBody(3, 0.0);
+    Array<OneD, NekDouble> omegaBody(3, 0.0);
+    Array<OneD, NekDouble> alphaBody(3, 0.0);
+    for (int i = 0; i < 3; ++i)
+    {
+        velocityBody[i]     = MRFData[i + 6];
+        accelerationBody[i] = MRFData[i + 12];
+        omegaBody[i]        = MRFData[i + 9];
+        alphaBody[i]        = MRFData[i + 15];
+    }
+    const Array<OneD, NekDouble> velocity =
+        RotateBodyToInertial(q, velocityBody);
+    Array<OneD, NekDouble> omegaCrossVelocity(3, 0.0);
+    Cross(omegaBody, velocityBody, omegaCrossVelocity);
+    Array<OneD, NekDouble> accelerationBodyInertial(3, 0.0);
+    for (int i = 0; i < 3; ++i)
+    {
+        accelerationBodyInertial[i] =
+            accelerationBody[i] + omegaCrossVelocity[i];
+    }
+    const Array<OneD, NekDouble> acceleration =
+        RotateBodyToInertial(q, accelerationBodyInertial);
+    const Array<OneD, NekDouble> omega = RotateBodyToInertial(q, omegaBody);
+    const Array<OneD, NekDouble> alpha = RotateBodyToInertial(q, alphaBody);
+    m_outputStream << boost::format("%25.19e") % time << " ";
+    for (int i = 0; i < 3; ++i)
+    {
+        m_outputStream << boost::format("%25.19e") % MRFData[i] << " "
+                       << boost::format("%25.19e") % velocity[i] << " "
+                       << boost::format("%25.19e") % acceleration[i] << " ";
+    }
+    for (int i = 0; i < 3; ++i)
+    {
+        m_outputStream << boost::format("%25.19e") % MRFData[i + 3] << " "
+                       << boost::format("%25.19e") % omega[i] << " "
+                       << boost::format("%25.19e") % alpha[i] << " ";
+    }
+    m_outputStream << std::endl;
 }
 
 void RigidSolver::SolveBodyMotion(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
@@ -660,10 +1300,155 @@ void RigidSolver::SolveBodyMotion(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
     {
         SolveBodyFrame(bodyVel, forcebody, Dirs);
     }
+    else if (eFree3D6DoF == m_solveType)
+    {
+        SolveFree3D6DoF(bodyVel, forcebody, Dirs);
+    }
     else
     {
         ASSERTL0(false, "Unsupported rigid solver type.");
     }
+}
+
+void RigidSolver::SolveFree3D6DoF(
+    Array<OneD, Array<OneD, NekDouble>> &bodyVel,
+    const Array<OneD, NekDouble> &forcebody, std::map<int, NekDouble> &Dirs)
+{
+    using namespace SolverUtils::MovingFrame;
+    ASSERTL0(Dirs.empty(),
+             "Full free 3D 6DoF motion cannot prescribe individual DoFs.");
+    ASSERTL0(forcebody.size() >= 6,
+             "Full free 3D 6DoF motion requires three forces and moments.");
+
+    Array<OneD, NekDouble> force(6, 0.0);
+    Array<OneD, NekDouble> externalForce(3, 0.0);
+    Array<OneD, NekDouble> externalMoment(3, 0.0);
+    for (int i = 0; i < 3; ++i)
+    {
+        externalForce[i]  = m_extForceXYZ[i];
+        externalMoment[i] = m_extForceXYZ[i + 3];
+    }
+    externalForce = RotateInertialToBody(m_quaternion, externalForce);
+    externalMoment = RotateInertialToBody(m_quaternion, externalMoment);
+    for (int i = 0; i < 3; ++i)
+    {
+        force[i]     = forcebody[i] + externalForce[i];
+        force[i + 3] = forcebody[i + 3] + externalMoment[i];
+    }
+
+    Array<OneD, Array<OneD, NekDouble>> oldState(3);
+    for (int i = 0; i < 3; ++i)
+    {
+        oldState[i] = Array<OneD, NekDouble>(bodyVel[i].size(), 0.0);
+        Vmath::Vcopy(bodyVel[i].size(), bodyVel[i], 1, oldState[i], 1);
+    }
+    Array<OneD, NekDouble> trialVelocity(6, 0.0);
+    Array<OneD, NekDouble> omegaOld(3, 0.0);
+    for (int i = 0; i < 6; ++i)
+    {
+        trialVelocity[i] = oldState[1][i];
+        if (i < 3)
+        {
+            omegaOld[i] = oldState[1][i + 3];
+        }
+    }
+
+    const auto addCrossMatrix = [](const Array<OneD, NekDouble> &a,
+                                   const NekDouble scale,
+                                   Array<OneD, NekDouble> &matrix,
+                                   const int rowOffset, const int colOffset) {
+        constexpr int nDofs = 6;
+        matrix[(rowOffset + 0) + (colOffset + 1) * nDofs] +=
+            -scale * a[2];
+        matrix[(rowOffset + 0) + (colOffset + 2) * nDofs] +=
+            scale * a[1];
+        matrix[(rowOffset + 1) + (colOffset + 0) * nDofs] +=
+            scale * a[2];
+        matrix[(rowOffset + 1) + (colOffset + 2) * nDofs] +=
+            -scale * a[0];
+        matrix[(rowOffset + 2) + (colOffset + 0) * nDofs] +=
+            -scale * a[1];
+        matrix[(rowOffset + 2) + (colOffset + 1) * nDofs] +=
+            scale * a[0];
+    };
+
+    bool converged = false;
+    for (int iter = 0; iter < m_nonlinearMaxIterations; ++iter)
+    {
+        Array<OneD, NekDouble> velocity(3, 0.0);
+        Array<OneD, NekDouble> omega(3, 0.0);
+        Array<OneD, NekDouble> angularMomentum(3, 0.0);
+        Array<OneD, NekDouble> nonlinear(6, 0.0);
+        Array<OneD, NekDouble> jacobian(36, 0.0);
+        for (int i = 0; i < 3; ++i)
+        {
+            velocity[i]        = trialVelocity[i];
+            omega[i]           = trialVelocity[i + 3];
+            angularMomentum[i] = m_rotationInertia[i] * omega[i];
+        }
+
+        Array<OneD, NekDouble> omegaCrossVelocity(3, 0.0);
+        Array<OneD, NekDouble> gyroMoment(3, 0.0);
+        Cross(omega, velocity, omegaCrossVelocity);
+        Cross(omega, angularMomentum, gyroMoment);
+        for (int i = 0; i < 3; ++i)
+        {
+            nonlinear[i]     = m_mass * omegaCrossVelocity[i];
+            nonlinear[i + 3] = gyroMoment[i];
+        }
+
+        // Linearise m Omega x u and Omega x (I Omega) about the
+        // current Picard/Newton iterate in the body frame.
+        addCrossMatrix(omega, m_mass, jacobian, 0, 0);
+        addCrossMatrix(velocity, -m_mass, jacobian, 0, 3);
+        addCrossMatrix(angularMomentum, -1.0, jacobian, 3, 3);
+        // [Omega]_x I: each column of the skew matrix is scaled by the
+        // corresponding principal moment of inertia.
+        jacobian[3 + 4 * 6] += -omega[2] * m_rotationInertia[1];
+        jacobian[3 + 5 * 6] += omega[1] * m_rotationInertia[2];
+        jacobian[4 + 3 * 6] += omega[2] * m_rotationInertia[0];
+        jacobian[4 + 5 * 6] += -omega[0] * m_rotationInertia[2];
+        jacobian[5 + 3 * 6] += -omega[1] * m_rotationInertia[0];
+        jacobian[5 + 4 * 6] += omega[0] * m_rotationInertia[1];
+
+        for (int i = 0; i < 3; ++i)
+        {
+            Vmath::Vcopy(oldState[i].size(), oldState[i], 1, bodyVel[i], 1);
+        }
+        m_bodySolver.SolveFreeVarMat6DoF(bodyVel, force, nonlinear, jacobian,
+                                          trialVelocity);
+
+        NekDouble deltaNorm = 0.0;
+        NekDouble stateNorm = 0.0;
+        for (int i = 0; i < 6; ++i)
+        {
+            const NekDouble delta = bodyVel[1][i] - trialVelocity[i];
+            deltaNorm += delta * delta;
+            stateNorm += bodyVel[1][i] * bodyVel[1][i];
+            trialVelocity[i] = bodyVel[1][i];
+        }
+        if (std::sqrt(deltaNorm) <=
+            m_nonlinearTolerance * std::max(1.0, std::sqrt(stateNorm)))
+        {
+            converged = true;
+            break;
+        }
+    }
+    ASSERTL0(converged,
+             "The nonlinear full free 3D 6DoF rigid-body solve did not "
+             "converge; reduce TimeStep or increase "
+             "RigidBodyNonlinearMaxIterations.");
+
+    Array<OneD, NekDouble> omegaNew(3, 0.0);
+    Array<OneD, NekDouble> omegaMid(3, 0.0);
+    for (int i = 0; i < 3; ++i)
+    {
+        omegaNew[i] = bodyVel[1][i + 3];
+        omegaMid[i] = 0.5 * (omegaOld[i] + omegaNew[i]);
+    }
+    const Array<OneD, NekDouble> qNew = NormalizeQuaternion(
+        IntegrateQuaternionBodyOmega(m_quaternion, omegaMid, m_timestep));
+    m_quaternion = MakeQuaternionContinuous(m_quaternion, qNew);
 }
 
 void RigidSolver::SolveInertialFrame(
@@ -848,9 +1633,26 @@ void Newmark_BetaSolver::SolveFreeVarMat(Array<OneD, Array<OneD, NekDouble>> u,
 
 void RigidSolver::SetNewmarkBetaSolver(Array<OneD, NekDouble> &AddedMass)
 {
-    int NumDof = m_spacedim + 1;
+    int NumDof = m_free3D6DoF ? 6 : m_spacedim + 1;
     if (AddedMass.size() >= NumDof * NumDof)
     {
+        if (m_free3D6DoF)
+        {
+            for (int i = 0; i < NumDof; ++i)
+            {
+                for (int j = i + 1; j < NumDof; ++j)
+                {
+                    const NekDouble aij = AddedMass[i + j * NumDof];
+                    const NekDouble aji = AddedMass[j + i * NumDof];
+                    const NekDouble scale =
+                        std::max(1.0, std::max(fabs(aij), fabs(aji)));
+                    ASSERTL0(fabs(aij - aji) <= 1.0e-10 * scale,
+                             "The 3D 6DoF added-mass matrix must be "
+                             "symmetric in body-frame DoF order "
+                             "(x,y,z,Omega_x,Omega_y,Omega_z).");
+                }
+            }
+        }
         Vmath::Vadd(NumDof * NumDof, AddedMass, 1, m_M, 1, m_M, 1);
     }
     m_bodySolver.SetNewmarkBeta(m_beta, m_gamma, m_timestep, m_M, m_C, m_K,
@@ -866,8 +1668,27 @@ void RigidSolver::SetInitialConditions(
     std::vector<std::string> strFrameData = {
         "X",   "Y",   "Z",   "Theta_x",  "Theta_y",  "Theta_z",
         "U",   "V",   "W",   "Omega_x",  "Omega_y",  "Omega_z",
-        "A_x", "A_y", "A_z", "DOmega_x", "DOmega_y", "DOmega_z"};
+        "A_x", "A_y", "A_z", "DOmega_x", "DOmega_y", "DOmega_z",
+        "Q0",  "Q1",  "Q2",  "Q3"};
     std::map<std::string, NekDouble> fileData;
+    const int nLegacyFrameData = 18;
+    const auto hasLegacyFrameData =
+        [&fileData, &strFrameData, nLegacyFrameData]() {
+            for (int i = 0; i < nLegacyFrameData; ++i)
+            {
+                if (fileData.find(strFrameData[i]) == fileData.end())
+                {
+                    return false;
+                }
+            }
+            return true;
+        };
+    const auto hasQuaternionData = [&fileData]() {
+        return fileData.find("Q0") != fileData.end() &&
+               fileData.find("Q1") != fileData.end() &&
+               fileData.find("Q2") != fileData.end() &&
+               fileData.find("Q3") != fileData.end();
+    };
     if (session->DefinesFunction("InitialConditions"))
     {
         for (int i = 0; i < session->GetVariables().size(); ++i)
@@ -906,7 +1727,7 @@ void RigidSolver::SetInitialConditions(
                             fileData[var] = std::stod(fieldMetaDataMap[var]);
                         }
                     }
-                    if (fileData.size() == strFrameData.size())
+                    if (hasLegacyFrameData())
                     {
                         break;
                     }
@@ -919,8 +1740,66 @@ void RigidSolver::SetInitialConditions(
         time = std::stod(
             session->GetCmdLineArgument<std::string>("set-start-time"));
     }
-    if (fileData.size() == strFrameData.size())
+    if (hasLegacyFrameData())
     {
+        for (int i = 0; i < nLegacyFrameData; ++i)
+        {
+            MRFData[i] = fileData[strFrameData[i]];
+        }
+        if (hasQuaternionData())
+        {
+            Array<OneD, NekDouble> q(4, 0.0);
+            for (int i = 0; i < 4; ++i)
+            {
+                q[i] = fileData[strFrameData[nLegacyFrameData + i]];
+            }
+            SolverUtils::MovingFrame::StoreQuaternionInFrameData(q, MRFData);
+        }
+        else
+        {
+            SolverUtils::MovingFrame::StoreQuaternionInFrameData(
+                SolverUtils::MovingFrame::QuaternionFromEulerZYX(
+                    MRFData[3], MRFData[4], MRFData[5]),
+                MRFData);
+        }
+    }
+    if (m_prescribed3DMRF)
+    {
+        UpdatePrescribedMRFData(time, MRFData);
+        if (m_isRoot)
+        {
+            WritePrescribedMRFOutput(time, MRFData);
+        }
+        m_currentTime = time;
+        return;
+    }
+    if (hasLegacyFrameData())
+    {
+        if (m_free3D6DoF)
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                m_inertialPosition[i] = fileData[strFrameData[i]];
+                m_vel[0][i] = m_inertialPosition[i];
+                m_vel[1][i] = fileData[strFrameData[i + 6]];
+                m_vel[2][i] = fileData[strFrameData[i + 12]];
+                m_vel[1][i + 3] = fileData[strFrameData[i + 9]];
+                m_vel[2][i + 3] = fileData[strFrameData[i + 15]];
+            }
+            m_quaternion = hasQuaternionData()
+                ? SolverUtils::MovingFrame::QuaternionFromFrameData(MRFData)
+                : SolverUtils::MovingFrame::QuaternionFromEulerZYX(
+                      fileData[strFrameData[3]], fileData[strFrameData[4]],
+                      fileData[strFrameData[5]]);
+            const Array<OneD, NekDouble> theta =
+                SolverUtils::MovingFrame::EulerZYXFromQuaternion(m_quaternion);
+            for (int i = 0; i < 3; ++i)
+            {
+                m_vel[0][i + 3] = theta[i];
+            }
+        }
+        else
+        {
         int NumDofm1 = m_vel[0].size() - 1;
         for (int i = 0; i < m_spacedim; ++i)
         {
@@ -936,10 +1815,53 @@ void RigidSolver::SetInitialConditions(
             m_inertialPosition[0] = m_vel[0][0];
             m_inertialPosition[1] = m_vel[0][1];
         }
+        }
     }
     std::map<int, NekDouble> Dirs;
     UpdatePrescribed(time, Dirs);
     SetInitialConditions(Dirs);
+    if (m_free3D6DoF)
+    {
+        Array<OneD, NekDouble> velocityBody(3, 0.0);
+        Array<OneD, NekDouble> accelerationBody(3, 0.0);
+        Array<OneD, NekDouble> omegaBody(3, 0.0);
+        for (int i = 0; i < 3; ++i)
+        {
+            velocityBody[i]     = m_vel[1][i];
+            accelerationBody[i] = m_vel[2][i];
+            omegaBody[i]        = m_vel[1][i + 3];
+        }
+        Array<OneD, NekDouble> omegaCrossVelocity(3, 0.0);
+        SolverUtils::MovingFrame::Cross(omegaBody, velocityBody,
+                                         omegaCrossVelocity);
+        for (int i = 0; i < 3; ++i)
+        {
+            accelerationBody[i] += omegaCrossVelocity[i];
+        }
+        m_inertialVelocity = SolverUtils::MovingFrame::RotateBodyToInertial(
+            m_quaternion, velocityBody);
+        m_inertialAcceleration =
+            SolverUtils::MovingFrame::RotateBodyToInertial(
+                m_quaternion, accelerationBody);
+        const Array<OneD, NekDouble> theta =
+            SolverUtils::MovingFrame::EulerZYXFromQuaternion(m_quaternion);
+        for (int i = 0; i < 3; ++i)
+        {
+            MRFData[i]      = m_inertialPosition[i];
+            MRFData[i + 3]  = theta[i];
+            MRFData[i + 6]  = m_vel[1][i];
+            MRFData[i + 9]  = m_vel[1][i + 3];
+            MRFData[i + 12] = m_vel[2][i];
+            MRFData[i + 15] = m_vel[2][i + 3];
+        }
+        SolverUtils::MovingFrame::StoreQuaternionInFrameData(m_quaternion,
+                                                               MRFData);
+        if (m_isRoot)
+        {
+            WriteFree3DMRFOutput(time, MRFData);
+        }
+        return;
+    }
     UpdateMRFData(MRFData);
     // output initial status for rigid body
     if (m_isRoot)
@@ -1178,6 +2100,68 @@ void Newmark_BetaSolver::SolveFreeFixMat(Array<OneD, Array<OneD, NekDouble>> u,
             u[0][j1] = m_coeffs[2] * u[1][j1] + bk[j];
             u[2][j1] = m_coeffs[0] * u[1][j1] - bm[j];
         }
+    }
+}
+
+void Newmark_BetaSolver::SolveFreeVarMat6DoF(
+    Array<OneD, Array<OneD, NekDouble>> u,
+    const Array<OneD, NekDouble> &force,
+    const Array<OneD, NekDouble> &nonlinearTerm,
+    const Array<OneD, NekDouble> &nonlinearJacobian,
+    const Array<OneD, NekDouble> &linearisationVelocity)
+{
+    constexpr int nDofs = 6;
+    ASSERTL0(m_rows == nDofs && m_motionDofs == nDofs,
+             "The nonlinear moving-frame solver requires six free DoFs.");
+    ASSERTL0(force.size() >= nDofs && nonlinearTerm.size() >= nDofs &&
+                 nonlinearJacobian.size() >= nDofs * nDofs &&
+                 linearisationVelocity.size() >= nDofs,
+             "Invalid nonlinear 6DoF system size.");
+
+    Array<OneD, NekDouble> bm(nDofs, 0.0);
+    Array<OneD, NekDouble> bk(nDofs, 0.0);
+    Array<OneD, NekDouble> rhs(nDofs, 0.0);
+    std::array<double, nDofs * nDofs> matrix{};
+    std::array<double, nDofs> drhs{};
+    std::array<int, nDofs> ipiv{};
+
+    for (int j = 0; j < nDofs; ++j)
+    {
+        const int j1 = m_index[j];
+        bm[j] = m_coeffs[0] * u[1][j1] + m_coeffs[1] * u[2][j1];
+        bk[j] = u[0][j1] + m_coeffs[3] * u[1][j1] + m_coeffs[4] * u[2][j1];
+    }
+
+    for (int i = 0; i < nDofs; ++i)
+    {
+        rhs[i] = force[i] - nonlinearTerm[i];
+        for (int j = 0; j < nDofs; ++j)
+        {
+            rhs[i] += nonlinearJacobian[i + j * nDofs] *
+                      linearisationVelocity[j];
+            rhs[i] += m_M[i][j] * bm[j] - m_K[i][j] * bk[j];
+            matrix[j * nDofs + i] =
+                m_coeffs[0] * m_M[i][j] + m_C[i][j] +
+                m_coeffs[2] * m_K[i][j] +
+                nonlinearJacobian[i + j * nDofs];
+        }
+        drhs[i] = rhs[i];
+    }
+
+    int info = 0;
+    Lapack::DoSgetrf(nDofs, nDofs, matrix.data(), nDofs, ipiv.data(), info);
+    ASSERTL0(info == 0,
+             "Singular nonlinear 6DoF Newmark effective matrix.");
+    Lapack::Dgetrs('N', nDofs, 1, matrix.data(), nDofs, ipiv.data(),
+                   drhs.data(), nDofs, info);
+    ASSERTL0(info == 0, "Failed to solve nonlinear 6DoF Newmark system.");
+
+    for (int j = 0; j < nDofs; ++j)
+    {
+        const int j1 = m_index[j];
+        u[1][j1]     = drhs[j];
+        u[0][j1]     = m_coeffs[2] * u[1][j1] + bk[j];
+        u[2][j1]     = m_coeffs[0] * u[1][j1] - bm[j];
     }
 }
 

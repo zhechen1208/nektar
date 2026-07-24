@@ -543,6 +543,7 @@ protected:
     /// U, V, W, Omega_x, Omega_y, Omega_z, [body]
     /// A_x, A_y, A_z, DOmega_x, DOmega_y, DOmega_z, [body]
     /// pivot_x, pivot_y, pivot_z [body]
+    /// Q0, Q1, Q2, Q3 [body-to-inertial quaternion]
     Array<OneD, NekDouble> m_movingFrameData;
     /// variable name in m_movingFrameData
     std::vector<std::string> m_strFrameData;

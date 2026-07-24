@@ -74,6 +74,12 @@ public:
                          Array<OneD, NekDouble> force);
     void SolveFreeVarMat(Array<OneD, Array<OneD, NekDouble>> u,
                          Array<OneD, NekDouble> force, const NekDouble mass);
+    void SolveFreeVarMat6DoF(
+        Array<OneD, Array<OneD, NekDouble>> u,
+        const Array<OneD, NekDouble> &force,
+        const Array<OneD, NekDouble> &nonlinearTerm,
+        const Array<OneD, NekDouble> &nonlinearJacobian,
+        const Array<OneD, NekDouble> &linearisationVelocity);
     void SolveOneFree(Array<OneD, Array<OneD, NekDouble>> u,
                       Array<OneD, NekDouble> force,
                       const Array<OneD, NekDouble> theta, const NekDouble uy,
@@ -123,6 +129,10 @@ public:
     {
         return m_hasFreeMotion;
     };
+    inline bool IsFullFree3D6DoF() const
+    {
+        return m_free3D6DoF;
+    }
     void SetOldFvis(Array<OneD, NekDouble> force);
 
 protected:
@@ -147,8 +157,21 @@ protected:
         const std::string &FuncName, const std::string &var,
         std::map<int, LibUtilities::EquationSharedPtr> &result, const int i);
     void CheckParameters();
+    bool HasFull3DPrescribedOrientation() const;
+    void LoadThetaConvention(const TiXmlElement *pSolver);
+    Array<OneD, NekDouble> QuaternionFromConfiguredTheta(
+        const Array<OneD, NekDouble> &theta) const;
+    void UpdatePrescribedMRFData(const NekDouble &time,
+                                 Array<OneD, NekDouble> &MRFData);
+    void UpdateFree3DMRFData(Array<OneD, NekDouble> &MRFData);
+    void WritePrescribedMRFOutput(const NekDouble &time,
+                                  const Array<OneD, NekDouble> &MRFData);
+    void WriteFree3DMRFOutput(const NekDouble &time,
+                              const Array<OneD, NekDouble> &MRFData);
 
 private:
+    static constexpr int ePrescribed3DMRF = 4;
+    static constexpr int eFree3D6DoF = 5;
     int m_solveType;
     // bit 1: 1 rotation with only one translational free
     // bit 0: 0 inertial / 1 body frame
@@ -164,23 +187,36 @@ private:
     void SolveRotOneFree(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                          const Array<OneD, NekDouble> &forcebody,
                          std::map<int, NekDouble> &Dirs);
+    void SolveFree3D6DoF(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
+                         const Array<OneD, NekDouble> &forcebody,
+                         std::map<int, NekDouble> &Dirs);
     int m_index;
     NekDouble m_currentTime;
     NekDouble m_timestep;
     NekDouble m_beta;
     NekDouble m_gamma;
+    NekDouble m_nonlinearTolerance;
+    int m_nonlinearMaxIterations;
     int m_spacedim;
     bool m_isRoot;
     bool m_hasFreeMotion;
     bool m_hasRotation;
+    bool m_prescribed3DMRF;
+    bool m_free3D6DoF;
+    bool m_hasCustomThetaConvention;
     int m_outputFrequency;
     std::ofstream m_outputStream;
     std::set<int> m_dirDoFs;
+    Array<OneD, int> m_thetaOrder;
+    Array<OneD, bool> m_thetaBodyFrame;
     // position and velocity
     // m_vel[0][0,dim], displacement, dim translational + 1 rotation
     // m_vel[1][0,dim], velocity, dim translational + 1 rotation
     // m_vel[2][0,dim], acceleration, dim translational + 1 rotation
     Array<OneD, NekDouble> m_inertialPosition;
+    Array<OneD, NekDouble> m_inertialVelocity;
+    Array<OneD, NekDouble> m_inertialAcceleration;
+    Array<OneD, NekDouble> m_quaternion;
     Array<OneD, Array<OneD, NekDouble>> m_vel;
     // externel force or moving velocity
     std::map<int, LibUtilities::EquationSharedPtr> m_extForceFunction;
@@ -193,6 +229,7 @@ private:
     // linear system
     NekDouble m_mass;
     NekDouble m_rotaionInertia;
+    Array<OneD, NekDouble> m_rotationInertia;
     Array<OneD, NekDouble> m_M;
     Array<OneD, NekDouble> m_C;
     Array<OneD, NekDouble> m_K;

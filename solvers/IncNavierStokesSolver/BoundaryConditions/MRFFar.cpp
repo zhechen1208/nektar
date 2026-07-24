@@ -34,6 +34,7 @@
 
 #include <IncNavierStokesSolver/BoundaryConditions/MRFFar.h>
 #include <LibUtilities/Communication/Comm.h>
+#include <SolverUtils/Core/MovingFrameTransforms.h>
 
 namespace Nektar
 {
@@ -97,7 +98,22 @@ void MRFFar::v_Update(
     {
         vels[i] = m_definedVels[i]->Evaluate(0., 0., 0., time);
     }
-    if (params.find("Theta_z") != params.end())
+    Array<OneD, NekDouble> q(4, 0.0);
+    if (SolverUtils::MovingFrame::QuaternionFromParams(params, q))
+    {
+        Array<OneD, NekDouble> inertialVel(3, 0.0);
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            inertialVel[i] = vels[i];
+        }
+        Array<OneD, NekDouble> bodyVel =
+            SolverUtils::MovingFrame::RotateInertialToBody(q, inertialVel);
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            vels[i] = bodyVel[i];
+        }
+    }
+    else if (params.find("Theta_z") != params.end())
     {
         NekDouble v0 = vels[0], v1 = vels[1];
         NekDouble c = cos(params["Theta_z"]), s = sin(params["Theta_z"]);

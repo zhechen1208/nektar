@@ -1288,9 +1288,13 @@ void VelocityCorrectionScheme::AddMovingFrameDataToParams(
     const Array<OneD, NekDouble> &movingFrameData,
     std::map<std::string, NekDouble> &params)
 {
-    for (size_t i = 0; i < strFrameData.size(); ++i)
+    for (size_t i = 0; i < strFrameData.size() && i < movingFrameData.size();
+         ++i)
     {
-        if (std::fabs(movingFrameData[i]) != 0.0)
+        const bool isQuaternion =
+            strFrameData[i].size() == 2 && strFrameData[i][0] == 'Q' &&
+            strFrameData[i][1] >= '0' && strFrameData[i][1] <= '3';
+        if (std::fabs(movingFrameData[i]) != 0.0 || isQuaternion)
         {
             params[strFrameData[i]] = movingFrameData[i];
         }
