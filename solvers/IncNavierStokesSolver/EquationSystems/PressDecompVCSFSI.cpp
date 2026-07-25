@@ -38,6 +38,8 @@
 
 #include <boost/algorithm/string.hpp>
 #include <cmath>
+#include <iomanip>
+#include <iostream>
 
 namespace Nektar
 {
@@ -303,6 +305,19 @@ void PressDecompVCSFSI::CalculateAddedMass(
             ++j;
         }
         ++i;
+    }
+    if (m_session->GetComm()->GetRank() == 0)
+    {
+        for (int row = 0; row < NumDofs; ++row)
+        {
+            for (int col = 0; col < NumDofs; ++col)
+            {
+                std::cout << "value[" << row << ", " << col
+                          << "] = " << std::scientific
+                          << std::setprecision(7)
+                          << m_addedMass[col + row * NumDofs] << std::endl;
+            }
+        }
     }
 }
 
