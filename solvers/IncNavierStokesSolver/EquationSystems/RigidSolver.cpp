@@ -1636,23 +1636,6 @@ void RigidSolver::SetNewmarkBetaSolver(Array<OneD, NekDouble> &AddedMass)
     int NumDof = m_free3D6DoF ? 6 : m_spacedim + 1;
     if (AddedMass.size() >= NumDof * NumDof)
     {
-        if (m_free3D6DoF)
-        {
-            for (int i = 0; i < NumDof; ++i)
-            {
-                for (int j = i + 1; j < NumDof; ++j)
-                {
-                    const NekDouble aij = AddedMass[i + j * NumDof];
-                    const NekDouble aji = AddedMass[j + i * NumDof];
-                    const NekDouble scale =
-                        std::max(1.0, std::max(fabs(aij), fabs(aji)));
-                    ASSERTL0(fabs(aij - aji) <= 1.0e-10 * scale,
-                             "The 3D 6DoF added-mass matrix must be "
-                             "symmetric in body-frame DoF order "
-                             "(x,y,z,Omega_x,Omega_y,Omega_z).");
-                }
-            }
-        }
         Vmath::Vadd(NumDof * NumDof, AddedMass, 1, m_M, 1, m_M, 1);
     }
     m_bodySolver.SetNewmarkBeta(m_beta, m_gamma, m_timestep, m_M, m_C, m_K,

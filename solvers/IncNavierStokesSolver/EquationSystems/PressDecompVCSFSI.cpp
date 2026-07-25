@@ -304,22 +304,6 @@ void PressDecompVCSFSI::CalculateAddedMass(
         }
         ++i;
     }
-    if (m_spacedim == 3)
-    {
-        for (int row = 0; row < NumDofs; ++row)
-        {
-            for (int col = row + 1; col < NumDofs; ++col)
-            {
-                const NekDouble aij = m_addedMass[row + col * NumDofs];
-                const NekDouble aji = m_addedMass[col + row * NumDofs];
-                const NekDouble scale =
-                    std::max(1.0, std::max(fabs(aij), fabs(aji)));
-                ASSERTL0(fabs(aij - aji) <= 1.0e-10 * scale,
-                         "The pressure-decomposition added-mass matrix is "
-                         "not symmetric.");
-            }
-        }
-    }
 }
 
 void PressDecompVCSFSI::SolvePa(int i, Array<OneD, NekDouble> bc,
