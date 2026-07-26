@@ -53,6 +53,14 @@
 namespace Nektar
 {
 
+enum RigidSolveType
+{
+    eInertialTranslation = 0,
+    ePlanarRigidBody     = 2,
+    ePrescribedMRF       = 4,
+    eFree3D6DoF          = 5
+};
+
 /***
  * Solve the body's motion using Newmark-Beta method
  * M ddx + C dx + K x = F
@@ -72,8 +80,6 @@ public:
                          std::map<int, NekDouble> motionPrescribed);
     void SolveFreeFixMat(Array<OneD, Array<OneD, NekDouble>> u,
                          Array<OneD, NekDouble> force);
-    void SolveFreeVarMat(Array<OneD, Array<OneD, NekDouble>> u,
-                         Array<OneD, NekDouble> force, const NekDouble mass);
     void SolveFreeVarMat6DoF(
         Array<OneD, Array<OneD, NekDouble>> u,
         const Array<OneD, NekDouble> &force,
@@ -95,10 +101,6 @@ public:
         const Array<OneD, NekDouble> &velocityConstraints,
         const Array<OneD, NekDouble> &constraintVelocity, int nDofs,
         int nConstraints);
-    void SolveOneFree(Array<OneD, Array<OneD, NekDouble>> u,
-                      Array<OneD, NekDouble> force,
-                      const Array<OneD, NekDouble> theta, const NekDouble uy,
-                      const NekDouble mass);
     int m_rows;
     int m_motionDofs;
     std::vector<int> m_index;
@@ -185,12 +187,9 @@ protected:
                               const Array<OneD, NekDouble> &MRFData);
 
 private:
-    static constexpr int ePrescribed3DMRF = 4;
-    static constexpr int eFree3D6DoF = 5;
-    int m_solveType;
-    // bit 1: 1 rotation with only one translational free
-    // bit 0: 0 inertial / 1 body frame
-    // only translational motion or prescribed tranlation with rotational [00]
+    RigidSolveType m_solveType;
+    // eInertialTranslation: translation only;
+    // ePlanarRigidBody: unified planar body-frame solve.
     void SolveInertialFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                             const Array<OneD, NekDouble> &forcebody,
                             std::map<int, NekDouble> &Dirs);
@@ -198,10 +197,6 @@ private:
     void SolveBodyFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                         const Array<OneD, NekDouble> &forcebody,
                         std::map<int, NekDouble> &Dirs);
-    // with prescribed rotation, 0 y displacement and x free translation [11]
-    void SolveRotOneFree(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
-                         const Array<OneD, NekDouble> &forcebody,
-                         std::map<int, NekDouble> &Dirs);
     void SolveFree3D6DoF(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                          const Array<OneD, NekDouble> &forcebody,
                          std::map<int, NekDouble> &Dirs);
@@ -219,9 +214,10 @@ private:
     bool m_isRoot;
     bool m_hasFreeMotion;
     bool m_hasRotation;
-    bool m_prescribed3DMRF;
+    // Fully prescribed motions in both 2D and 3D share the quaternion/MRF
+    // state update.  Planar input occupies the z-rotation slots.
+    bool m_prescribedMRF;
     bool m_free3D6DoF;
-    bool m_useUnifiedFreeRigidBody;
     bool m_hasCustomThetaConvention;
     int m_outputFrequency;
     std::ofstream m_outputStream;
@@ -248,6 +244,8 @@ private:
     std::map<int, LibUtilities::EquationSharedPtr> m_frameVelFunction;
     Array<OneD, NekDouble> m_extForceXYZ;
     Array<OneD, NekDouble> m_pivot;
+    // Body-frame vector from PIVOTPOINT to the centre of mass.
+    Array<OneD, NekDouble> m_comOffset;
     NekDouble m_pivotdistance;
     // fluid force
     Array<OneD, NekDouble> m_oldFvis;

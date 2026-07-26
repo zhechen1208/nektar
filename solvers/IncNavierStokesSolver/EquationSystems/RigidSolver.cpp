@@ -131,11 +131,8 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
     m_isRoot              = pField->GetComm()->TreatAsRankZero();
     m_index               = 1;
     m_currentTime              = -1.;
-    m_prescribed3DMRF          = false;
+    m_prescribedMRF            = false;
     m_free3D6DoF               = false;
-    // The Newton-consistent path is the default for an unconstrained 2D body.
-    // Set UseUnifiedFreeRigidBody = 0 only to reproduce legacy results.
-    m_useUnifiedFreeRigidBody  = true;
     m_inertialTransConstraints.clear();
     m_bodyAngularConstraints.clear();
     m_hasCustomThetaConvention = false;
@@ -186,36 +183,21 @@ void RigidSolver::CheckParameters()
         m_solveType = eFree3D6DoF;
         return;
     }
-    m_prescribed3DMRF =
-        m_spacedim == 3 && !m_hasFreeMotion && HasFull3DPrescribedOrientation();
-    if (m_prescribed3DMRF)
+    // A fully prescribed body has no rigid-body equation to solve.  Use the
+    // same inertial-position/quaternion update in 2D and 3D; in 2D the only
+    // angular input is Omega_z (and the corresponding theta_z slot).
+    m_prescribedMRF = !m_hasFreeMotion;
+    if (m_prescribedMRF)
     {
-        m_solveType = ePrescribed3DMRF;
+        m_solveType = ePrescribedMRF;
         return;
     }
 
-    // Count free translational DoFs
-    int nFreeTrans = 0;
-    bool freeX     = false;
-
-    for (int i = 0; i < m_spacedim; ++i)
+    if (m_spacedim == 2 && m_hasRotation)
     {
-        if (m_dirDoFs.find(i) == m_dirDoFs.end())
-        {
-            ++nFreeTrans;
-            if (i == 0)
-            {
-                freeX = true;
-            }
-        }
-    }
-    const bool rotationFree =
-        m_hasRotation && m_dirDoFs.find(m_spacedim) == m_dirDoFs.end();
-    if (m_spacedim == 2 && rotationFree)
-    {
-        // With a free rotation, translational constraints are imposed in the
-        // inertial frame. Keep the body-frame components as unknowns and add
-        // their inertial-frame velocity constraints to the Newton system.
+        // Translational constraints are inertial-frame constraints regardless
+        // of whether Omega_z is prescribed or free. Keep the body-frame
+        // components as unknowns and add them to the Newton saddle system.
         for (int i = 0; i < m_spacedim; ++i)
         {
             if (m_dirDoFs.find(i) != m_dirDoFs.end())
@@ -227,25 +209,16 @@ void RigidSolver::CheckParameters()
     }
     if (!m_hasRotation)
     {
-        m_solveType = 0; // inertial frame
+        m_solveType = eInertialTranslation;
     }
-    else if (rotationFree)
+    else if (m_spacedim == 2 && m_hasRotation)
     {
-        // The nonlinear body-frame solver supports any subset of the two
-        // translational DoFs when Omega_z is free.
-        m_solveType = 2;
-    }
-    else if (nFreeTrans == 1 && freeX)
-    {
-        m_solveType = 1; // with given rotation and only x free
-        if (m_spacedim >= 2)
-        {
-            m_dirDoFs.erase(1);
-        }
-    }
-    else if ((nFreeTrans == 2 || nFreeTrans == 0) && m_hasRotation)
-    {
-        m_solveType = 2; // full planar rigid solver (rotation involved)
+        ASSERTL0(fabs(m_pivotdistance) < NekConstants::kNekZeroTol,
+                 "The unified planar rigid-body solver currently requires "
+                 "PIVOTDISTANCE = 0 (the pivot is the centre of mass).");
+        // All planar cases with at least one free DoF share the constrained
+        // Newton solve.  Prescribed translations are inertial constraints.
+        m_solveType = ePlanarRigidBody;
     }
     else
     {
@@ -324,12 +297,26 @@ void RigidSolver::SetMovableDoFs(std::vector<bool> &moveDoFs)
         return;
     }
 
-    if (m_prescribed3DMRF)
+    if (m_prescribedMRF)
     {
-        const int nDoFs = std::min(6, static_cast<int>(moveDoFs.size()));
-        for (int i = 0; i < nDoFs; ++i)
+        // Keep the moving-frame allocation consistent with the physical
+        // dimension.  A planar body uses x, y and Omega_z slots; a 3D body
+        // uses all six rigid-motion slots.
+        for (int i = 0; i < m_spacedim; ++i)
         {
             moveDoFs[i] = true;
+        }
+        if (m_spacedim == 2 || !HasFull3DPrescribedOrientation())
+        {
+            moveDoFs[5] = true;
+        }
+        else
+        {
+            const int nDoFs = std::min(6, static_cast<int>(moveDoFs.size()));
+            for (int i = 3; i < nDoFs; ++i)
+            {
+                moveDoFs[i] = true;
+            }
         }
         return;
     }
@@ -803,6 +790,7 @@ void RigidSolver::InitBodySolver(
     // read pivot point
     mssgTag = pSolver->FirstChildElement("PIVOTPOINT");
     m_pivot = Array<OneD, NekDouble>(m_spacedim, 0.);
+    m_comOffset = Array<OneD, NekDouble>(m_spacedim, 0.);
     if (mssgTag)
     {
         std::vector<std::string> values;
@@ -817,6 +805,54 @@ void RigidSolver::InitBodySolver(
         }
     }
     Vmath::Vcopy(m_spacedim, m_pivot, 1, pivot, 1);
+    mssgTag = pSolver->FirstChildElement("COMOFFSET");
+    if (mssgTag)
+    {
+        std::vector<std::string> values;
+        ParseUtils::GenerateVector(mssgTag->GetText(), values);
+        ASSERTL0(values.size() == m_spacedim,
+                 "COMOFFSET must have one body-frame component per spatial "
+                 "dimension (from PIVOTPOINT to the centre of mass).");
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            m_comOffset[i] = EvaluateExpression(session, values[i]);
+        }
+        if (m_spacedim == 2)
+        {
+            // Spatial inertia about the pivot P. The supplied ROTATIONINERTIA
+            // is about the centre of mass C.
+            const NekDouble rx = m_comOffset[0];
+            const NekDouble ry = m_comOffset[1];
+            const int n = NumDof;
+            m_M[0 + 2 * n] = -m_mass * ry;
+            m_M[1 + 2 * n] =  m_mass * rx;
+            m_M[2]         = -m_mass * ry;
+            m_M[2 + n]     =  m_mass * rx;
+            m_M[2 + 2 * n] = m_rotaionInertia +
+                               m_mass * (rx * rx + ry * ry);
+        }
+        else
+        {
+            const int n = NumDof;
+            const NekDouble rx = m_comOffset[0], ry = m_comOffset[1], rz = m_comOffset[2];
+            const NekDouble r[3] = {rx, ry, rz};
+            for (int i = 0; i < 3; ++i)
+            {
+                for (int j = 0; j < 3; ++j)
+                {
+                    const NekDouble skew = (i == 0 && j == 1) ? -rz :
+                        (i == 0 && j == 2) ? ry : (i == 1 && j == 0) ? rz :
+                        (i == 1 && j == 2) ? -rx : (i == 2 && j == 0) ? -ry :
+                        (i == 2 && j == 1) ? rx : 0.0;
+                    m_M[i + (j + 3) * n] = -m_mass * skew;
+                    m_M[i + 3 + j * n] = m_mass * skew;
+                    m_M[i + 3 + (j + 3) * n] =
+                        (i == j ? m_rotationInertia[i] + m_mass * (rx*rx+ry*ry+rz*rz) : 0.0) -
+                        m_mass * r[i] * r[j];
+                }
+            }
+        }
+    }
     // read the distance between pivotpoint and masscenter
     mssgTag         = pSolver->FirstChildElement("PIVOTDISTANCE");
     m_pivotdistance = 0.;
@@ -856,11 +892,6 @@ void RigidSolver::InitBodySolver(
              "RigidBodyNonlinearTolerance must be positive.");
     ASSERTL0(m_nonlinearMaxIterations > 0,
              "RigidBodyNonlinearMaxIterations must be positive.");
-    if (session->DefinesParameter("UseUnifiedFreeRigidBody"))
-    {
-        m_useUnifiedFreeRigidBody =
-            session->GetParameter("UseUnifiedFreeRigidBody") != 0.0;
-    }
 }
 
 void RigidSolver::UpdatePrescribed(const NekDouble &time,
@@ -960,7 +991,7 @@ void RigidSolver::UpdateFrameVelocity(Array<OneD, NekDouble> &aeroforce,
         return;
     }
 
-    if (m_prescribed3DMRF)
+    if (m_prescribedMRF)
     {
         UpdatePrescribedMRFData(time, MRFData);
         if (m_isRoot && m_index % m_outputFrequency == 0)
@@ -1252,11 +1283,21 @@ void RigidSolver::WritePrescribedMRFOutput(
                        << boost::format("%25.19e") % velInertial[i] << " "
                        << boost::format("%25.19e") % accInertial[i] << " ";
     }
-    for (int i = 0; i < 3; ++i)
+    // Preserve the legacy one-angle output for planar motion and for 3D
+    // sessions that use the old z-rotation-only input convention.
+    const bool full3DAngularOutput =
+        m_spacedim == 3 && HasFull3DPrescribedOrientation();
+    const int nAngularOutput = full3DAngularOutput ? 3 : 1;
+    const int firstAngular = full3DAngularOutput ? 0 : 2;
+    for (int i = 0; i < nAngularOutput; ++i)
     {
-        m_outputStream << boost::format("%25.19e") % MRFData[i + 3] << " "
-                       << boost::format("%25.19e") % omegaInertial[i] << " "
-                       << boost::format("%25.19e") % alphaInertial[i] << " ";
+        const int axis = firstAngular + i;
+        m_outputStream << boost::format("%25.19e") % MRFData[axis + 3]
+                       << " "
+                       << boost::format("%25.19e") % omegaInertial[axis]
+                       << " "
+                       << boost::format("%25.19e") % alphaInertial[axis]
+                       << " ";
     }
     m_outputStream << std::endl;
 }
@@ -1454,15 +1495,11 @@ void RigidSolver::SolveBodyMotion(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                                   const Array<OneD, NekDouble> &forcebody,
                                   std::map<int, NekDouble> &Dirs)
 {
-    if (0 == m_solveType)
+    if (m_solveType == eInertialTranslation)
     {
         SolveInertialFrame(bodyVel, forcebody, Dirs);
     }
-    else if (1 == m_solveType)
-    {
-        SolveRotOneFree(bodyVel, forcebody, Dirs);
-    }
-    else if (2 == m_solveType)
+    else if (m_solveType == ePlanarRigidBody)
     {
         SolveBodyFrame(bodyVel, forcebody, Dirs);
     }
@@ -1519,30 +1556,23 @@ void RigidSolver::SolveFree3D6DoF(
         }
     }
 
-    const auto addCrossMatrix = [](const Array<OneD, NekDouble> &a,
-                                   const NekDouble scale,
-                                   Array<OneD, NekDouble> &matrix,
-                                   const int rowOffset, const int colOffset) {
-        constexpr int nDofs = 6;
-        matrix[(rowOffset + 0) + (colOffset + 1) * nDofs] +=
-            -scale * a[2];
-        matrix[(rowOffset + 0) + (colOffset + 2) * nDofs] +=
-            scale * a[1];
-        matrix[(rowOffset + 1) + (colOffset + 0) * nDofs] +=
-            scale * a[2];
-        matrix[(rowOffset + 1) + (colOffset + 2) * nDofs] +=
-            -scale * a[0];
-        matrix[(rowOffset + 2) + (colOffset + 0) * nDofs] +=
-            -scale * a[1];
-        matrix[(rowOffset + 2) + (colOffset + 1) * nDofs] +=
-            scale * a[0];
-    };
-
     bool converged = false;
     for (int iter = 0; iter < m_nonlinearMaxIterations; ++iter)
     {
         Array<OneD, NekDouble> velocity(3, 0.0);
         Array<OneD, NekDouble> omega(3, 0.0);
+        // The twist is expressed at PIVOTPOINT.  For a COM offset r, its
+        // linear and angular momenta about that point are
+        //
+        //   p = m (u + Omega x r),
+        //   h = I_C Omega + r x p.
+        //
+        // Thus the body-frame Euler-Poincare terms are Omega x p and
+        // Omega x h + u x p.  Keeping these terms separate from m_M is
+        // essential: m_M can additionally contain fluid added mass, whereas
+        // these are rigid-body transport terms only.
+        Array<OneD, NekDouble> comVelocity(3, 0.0);
+        Array<OneD, NekDouble> linearMomentum(3, 0.0);
         Array<OneD, NekDouble> angularMomentum(3, 0.0);
         Array<OneD, NekDouble> nonlinear(6, 0.0);
         Array<OneD, NekDouble> jacobian(36, 0.0);
@@ -1550,32 +1580,94 @@ void RigidSolver::SolveFree3D6DoF(
         {
             velocity[i]        = trialVelocity[i];
             omega[i]           = trialVelocity[i + 3];
-            angularMomentum[i] = m_rotationInertia[i] * omega[i];
         }
 
-        Array<OneD, NekDouble> omegaCrossVelocity(3, 0.0);
-        Array<OneD, NekDouble> gyroMoment(3, 0.0);
-        Cross(omega, velocity, omegaCrossVelocity);
-        Cross(omega, angularMomentum, gyroMoment);
+        Cross(omega, m_comOffset, comVelocity);
         for (int i = 0; i < 3; ++i)
         {
-            nonlinear[i]     = m_mass * omegaCrossVelocity[i];
-            nonlinear[i + 3] = gyroMoment[i];
+            comVelocity[i] += velocity[i];
+            linearMomentum[i] = m_mass * comVelocity[i];
+            angularMomentum[i] = m_rotationInertia[i] * omega[i];
+        }
+        Array<OneD, NekDouble> offsetMomentum(3, 0.0);
+        Cross(m_comOffset, linearMomentum, offsetMomentum);
+        for (int i = 0; i < 3; ++i)
+        {
+            angularMomentum[i] += offsetMomentum[i];
         }
 
-        // Linearise m Omega x u and Omega x (I Omega) about the
-        // current Picard/Newton iterate in the body frame.
-        addCrossMatrix(omega, m_mass, jacobian, 0, 0);
-        addCrossMatrix(velocity, -m_mass, jacobian, 0, 3);
-        addCrossMatrix(angularMomentum, -1.0, jacobian, 3, 3);
-        // [Omega]_x I: each column of the skew matrix is scaled by the
-        // corresponding principal moment of inertia.
-        jacobian[3 + 4 * 6] += -omega[2] * m_rotationInertia[1];
-        jacobian[3 + 5 * 6] += omega[1] * m_rotationInertia[2];
-        jacobian[4 + 3 * 6] += omega[2] * m_rotationInertia[0];
-        jacobian[4 + 5 * 6] += -omega[0] * m_rotationInertia[2];
-        jacobian[5 + 3 * 6] += -omega[1] * m_rotationInertia[0];
-        jacobian[5 + 4 * 6] += omega[0] * m_rotationInertia[1];
+        Array<OneD, NekDouble> omegaCrossMomentum(3, 0.0);
+        Array<OneD, NekDouble> gyroMoment(3, 0.0);
+        Array<OneD, NekDouble> velocityCrossMomentum(3, 0.0);
+        Cross(omega, linearMomentum, omegaCrossMomentum);
+        Cross(omega, angularMomentum, gyroMoment);
+        Cross(velocity, linearMomentum, velocityCrossMomentum);
+        for (int i = 0; i < 3; ++i)
+        {
+            nonlinear[i]     = omegaCrossMomentum[i];
+            nonlinear[i + 3] = gyroMoment[i] + velocityCrossMomentum[i];
+        }
+
+        // Exact Jacobian of the two transport terms above.  Forming each
+        // column from the momentum differentials makes the COM-offset cross
+        // blocks explicit and also reduces to the centred-body expression
+        // when COMOFFSET is zero.
+        for (int j = 0; j < 6; ++j)
+        {
+            Array<OneD, NekDouble> du(3, 0.0);
+            Array<OneD, NekDouble> dOmega(3, 0.0);
+            Array<OneD, NekDouble> dp(3, 0.0);
+            Array<OneD, NekDouble> dh(3, 0.0);
+            if (j < 3)
+            {
+                du[j] = 1.0;
+                dp[j] = m_mass;
+            }
+            else
+            {
+                dOmega[j - 3] = 1.0;
+                Cross(dOmega, m_comOffset, dp);
+                for (int i = 0; i < 3; ++i)
+                {
+                    dp[i] *= m_mass;
+                    dh[i] = m_rotationInertia[i] * dOmega[i];
+                }
+            }
+            Array<OneD, NekDouble> rCrossDp(3, 0.0);
+            Cross(m_comOffset, dp, rCrossDp);
+            for (int i = 0; i < 3; ++i)
+            {
+                dh[i] += rCrossDp[i];
+            }
+
+            Array<OneD, NekDouble> dTranslation(3, 0.0);
+            Array<OneD, NekDouble> dRotation(3, 0.0);
+            Array<OneD, NekDouble> term(3, 0.0);
+            Cross(dOmega, linearMomentum, dTranslation);
+            Cross(omega, dp, term);
+            for (int i = 0; i < 3; ++i)
+            {
+                dTranslation[i] += term[i];
+            }
+            Cross(dOmega, angularMomentum, dRotation);
+            Cross(omega, dh, term);
+            for (int i = 0; i < 3; ++i)
+            {
+                dRotation[i] += term[i];
+            }
+            Cross(du, linearMomentum, term);
+            for (int i = 0; i < 3; ++i)
+            {
+                dRotation[i] += term[i];
+            }
+            Cross(velocity, dp, term);
+            for (int i = 0; i < 3; ++i)
+            {
+                dRotation[i] += term[i];
+                jacobian[i + j * 6] = dTranslation[i];
+                jacobian[i + 3 + j * 6] = dRotation[i];
+            }
+        }
 
         for (int i = 0; i < 3; ++i)
         {
@@ -1679,38 +1771,13 @@ void RigidSolver::SolveInertialFrame(
     }
 }
 
-// with rotational and one free tranlation
-void RigidSolver::SolveRotOneFree(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
-                                  const Array<OneD, NekDouble> &forcebody,
-                                  std::map<int, NekDouble> &Dirs)
-{
-    // one direction free
-    NekDouble uy = 0.;
-    if (Dirs.find(1) != Dirs.end())
-    {
-        uy = Dirs[1];
-        Dirs.erase(1);
-    }
-    m_bodySolver.SolvePrescribed(bodyVel, Dirs);
-    Array<OneD, NekDouble> force(6, 0.), angle(3, 0.);
-    angle[2] = bodyVel[0][m_spacedim];
-    m_frame.SetAngle(angle);
-    m_frame.IneritalToBody(3, m_extForceXYZ, force);
-    for (int i = 0; i < m_spacedim; ++i)
-    {
-        force[i] = forcebody[i] + force[i];
-    }
-    force[0] += m_mass * bodyVel[1][m_spacedim] * bodyVel[1][m_spacedim] *
-                m_pivotdistance;
-    force[1] -= m_mass * bodyVel[2][m_spacedim] * m_pivotdistance;
-    m_bodySolver.SolveOneFree(bodyVel, force, angle, uy, m_mass);
-}
-
 // with rotational and all free tranlation
 void RigidSolver::SolveFreeRigidBody2D(
     Array<OneD, Array<OneD, NekDouble>> &bodyVel,
-    const Array<OneD, NekDouble> &forcebody, std::map<int, NekDouble> &)
+    const Array<OneD, NekDouble> &forcebody, std::map<int, NekDouble> &Dirs)
 {
+    // Apply the supplied angular data before solving the remaining unknowns.
+    m_bodySolver.SolvePrescribed(bodyVel, Dirs);
     Array<OneD, Array<OneD, NekDouble>> oldState(3);
     for (int i = 0; i < 3; ++i)
     {
@@ -1731,12 +1798,20 @@ void RigidSolver::SolveFreeRigidBody2D(
         force[2] = forcebody[5] + m_extForceXYZ[5];
 
         Array<OneD, NekDouble> nonlinear(3, 0.0), jacobian(9, 0.0);
-        nonlinear[0] = -m_mass * trial[2] * trial[1];
-        nonlinear[1] = m_mass * trial[2] * trial[0];
+        const NekDouble rx = m_comOffset[0];
+        const NekDouble ry = m_comOffset[1];
+        const NekDouble omega = trial[2];
+        nonlinear[0] = -m_mass * (omega * trial[1] + omega * omega * rx);
+        nonlinear[1] =  m_mass * (omega * trial[0] - omega * omega * ry);
+        nonlinear[2] = m_mass * omega * (rx * trial[0] + ry * trial[1]);
         jacobian[0 + 1 * 3] = -m_mass * trial[2];
-        jacobian[0 + 2 * 3] = -m_mass * trial[1];
+        jacobian[0 + 2 * 3] = -m_mass * (trial[1] + 2.0 * omega * rx);
         jacobian[1 + 0 * 3] = m_mass * trial[2];
-        jacobian[1 + 2 * 3] = m_mass * trial[0];
+        jacobian[1 + 2 * 3] = m_mass * (trial[0] - 2.0 * omega * ry);
+        jacobian[2 + 0 * 3] = m_mass * omega * rx;
+        jacobian[2 + 1 * 3] = m_mass * omega * ry;
+        jacobian[2 + 2 * 3] =
+            m_mass * (rx * trial[0] + ry * trial[1]);
 
         for (int i = 0; i < 3; ++i)
         {
@@ -1798,139 +1873,7 @@ void RigidSolver::SolveBodyFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                                  const Array<OneD, NekDouble> &forcebody,
                                  std::map<int, NekDouble> &Dirs)
 {
-    m_bodySolver.SolvePrescribed(bodyVel, Dirs); // at most 1 rotation
-    Array<OneD, NekDouble> force(6, 0.), angle(3, 0.);
-    if (!m_hasFreeMotion)
-    {
-        angle[2] = bodyVel[0][m_spacedim];
-        m_frame.SetAngle(angle);
-        m_frame.IneritalToBody(m_spacedim, bodyVel[1], bodyVel[1]);
-        m_frame.IneritalToBody(m_spacedim, bodyVel[2], bodyVel[2]);
-        bodyVel[2][0] += bodyVel[1][m_spacedim] * bodyVel[1][1];
-        bodyVel[2][1] -= bodyVel[1][m_spacedim] * bodyVel[1][0];
-        return;
-    }
-    if (m_dirDoFs.find(m_spacedim) != m_dirDoFs.end())
-    {
-        // known rotation
-        angle[2] = bodyVel[0][m_spacedim];
-        m_frame.SetAngle(angle);
-        m_frame.IneritalToBody(m_spacedim, m_extForceXYZ, force);
-        for (int i = 0; i < m_spacedim; ++i)
-        {
-            force[i] = forcebody[i] + force[i];
-        }
-        force[0] += m_mass * bodyVel[1][m_spacedim] * bodyVel[1][m_spacedim] *
-                    m_pivotdistance;
-        force[1] -= m_mass * bodyVel[2][m_spacedim] * m_pivotdistance;
-        m_bodySolver.SolveFreeVarMat(bodyVel, force, m_mass);
-    }
-    else
-    {
-        if (m_useUnifiedFreeRigidBody &&
-            fabs(m_pivotdistance) < NekConstants::kNekZeroTol)
-        {
-            SolveFreeRigidBody2D(bodyVel, forcebody, Dirs);
-            return;
-        }
-        // all free
-        Array<OneD, Array<OneD, NekDouble>> tmpbodyVel(bodyVel.size());
-        for (size_t i = 0; i < bodyVel.size(); ++i)
-        {
-            tmpbodyVel[i] = Array<OneD, NekDouble>(bodyVel[i].size());
-            Vmath::Vcopy(bodyVel[i].size(), bodyVel[i], 1, tmpbodyVel[i], 1);
-        }
-        for (int iter = 0; iter < 2; ++iter)
-        {
-            if (iter > 0)
-            {
-                for (size_t i = 0; i < bodyVel.size(); ++i)
-                {
-                    Vmath::Vcopy(bodyVel[i].size() - 1, bodyVel[i], 1,
-                                 tmpbodyVel[i], 1);
-                }
-            }
-            angle[2] = tmpbodyVel[0][m_spacedim];
-            m_frame.SetAngle(angle);
-            m_frame.IneritalToBody(3, m_extForceXYZ, force);
-            for (int i = 0; i < m_spacedim; ++i)
-            {
-                force[i] = forcebody[i] + force[i];
-            }
-            force[m_spacedim] = forcebody[5] + m_extForceXYZ[5];
-            m_bodySolver.SolveFreeVarMat(tmpbodyVel, force, m_mass);
-        }
-        // copy final results
-        for (size_t i = 0; i < bodyVel.size(); ++i)
-        {
-            Vmath::Vcopy(bodyVel[i].size(), tmpbodyVel[i], 1, bodyVel[i], 1);
-        }
-    }
-}
-
-void Newmark_BetaSolver::SolveFreeVarMat(Array<OneD, Array<OneD, NekDouble>> u,
-                                         Array<OneD, NekDouble> force,
-                                         const NekDouble mass)
-{
-    Array<OneD, NekDouble> bm(m_motionDofs, 0.);
-    Array<OneD, NekDouble> bk(m_motionDofs, 0.);
-    double *dMatrix = new double[m_motionDofs * m_motionDofs];
-    int *ipiv       = new int[m_motionDofs];
-    double *drhs    = new double[m_motionDofs];
-    int info;
-
-    for (int j = 0; j < m_motionDofs; ++j)
-    {
-        int j1 = m_index[j];
-        bm[j]  = m_coeffs[0] * u[1][j1] + m_coeffs[1] * u[2][j1];
-        bk[j]  = u[0][j1] + m_coeffs[3] * u[1][j1] + m_coeffs[4] * u[2][j1];
-    }
-    Array<OneD, NekDouble> rhs(m_motionDofs, 0.);
-    for (int i = 0; i < m_motionDofs; ++i)
-    {
-        rhs[i] = force[m_index[i]];
-        for (int j = 0; j < m_motionDofs; ++j)
-        {
-            rhs[i] += m_M[i][j] * bm[j] - m_K[i][j] * bk[j];
-        }
-        for (int j = m_motionDofs; j < m_rows; ++j)
-        {
-            int j1 = m_index[j];
-            rhs[i] -= m_M[i][j] * u[2][j1] + m_C[i][j] * u[1][j1] +
-                      m_K[i][j] * u[0][j1];
-        }
-    }
-    for (int i = 0; i < m_motionDofs; ++i)
-    {
-        drhs[i] = rhs[i];
-        for (int j = 0; j < m_motionDofs; ++j)
-        {
-            dMatrix[j * m_motionDofs + i] = m_Matrix[i][j];
-        }
-    }
-    dMatrix[1] += mass * u[1][m_rows - 1];
-    dMatrix[m_motionDofs] += -mass * u[1][m_rows - 1];
-
-    Lapack::DoSgetrf(m_motionDofs, m_motionDofs, dMatrix, m_motionDofs, ipiv,
-                     info);
-    Lapack::Dgetrs('N', m_motionDofs, 1, dMatrix, m_motionDofs, ipiv, drhs,
-                   m_motionDofs, info);
-    for (int j = 0; j < m_motionDofs; ++j)
-    {
-        int j1   = m_index[j];
-        u[1][j1] = drhs[j];
-    }
-
-    for (int j = 0; j < m_motionDofs; ++j)
-    {
-        int j1   = m_index[j];
-        u[0][j1] = m_coeffs[2] * u[1][j1] + bk[j];
-        u[2][j1] = m_coeffs[0] * u[1][j1] - bm[j];
-    }
-
-    delete[] dMatrix;
-    delete[] drhs;
-    delete[] ipiv;
+    SolveFreeRigidBody2D(bodyVel, forcebody, Dirs);
 }
 
 void RigidSolver::SetNewmarkBetaSolver(Array<OneD, NekDouble> &AddedMass)
@@ -1941,7 +1884,7 @@ void RigidSolver::SetNewmarkBetaSolver(Array<OneD, NekDouble> &AddedMass)
         Vmath::Vadd(NumDof * NumDof, AddedMass, 1, m_M, 1, m_M, 1);
     }
     m_bodySolver.SetNewmarkBeta(m_beta, m_gamma, m_timestep, m_M, m_C, m_K,
-                                m_dirDoFs, m_solveType);
+                                m_dirDoFs, static_cast<int>(m_solveType));
 }
 
 void RigidSolver::SetInitialConditions(
@@ -2048,7 +1991,7 @@ void RigidSolver::SetInitialConditions(
                 MRFData);
         }
     }
-    if (m_prescribed3DMRF)
+    if (m_prescribedMRF)
     {
         UpdatePrescribedMRFData(time, MRFData);
         if (m_isRoot)
@@ -2357,11 +2300,6 @@ void Newmark_BetaSolver::SetNewmarkBeta(NekDouble beta, NekDouble gamma,
             m_index[count++] = i;
         }
     }
-    if (1 == solveType)
-    {
-        ASSERTL0(m_motionDofs == 2,
-                 "2 Dofs if body is free only in x direction.");
-    }
     if (m_motionDofs)
     {
         Array<OneD, NekDouble> temp;
@@ -2652,51 +2590,6 @@ void Newmark_BetaSolver::SolveFreeVarMatNDofConstrained(
         u[1][j1]     = rhs[j];
         u[0][j1]     = m_coeffs[2] * u[1][j1] + bk[j];
         u[2][j1]     = m_coeffs[0] * u[1][j1] - bm[j];
-    }
-}
-
-/**
- * e_x \cdot M [du0, du1, du2]  + m (e_x \times Omega) \cdot u = F \cdot e_x
- * e_x = (c, -s, 0)
- * (c M00 - s M10, c M01 - s M11, c M02 - s M 12) [du0, du1, du2]^T +
- * (-s Omega, -c Omega, 0) [u0, u1, u2]^T =
- * c F0 - s F1
- * equation 2, e_y \cdot (u0, u1) = uy = s * u0 + c * u1
- **/
-void Newmark_BetaSolver::SolveOneFree(Array<OneD, Array<OneD, NekDouble>> u,
-                                      Array<OneD, NekDouble> force,
-                                      const Array<OneD, NekDouble> theta,
-                                      const NekDouble uy, const NekDouble mass)
-{
-    int iOmega  = m_rows - 1;
-    NekDouble c = cos(theta[2]), s = sin(theta[2]);
-    NekDouble C00, C01, C10, C11, M0, M1, M2, F0, F1;
-    M0  = c * m_M[0][0] - s * m_M[1][0];
-    M1  = c * m_M[0][1] - s * m_M[1][1];
-    M2  = c * m_M[0][iOmega] - s * m_M[1][iOmega];
-    C00 = m_coeffs[0] * M0 - s * u[1][iOmega] * mass;
-    C01 = m_coeffs[0] * M1 - c * u[1][iOmega] * mass;
-    C10 = s;
-    C11 = c;
-    F1  = uy;
-    // F0
-    Array<OneD, NekDouble> bm(m_motionDofs, 0.);
-    Array<OneD, NekDouble> bk(m_motionDofs, 0.);
-    for (int j = 0; j < m_motionDofs; ++j)
-    {
-        bm[j] = m_coeffs[0] * u[1][j] + m_coeffs[1] * u[2][j];
-        bk[j] = u[0][j] + m_coeffs[3] * u[1][j] + m_coeffs[4] * u[2][j];
-    }
-    F0 = c * force[0] - s * force[1];
-    F0 = F0 + M0 * bm[0] + M1 * bm[1] - M2 * u[2][iOmega];
-    // solve
-    NekDouble det = 1. / (C00 * C11 - C01 * C10);
-    u[1][0]       = det * (C11 * F0 - C01 * F1);
-    u[1][1]       = det * (-C10 * F0 + C00 * F1);
-    for (int j = 0; j < m_motionDofs; ++j)
-    {
-        u[0][j] = m_coeffs[2] * u[1][j] + bk[j];
-        u[2][j] = m_coeffs[0] * u[1][j] - bm[j];
     }
 }
 
