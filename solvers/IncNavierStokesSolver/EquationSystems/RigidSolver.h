@@ -193,10 +193,6 @@ private:
     void SolveInertialFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                             const Array<OneD, NekDouble> &forcebody,
                             std::map<int, NekDouble> &Dirs);
-    // with rotational and all free tranlation [01]
-    void SolveBodyFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
-                        const Array<OneD, NekDouble> &forcebody,
-                        std::map<int, NekDouble> &Dirs);
     void SolveFree3D6DoF(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                          const Array<OneD, NekDouble> &forcebody,
                          std::map<int, NekDouble> &Dirs);

@@ -1509,7 +1509,7 @@ void RigidSolver::SolveBodyMotion(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
     }
     else if (m_solveType == ePlanarRigidBody)
     {
-        SolveBodyFrame(bodyVel, forcebody, Dirs);
+        SolveFreeRigidBody2D(bodyVel, forcebody, Dirs);
     }
     else if (eFree3D6DoF == m_solveType)
     {
@@ -1875,13 +1875,6 @@ void RigidSolver::SolveFreeRigidBody2D(
         }
     }
     ASSERTL0(converged, "The unified 2D rigid-body Newton solve did not converge.");
-}
-
-void RigidSolver::SolveBodyFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
-                                 const Array<OneD, NekDouble> &forcebody,
-                                 std::map<int, NekDouble> &Dirs)
-{
-    SolveFreeRigidBody2D(bodyVel, forcebody, Dirs);
 }
 
 void RigidSolver::SetNewmarkBetaSolver(Array<OneD, NekDouble> &AddedMass)
