@@ -83,7 +83,10 @@ void VCSFSI::v_DoInitialise(bool dumpInitialConditions)
     m_rigidSolver.SetNewmarkBetaSolver(AddedMass);
     Array<OneD, NekDouble> aeroforce(12, 0.);
     InitialiseFilter(aeroforce);
-    m_rigidSolver.SetOldFvis(aeroforce);
+    if (!m_rigidSolver.HasRestartViscousHistory())
+    {
+        m_rigidSolver.SetOldFvis(aeroforce);
+    }
 }
 
 void VCSFSI::InitialiseFilter(Array<OneD, NekDouble> aeroforce)
@@ -115,6 +118,7 @@ void VCSFSI::v_SolveSolid(NekDouble time)
     }
     // 0-5 pressure force at n+1; 6-11 viscous force at n
     m_rigidSolver.UpdateFrameVelocity(aeroforce, time, m_movingFrameData);
+    m_rigidSolver.UpdateRestartMetaData(m_fieldMetaDataMap, time);
     // update velocity boundary condition
     UpdateVelocityBCs(time);
 }

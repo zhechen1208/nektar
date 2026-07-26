@@ -56,9 +56,16 @@ namespace Nektar
 enum RigidSolveType
 {
     eInertialTranslation = 0,
-    ePlanarRigidBody     = 2,
+    eFreeRigidBody2D     = 2,
     ePrescribedMRF       = 4,
-    eFree3D6DoF          = 5
+    eFreeRigidBody3D     = 5
+};
+
+enum RigidMotionMode
+{
+    eMotionModeAuto,
+    eMotionModeFreeRigidBody3D,
+    eMotionModePrescribedMRF
 };
 
 /***
@@ -80,12 +87,6 @@ public:
                          std::map<int, NekDouble> motionPrescribed);
     void SolveFreeFixMat(Array<OneD, Array<OneD, NekDouble>> u,
                          Array<OneD, NekDouble> force);
-    void SolveFreeVarMat6DoF(
-        Array<OneD, Array<OneD, NekDouble>> u,
-        const Array<OneD, NekDouble> &force,
-        const Array<OneD, NekDouble> &nonlinearTerm,
-        const Array<OneD, NekDouble> &nonlinearJacobian,
-        const Array<OneD, NekDouble> &linearisationVelocity);
     void SolveFreeVarMatNDof(
         Array<OneD, Array<OneD, NekDouble>> u,
         const Array<OneD, NekDouble> &force,
@@ -101,6 +102,15 @@ public:
         const Array<OneD, NekDouble> &velocityConstraints,
         const Array<OneD, NekDouble> &constraintVelocity, int nDofs,
         int nConstraints);
+    int GetMotionDofs() const
+    {
+        return m_motionDofs;
+    }
+    int GetMotionIndex(int i) const
+    {
+        return m_index[i];
+    }
+private:
     int m_rows;
     int m_motionDofs;
     std::vector<int> m_index;
@@ -117,9 +127,9 @@ public:
     FrameTransform();
     ~FrameTransform() {};
     void SetAngle(const Array<OneD, NekDouble> theta);
-    void BodyToInerital(const int dim, const Array<OneD, NekDouble> &body,
+    void BodyToInertial(const int dim, const Array<OneD, NekDouble> &body,
                         Array<OneD, NekDouble> &inertial);
-    void IneritalToBody(const int dim, const Array<OneD, NekDouble> &inertial,
+    void InertialToBody(const int dim, const Array<OneD, NekDouble> &inertial,
                         Array<OneD, NekDouble> &body);
 
 private:
@@ -146,11 +156,22 @@ public:
     {
         return m_hasFreeMotion;
     };
+    inline bool IsFreeRigidBody3D() const
+    {
+        return m_freeRigidBody3D;
+    }
+    // Compatibility alias for callers using the previous 3D-6DoF name.
     inline bool IsFullFree3D6DoF() const
     {
-        return m_free3D6DoF;
+        return IsFreeRigidBody3D();
     }
     void SetOldFvis(Array<OneD, NekDouble> force);
+    inline bool HasRestartViscousHistory() const
+    {
+        return m_hasRestartViscousHistory;
+    }
+    void UpdateRestartMetaData(std::map<std::string, std::string> &metaData,
+                               NekDouble time) const;
 
 protected:
     void LoadParameters(const LibUtilities::SessionReaderSharedPtr session,
@@ -181,6 +202,7 @@ protected:
     void UpdatePrescribedMRFData(const NekDouble &time,
                                  Array<OneD, NekDouble> &MRFData);
     void UpdateFree3DMRFData(Array<OneD, NekDouble> &MRFData);
+    void RestoreRestartMetaData(const std::map<std::string, std::string> &metaData);
     void WritePrescribedMRFOutput(const NekDouble &time,
                                   const Array<OneD, NekDouble> &MRFData);
     void WriteFree3DMRFOutput(const NekDouble &time,
@@ -188,8 +210,9 @@ protected:
 
 private:
     RigidSolveType m_solveType;
+    RigidMotionMode m_motionMode;
     // eInertialTranslation: translation only;
-    // ePlanarRigidBody: unified planar body-frame solve.
+    // eFreeRigidBody2D: unified planar body-frame solve.
     void SolveInertialFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                             const Array<OneD, NekDouble> &forcebody,
                             std::map<int, NekDouble> &Dirs);
@@ -213,7 +236,7 @@ private:
     // Fully prescribed motions in both 2D and 3D share the quaternion/MRF
     // state update.  Planar input occupies the z-rotation slots.
     bool m_prescribedMRF;
-    bool m_free3D6DoF;
+    bool m_freeRigidBody3D;
     bool m_hasCustomThetaConvention;
     int m_outputFrequency;
     std::ofstream m_outputStream;
@@ -245,9 +268,10 @@ private:
     NekDouble m_pivotdistance;
     // fluid force
     Array<OneD, NekDouble> m_oldFvis;
+    bool m_hasRestartViscousHistory;
     // linear system
     NekDouble m_mass;
-    NekDouble m_rotaionInertia;
+    NekDouble m_rotationInertia2D;
     Array<OneD, NekDouble> m_rotationInertia;
     Array<OneD, NekDouble> m_M;
     Array<OneD, NekDouble> m_C;

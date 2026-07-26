@@ -132,7 +132,8 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
     m_index               = 1;
     m_currentTime              = -1.;
     m_prescribedMRF            = false;
-    m_free3D6DoF               = false;
+    m_freeRigidBody3D          = false;
+    m_motionMode               = eMotionModeAuto;
     m_inertialTransConstraints.clear();
     m_bodyAngularConstraints.clear();
     m_hasCustomThetaConvention = false;
@@ -143,6 +144,7 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
     m_thetaOrder[2]            = 0;
     m_extForceXYZ              = Array<OneD, NekDouble>(6, 0.0);
     m_oldFvis                  = Array<OneD, NekDouble>(6, 0.0);
+    m_hasRestartViscousHistory = false;
     m_quaternion = SolverUtils::MovingFrame::IdentityQuaternion();
     TiXmlElement *pSolver      = session->GetElement("Nektar/RIGIDSOLVER");
     LoadParameters(session, pSolver);
@@ -152,7 +154,7 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
 
 void RigidSolver::CheckParameters()
 {
-    if (m_free3D6DoF)
+    if (m_freeRigidBody3D)
     {
         ASSERTL0(m_spacedim == 3,
                  "Full free rigid-body motion is available only in 3D.");
@@ -181,7 +183,7 @@ void RigidSolver::CheckParameters()
                 m_frameVelFunction.find(direction + 6) !=
                 m_frameVelFunction.end();
         }
-        m_solveType = eFree3D6DoF;
+        m_solveType = eFreeRigidBody3D;
         return;
     }
     // A fully prescribed body has no rigid-body equation to solve.  Use the
@@ -190,6 +192,9 @@ void RigidSolver::CheckParameters()
     m_prescribedMRF = !m_hasFreeMotion;
     if (m_prescribedMRF)
     {
+        m_inertialPosition = Array<OneD, NekDouble>(m_spacedim, 0.0);
+        m_inertialVelocity = Array<OneD, NekDouble>(m_spacedim, 0.0);
+        m_inertialAcceleration = Array<OneD, NekDouble>(m_spacedim, 0.0);
         m_solveType = ePrescribedMRF;
         return;
     }
@@ -220,7 +225,7 @@ void RigidSolver::CheckParameters()
                  "PIVOTPOINT to the centre of mass.");
         // All planar cases with at least one free DoF share the constrained
         // Newton solve.  Prescribed translations are inertial constraints.
-        m_solveType = ePlanarRigidBody;
+        m_solveType = eFreeRigidBody2D;
     }
     else
     {
@@ -266,29 +271,21 @@ bool RigidSolver::HasFull3DPrescribedOrientation() const
         return false;
     }
 
-    return m_frameVelFunction.find(3) != m_frameVelFunction.end() ||
-           m_frameVelFunction.find(4) != m_frameVelFunction.end() ||
-           m_frameVelFunction.find(9) != m_frameVelFunction.end() ||
-           m_frameVelFunction.find(10) != m_frameVelFunction.end() ||
-           m_frameVelFunction.find(15) != m_frameVelFunction.end() ||
-           m_frameVelFunction.find(16) != m_frameVelFunction.end() ||
-           m_frameVelFunction.find(
-               SolverUtils::MovingFrame::kQuaternionOffset) !=
-               m_frameVelFunction.end() ||
-           m_frameVelFunction.find(
-               SolverUtils::MovingFrame::kQuaternionOffset + 1) !=
-               m_frameVelFunction.end() ||
-           m_frameVelFunction.find(
-               SolverUtils::MovingFrame::kQuaternionOffset + 2) !=
-               m_frameVelFunction.end() ||
-           m_frameVelFunction.find(
-               SolverUtils::MovingFrame::kQuaternionOffset + 3) !=
-               m_frameVelFunction.end();
+    const auto has = [&](int index) {
+        return m_frameVelFunction.find(index) != m_frameVelFunction.end();
+    };
+    const bool quaternion = has(SolverUtils::MovingFrame::kQuaternionOffset) &&
+        has(SolverUtils::MovingFrame::kQuaternionOffset + 1) &&
+        has(SolverUtils::MovingFrame::kQuaternionOffset + 2) &&
+        has(SolverUtils::MovingFrame::kQuaternionOffset + 3);
+    const bool euler = has(9) && has(10) && has(11);
+    const bool omega = has(3) && has(4) && has(5);
+    return quaternion || euler || omega;
 }
 
 void RigidSolver::SetMovableDoFs(std::vector<bool> &moveDoFs)
 {
-    if (m_free3D6DoF)
+    if (m_freeRigidBody3D)
     {
         ASSERTL0(moveDoFs.size() >= 6,
                  "Full free 3D motion requires six movable-DoF entries.");
@@ -637,11 +634,50 @@ void RigidSolver::InitBodySolver(
     if (mssgTag)
     {
         ParseUtils::GenerateVector(mssgTag->GetText(), prescribedValues);
-        if (m_spacedim == 3 && prescribedValues.size() == 6)
+    }
+    const TiXmlElement *motionModeTag = pSolver->FirstChildElement("MOTIONTYPE");
+    if (motionModeTag)
+    {
+        const std::string motionMode = GetRequiredElementText(
+            motionModeTag, "MOTIONTYPE");
+        if (boost::iequals(motionMode, "FreeRigidBody3D"))
         {
-            m_free3D6DoF = true;
-            NumDof = 6;
+            m_motionMode = eMotionModeFreeRigidBody3D;
         }
+        else if (boost::iequals(motionMode, "PrescribedMRF"))
+        {
+            m_motionMode = eMotionModePrescribedMRF;
+        }
+        else
+        {
+            ASSERTL0(false, "MOTIONTYPE must be FreeRigidBody3D or PrescribedMRF.");
+        }
+    }
+    if (m_motionMode == eMotionModeFreeRigidBody3D)
+    {
+        ASSERTL0(m_spacedim == 3,
+                 "MOTIONTYPE=FreeRigidBody3D is available only in 3D.");
+        ASSERTL0(prescribedValues.size() == 6,
+                 "FreeRigidBody3D requires a six-entry MOTIONPRESCRIBED vector.");
+        m_freeRigidBody3D = true;
+        NumDof = 6;
+    }
+    else if (m_motionMode == eMotionModePrescribedMRF)
+    {
+        ASSERTL0(m_spacedim == 3,
+                 "MOTIONTYPE=PrescribedMRF is available only in 3D.");
+        ASSERTL0(HasFull3DPrescribedOrientation(),
+                 "PrescribedMRF requires complete 3D orientation data in FRAMEVELOCITY.");
+        NumDof = 6;
+    }
+    else if (m_spacedim == 3 && prescribedValues.size() == 6)
+    {
+        ASSERTL0(HasFull3DPrescribedOrientation(),
+                 "A six-entry MOTIONPRESCRIBED vector is ambiguous. Set "
+                 "MOTIONTYPE=FreeRigidBody3D, or provide complete 3D "
+                 "FRAMEVELOCITY data for PrescribedMRF.");
+        m_motionMode = eMotionModePrescribedMRF;
+        NumDof = 6;
     }
     // allocate memory and initialise
     m_vel = Array<OneD, Array<OneD, NekDouble>>(3);
@@ -660,13 +696,12 @@ void RigidSolver::InitBodySolver(
     {
         const std::vector<std::string> &values = prescribedValues;
         const bool full3DPrescribedInput =
-            m_spacedim == 3 && HasFull3DPrescribedOrientation() &&
-            values.size() == 6;
+            m_motionMode == eMotionModePrescribedMRF;
         ASSERTL0(values.size() == NumDof || full3DPrescribedInput,
                  "MOTIONPRESCRIBED vector should be of size " +
                      std::to_string(NumDof) +
                      (m_spacedim == 3 ? " or 6 for prescribed 3D MRF" : ""));
-        if (m_free3D6DoF)
+        if (m_freeRigidBody3D)
         {
             for (int i = 0; i < NumDof; ++i)
             {
@@ -701,7 +736,7 @@ void RigidSolver::InitBodySolver(
             }
         }
     }
-    m_hasRotation = m_hasRotation || m_free3D6DoF ||
+    m_hasRotation = m_hasRotation || m_freeRigidBody3D ||
                     m_dirDoFs.find(m_spacedim) == m_dirDoFs.end();
     m_hasFreeMotion = m_dirDoFs.size() < NumDof;
     // read mass matrix
@@ -715,22 +750,27 @@ void RigidSolver::InitBodySolver(
         ParseUtils::GenerateVector(mssgStr, values);
         ASSERTL0(values.size() == 1, "Mass matrix should be a scalar.");
         m_mass = EvaluateExpression(session, values[0]);
+        ASSERTL0(m_mass > 0.0, "MASS must be positive for a free rigid body.");
         for (int i = 0; i < m_spacedim; ++i)
         {
             m_M[i + i * NumDof] = m_mass;
         }
     }
     mssgTag = pSolver->FirstChildElement("ROTATIONINERTIA");
+    ASSERTL0(!(m_freeRigidBody3D || (m_spacedim == 2 && m_hasRotation)) ||
+                 mssgTag,
+             "ROTATIONINERTIA is required for a rigid body with free rotation.");
     if (mssgTag)
     {
         std::vector<std::string> values;
         mssgStr = mssgTag->GetText();
         ParseUtils::GenerateVector(mssgStr, values);
-        ASSERTL0(values.size() == 1 || (m_free3D6DoF && values.size() == 3),
+        ASSERTL0(values.size() == 1 ||
+                     (m_freeRigidBody3D && values.size() == 3),
                  "Inertia should be a scalar, or three principal inertias for "
                  "full free 3D 6DoF motion.");
-        m_rotaionInertia = EvaluateExpression(session, values[0]);
-        if (m_free3D6DoF)
+        m_rotationInertia2D = EvaluateExpression(session, values[0]);
+        if (m_freeRigidBody3D)
         {
             m_rotationInertia = Array<OneD, NekDouble>(3, 0.0);
             for (int i = 0; i < 3; ++i)
@@ -744,7 +784,9 @@ void RigidSolver::InitBodySolver(
         }
         else
         {
-            m_M[NumDof * NumDof - 1] = m_rotaionInertia;
+            ASSERTL0(m_rotationInertia2D > 0.0,
+                     "ROTATIONINERTIA must be positive.");
+            m_M[NumDof * NumDof - 1] = m_rotationInertia2D;
         }
     }
     // read damping matrix
@@ -831,7 +873,7 @@ void RigidSolver::InitBodySolver(
             m_M[1 + 2 * n] =  m_mass * rx;
             m_M[2]         = -m_mass * ry;
             m_M[2 + n]     =  m_mass * rx;
-            m_M[2 + 2 * n] = m_rotaionInertia +
+            m_M[2 + 2 * n] = m_rotationInertia2D +
                                m_mass * (rx * rx + ry * ry);
         }
         else
@@ -905,6 +947,68 @@ void RigidSolver::InitBodySolver(
 void RigidSolver::UpdatePrescribed(const NekDouble &time,
                                    std::map<int, NekDouble> &Dirs)
 {
+    if (m_freeRigidBody3D)
+    {
+        const NekDouble dt = m_currentTime >= 0.0 ? time - m_currentTime : 0.0;
+        for (const int direction : m_inertialTransConstraints)
+        {
+            const auto evaluate = [&](const int index, NekDouble fallback) {
+                auto it = m_frameVelFunction.find(index);
+                return it == m_frameVelFunction.end()
+                           ? fallback
+                           : it->second->Evaluate(0., 0., 0., time);
+            };
+            const bool hasVelocity =
+                m_frameVelFunction.find(direction) != m_frameVelFunction.end();
+            const bool hasAcceleration =
+                m_frameVelFunction.find(direction + 12) != m_frameVelFunction.end();
+            const NekDouble velocity = evaluate(
+                direction, m_inertialConstraintVelocity[direction]);
+            NekDouble acceleration = evaluate(
+                direction + 12, m_inertialConstraintAcceleration[direction]);
+            if (hasVelocity && !hasAcceleration && dt > 0.0)
+            {
+                acceleration =
+                    (velocity - m_inertialVelocity[direction] -
+                     dt * (1.0 - m_gamma) * m_inertialAcceleration[direction]) /
+                    (m_gamma * dt);
+            }
+            if (hasVelocity && hasAcceleration && dt > 0.0)
+            {
+                const NekDouble expected = m_inertialVelocity[direction] +
+                    dt * ((1.0 - m_gamma) *
+                              m_inertialAcceleration[direction] +
+                          m_gamma * acceleration);
+                ASSERTL0(fabs(expected - velocity) < 100.0 * m_nonlinearTolerance,
+                         "Constrained 3D translational velocity and acceleration "
+                         "must satisfy the Newmark relation.");
+            }
+            m_inertialConstraintVelocity[direction] = velocity;
+            m_inertialConstraintAcceleration[direction] = acceleration;
+            if (m_frameVelFunction.find(direction + 6) !=
+                m_frameVelFunction.end())
+            {
+                m_inertialConstraintPosition[direction] =
+                    evaluate(direction + 6, 0.0);
+                m_hasInertialConstraintPosition[direction] = true;
+            }
+        }
+        for (const int axis : m_bodyAngularConstraints)
+        {
+            for (const int index : {axis + 3, axis + 9, axis + 15})
+            {
+                auto it = m_frameVelFunction.find(index);
+                if (it != m_frameVelFunction.end())
+                {
+                    ASSERTL0(fabs(it->second->Evaluate(0., 0., 0., time)) <
+                                 NekConstants::kNekZeroTol,
+                             "FreeRigidBody3D currently supports only locked "
+                             "zero body-frame angular-velocity constraints.");
+                }
+            }
+        }
+        return;
+    }
     int NumDof = m_spacedim + 1;
     for (auto it : m_frameVelFunction)
     {
@@ -985,6 +1089,74 @@ void RigidSolver::SetOldFvis(Array<OneD, NekDouble> force)
     }
 }
 
+void RigidSolver::UpdateRestartMetaData(
+    std::map<std::string, std::string> &metaData, NekDouble time) const
+{
+    metaData["RigidSolverTime"] = std::to_string(time);
+    for (int i = 0; i < 6; ++i)
+    {
+        metaData["RigidOldFvis" + std::to_string(i)] =
+            std::to_string(m_oldFvis[i]);
+    }
+    for (int i = 0; i < m_spacedim; ++i)
+    {
+        metaData["RigidConstraintPos" + std::to_string(i)] =
+            std::to_string(m_inertialConstraintPosition[i]);
+        metaData["RigidConstraintVel" + std::to_string(i)] =
+            std::to_string(m_inertialConstraintVelocity[i]);
+        metaData["RigidConstraintAcc" + std::to_string(i)] =
+            std::to_string(m_inertialConstraintAcceleration[i]);
+        metaData["RigidConstraintHasPos" + std::to_string(i)] =
+            m_hasInertialConstraintPosition[i] ? "1" : "0";
+    }
+}
+
+void RigidSolver::RestoreRestartMetaData(
+    const std::map<std::string, std::string> &metaData)
+{
+    const auto read = [&metaData](const std::string &name, NekDouble &value) {
+        auto it = metaData.find(name);
+        if (it == metaData.end())
+        {
+            return false;
+        }
+        value = std::stod(it->second);
+        return true;
+    };
+    bool restoredViscousHistory = true;
+    for (int i = 0; i < 6; ++i)
+    {
+        restoredViscousHistory =
+            read("RigidOldFvis" + std::to_string(i), m_oldFvis[i]) &&
+            restoredViscousHistory;
+    }
+    m_hasRestartViscousHistory = restoredViscousHistory;
+    for (int i = 0; i < m_spacedim; ++i)
+    {
+        NekDouble flag = 0.0;
+        const bool restoredPosition =
+            read("RigidConstraintPos" + std::to_string(i),
+                 m_inertialConstraintPosition[i]);
+        const bool restoredVelocity =
+            read("RigidConstraintVel" + std::to_string(i),
+                 m_inertialConstraintVelocity[i]);
+        const bool restoredAcceleration =
+            read("RigidConstraintAcc" + std::to_string(i),
+                 m_inertialConstraintAcceleration[i]);
+        const bool restored = restoredPosition || restoredVelocity ||
+                              restoredAcceleration;
+        if (read("RigidConstraintHasPos" + std::to_string(i), flag))
+        {
+            m_hasInertialConstraintPosition[i] = flag != 0.0;
+        }
+        else if (!restored)
+        {
+            // Legacy restart: FRAMEVELOCITY will initialise this state.
+            m_hasInertialConstraintPosition[i] = false;
+        }
+    }
+}
+
 /**
  * @brief Updates the forcing array with the current required forcing.
  * @param pFields
@@ -1029,7 +1201,7 @@ void RigidSolver::UpdateFrameVelocity(Array<OneD, NekDouble> &aeroforce,
         }
     }
     SolveBodyMotion(m_vel, aeroforce, Dirs);
-    if (m_free3D6DoF)
+    if (m_freeRigidBody3D)
     {
         UpdateFree3DMRFData(MRFData);
         if (m_isRoot && m_index % m_outputFrequency == 0)
@@ -1052,8 +1224,8 @@ void RigidSolver::UpdateFrameVelocity(Array<OneD, NekDouble> &aeroforce,
         Array<OneD, NekDouble> angle(3, 0.);
         angle[2] = tmpVel[0][m_spacedim];
         m_frame.SetAngle(angle);
-        m_frame.BodyToInerital(m_spacedim, tmpVel[1], tmpVel[1]);
-        m_frame.BodyToInerital(m_spacedim, tmpVel[2], tmpVel[2]);
+        m_frame.BodyToInertial(m_spacedim, tmpVel[1], tmpVel[1]);
+        m_frame.BodyToInertial(m_spacedim, tmpVel[2], tmpVel[2]);
         tmpVel[2][0] -= tmpVel[1][m_spacedim] * tmpVel[1][1];
         tmpVel[2][1] += tmpVel[1][m_spacedim] * tmpVel[1][0];
         for (int i = 0; i < m_spacedim; ++i)
@@ -1154,7 +1326,10 @@ void RigidSolver::UpdatePrescribedMRFData(const NekDouble &time,
         }
         else if (dt > 0.0)
         {
-            disp[i] += dt * (velInertial[i] + 0.5 * dt * accInertial[i]);
+            disp[i] = m_inertialPosition[i] + dt * m_inertialVelocity[i] +
+                      dt * dt * ((0.5 - m_beta) *
+                                     m_inertialAcceleration[i] +
+                                 m_beta * accInertial[i]);
         }
     }
 
@@ -1245,6 +1420,9 @@ void RigidSolver::UpdatePrescribedMRFData(const NekDouble &time,
         MRFData[i + 9]  = omegaBody[i];
         MRFData[i + 12] = accBodyInertial[i] - omegaCrossVel[i];
         MRFData[i + 15] = alphaBody[i];
+        m_inertialPosition[i] = disp[i];
+        m_inertialVelocity[i] = velInertial[i];
+        m_inertialAcceleration[i] = accInertial[i];
     }
     StoreQuaternionInFrameData(q, MRFData);
 }
@@ -1370,11 +1548,6 @@ void RigidSolver::UpdateFree3DMRFData(Array<OneD, NekDouble> &MRFData)
         accBody[i]   = m_vel[2][i];
         omegaBody[i] = m_vel[1][i + 3];
         alphaBody[i] = m_vel[2][i + 3];
-    }
-    for (const int axis : m_bodyAngularConstraints)
-    {
-        omegaBody[axis] = 0.0;
-        alphaBody[axis] = 0.0;
     }
     Array<OneD, NekDouble> omegaCrossVel(3, 0.0);
     Cross(omegaBody, velBody, omegaCrossVel);
@@ -1507,11 +1680,11 @@ void RigidSolver::SolveBodyMotion(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
     {
         SolveInertialFrame(bodyVel, forcebody, Dirs);
     }
-    else if (m_solveType == ePlanarRigidBody)
+    else if (m_solveType == eFreeRigidBody2D)
     {
         SolveFreeRigidBody2D(bodyVel, forcebody, Dirs);
     }
-    else if (eFree3D6DoF == m_solveType)
+    else if (m_solveType == eFreeRigidBody3D)
     {
         SolveFreeRigidBody3D(bodyVel, forcebody, Dirs);
     }
@@ -1684,8 +1857,8 @@ void RigidSolver::SolveFreeRigidBody3D(
         if (m_inertialTransConstraints.empty() &&
             m_bodyAngularConstraints.empty())
         {
-            m_bodySolver.SolveFreeVarMat6DoF(bodyVel, force, nonlinear,
-                                              jacobian, trialVelocity);
+            m_bodySolver.SolveFreeVarMatNDof(
+                bodyVel, force, nonlinear, jacobian, trialVelocity, 6);
         }
         else
         {
@@ -1800,7 +1973,7 @@ void RigidSolver::SolveFreeRigidBody2D(
         Array<OneD, NekDouble> force(3, 0.0), angle(3, 0.0);
         angle[2] = bodyVel[0][2];
         m_frame.SetAngle(angle);
-        m_frame.IneritalToBody(3, m_extForceXYZ, force);
+        m_frame.InertialToBody(3, m_extForceXYZ, force);
         force[0] += forcebody[0];
         force[1] += forcebody[1];
         force[2] = forcebody[5] + m_extForceXYZ[5];
@@ -1829,7 +2002,7 @@ void RigidSolver::SolveFreeRigidBody2D(
         {
             m_bodySolver.SolveFreeVarMatNDof(
                 bodyVel, force, nonlinear, jacobian, trial,
-                m_bodySolver.m_motionDofs);
+                m_bodySolver.GetMotionDofs());
         }
         else
         {
@@ -1856,12 +2029,12 @@ void RigidSolver::SolveFreeRigidBody2D(
             }
             m_bodySolver.SolveFreeVarMatNDofConstrained(
                 bodyVel, force, nonlinear, jacobian, trial, constraints, values,
-                m_bodySolver.m_motionDofs, nConstraints);
+                m_bodySolver.GetMotionDofs(), nConstraints);
         }
         NekDouble delta2 = 0.0, state2 = 0.0;
-        for (int i = 0; i < m_bodySolver.m_motionDofs; ++i)
+        for (int i = 0; i < m_bodySolver.GetMotionDofs(); ++i)
         {
-            const int i1 = m_bodySolver.m_index[i];
+            const int i1 = m_bodySolver.GetMotionIndex(i);
             const NekDouble delta = bodyVel[1][i1] - trial[i1];
             delta2 += delta * delta;
             state2 += bodyVel[1][i1] * bodyVel[1][i1];
@@ -1879,7 +2052,7 @@ void RigidSolver::SolveFreeRigidBody2D(
 
 void RigidSolver::SetNewmarkBetaSolver(Array<OneD, NekDouble> &AddedMass)
 {
-    int NumDof = m_free3D6DoF ? 6 : m_spacedim + 1;
+    int NumDof = m_freeRigidBody3D ? 6 : m_spacedim + 1;
     if (AddedMass.size() >= NumDof * NumDof)
     {
         Vmath::Vadd(NumDof * NumDof, AddedMass, 1, m_M, 1, m_M, 1);
@@ -1969,6 +2142,10 @@ void RigidSolver::SetInitialConditions(
         time = std::stod(
             session->GetCmdLineArgument<std::string>("set-start-time"));
     }
+    if (fieldMetaDataMap != LibUtilities::NullFieldMetaDataMap)
+    {
+        RestoreRestartMetaData(fieldMetaDataMap);
+    }
     if (hasLegacyFrameData())
     {
         for (int i = 0; i < nLegacyFrameData; ++i)
@@ -2004,7 +2181,7 @@ void RigidSolver::SetInitialConditions(
     }
     if (hasLegacyFrameData())
     {
-        if (m_free3D6DoF)
+        if (m_freeRigidBody3D)
         {
             for (int i = 0; i < 3; ++i)
             {
@@ -2015,11 +2192,14 @@ void RigidSolver::SetInitialConditions(
                 m_vel[1][i + 3] = fileData[strFrameData[i + 9]];
                 m_vel[2][i + 3] = fileData[strFrameData[i + 15]];
             }
-            m_quaternion = hasQuaternionData()
+            const Array<OneD, NekDouble> qRestart = hasQuaternionData()
                 ? SolverUtils::MovingFrame::QuaternionFromFrameData(MRFData)
                 : SolverUtils::MovingFrame::QuaternionFromEulerZYX(
                       fileData[strFrameData[3]], fileData[strFrameData[4]],
                       fileData[strFrameData[5]]);
+            m_quaternion = SolverUtils::MovingFrame::MakeQuaternionContinuous(
+                SolverUtils::MovingFrame::IdentityQuaternion(),
+                SolverUtils::MovingFrame::NormalizeQuaternion(qRestart));
             const Array<OneD, NekDouble> theta =
                 SolverUtils::MovingFrame::EulerZYXFromQuaternion(m_quaternion);
             for (int i = 0; i < 3; ++i)
@@ -2073,13 +2253,13 @@ void RigidSolver::SetInitialConditions(
             velocityBody[i]     = m_vel[1][i];
             accelerationBody[i] = m_vel[2][i];
         }
-        m_frame.BodyToInerital(2, velocityBody, velocityInertial);
+        m_frame.BodyToInertial(2, velocityBody, velocityInertial);
         for (const int direction : m_inertialTransConstraints)
         {
             velocityInertial[direction] =
                 m_inertialConstraintVelocity[direction];
         }
-        m_frame.IneritalToBody(2, velocityInertial, velocityBody);
+        m_frame.InertialToBody(2, velocityInertial, velocityBody);
         for (int i = 0; i < 2; ++i)
         {
             m_vel[1][i] = velocityBody[i];
@@ -2088,13 +2268,13 @@ void RigidSolver::SetInitialConditions(
         const NekDouble omega = m_vel[1][m_spacedim];
         accelerationBody[0] -= omega * velocityBody[1];
         accelerationBody[1] += omega * velocityBody[0];
-        m_frame.BodyToInerital(2, accelerationBody, accelerationInertial);
+        m_frame.BodyToInertial(2, accelerationBody, accelerationInertial);
         for (const int direction : m_inertialTransConstraints)
         {
             accelerationInertial[direction] =
                 m_inertialConstraintAcceleration[direction];
         }
-        m_frame.IneritalToBody(2, accelerationInertial, accelerationBody);
+        m_frame.InertialToBody(2, accelerationInertial, accelerationBody);
         accelerationBody[0] += omega * velocityBody[1];
         accelerationBody[1] -= omega * velocityBody[0];
         for (int i = 0; i < 2; ++i)
@@ -2114,8 +2294,8 @@ void RigidSolver::SetInitialConditions(
             accelerationBody[i] = m_vel[2][i];
         }
         m_frame.SetAngle(angle);
-        m_frame.BodyToInerital(2, velocityBody, m_inertialVelocity);
-        m_frame.BodyToInerital(2, accelerationBody,
+        m_frame.BodyToInertial(2, velocityBody, m_inertialVelocity);
+        m_frame.BodyToInertial(2, accelerationBody,
                                 m_inertialAcceleration);
         const NekDouble omega = m_vel[1][m_spacedim];
         m_inertialAcceleration[0] -= omega * m_inertialVelocity[1];
@@ -2128,7 +2308,7 @@ void RigidSolver::SetInitialConditions(
                 m_inertialConstraintAcceleration[direction];
         }
     }
-    if (m_free3D6DoF)
+    if (m_freeRigidBody3D)
     {
         Array<OneD, NekDouble> velocityBody(3, 0.0);
         Array<OneD, NekDouble> accelerationBody(3, 0.0);
@@ -2191,6 +2371,7 @@ void RigidSolver::SetInitialConditions(
         {
             WriteFree3DMRFOutput(time, MRFData);
         }
+        m_currentTime = time;
         return;
     }
     UpdateMRFData(MRFData);
@@ -2210,8 +2391,8 @@ void RigidSolver::SetInitialConditions(
             Array<OneD, NekDouble> angle(3, 0.);
             angle[2] = tmpVel[0][m_spacedim];
             m_frame.SetAngle(angle);
-            m_frame.BodyToInerital(m_spacedim, tmpVel[1], tmpVel[1]);
-            m_frame.BodyToInerital(m_spacedim, tmpVel[2], tmpVel[2]);
+            m_frame.BodyToInertial(m_spacedim, tmpVel[1], tmpVel[1]);
+            m_frame.BodyToInertial(m_spacedim, tmpVel[2], tmpVel[2]);
             tmpVel[2][0] -= tmpVel[1][m_spacedim] * tmpVel[1][1];
             tmpVel[2][1] += tmpVel[1][m_spacedim] * tmpVel[1][0];
             tmpVel[0][0] = m_inertialPosition[0];
@@ -2230,6 +2411,10 @@ void RigidSolver::SetInitialConditions(
         }
         m_outputStream << std::endl;
     }
+    // The restored (or initial) state already represents this physical time.
+    // Recording it prevents the first outer solver call from advancing the
+    // rigid body a second time at the restart time.
+    m_currentTime = time;
 }
 
 void RigidSolver::GetFilterInfo(
@@ -2429,17 +2614,6 @@ void Newmark_BetaSolver::SolveFreeFixMat(Array<OneD, Array<OneD, NekDouble>> u,
     }
 }
 
-void Newmark_BetaSolver::SolveFreeVarMat6DoF(
-    Array<OneD, Array<OneD, NekDouble>> u,
-    const Array<OneD, NekDouble> &force,
-    const Array<OneD, NekDouble> &nonlinearTerm,
-    const Array<OneD, NekDouble> &nonlinearJacobian,
-    const Array<OneD, NekDouble> &linearisationVelocity)
-{
-    SolveFreeVarMatNDof(u, force, nonlinearTerm, nonlinearJacobian,
-                         linearisationVelocity, 6);
-}
-
 void Newmark_BetaSolver::SolveFreeVarMatNDof(
     Array<OneD, Array<OneD, NekDouble>> u,
     const Array<OneD, NekDouble> &force,
@@ -2605,7 +2779,7 @@ void FrameTransform::SetAngle(const Array<OneD, NekDouble> theta)
     m_matrix[1] = sin(theta[2]);
 }
 
-void FrameTransform::BodyToInerital(const int dim,
+void FrameTransform::BodyToInertial(const int dim,
                                     const Array<OneD, NekDouble> &body,
                                     Array<OneD, NekDouble> &inertial)
 {
@@ -2621,7 +2795,7 @@ void FrameTransform::BodyToInerital(const int dim,
     }
 }
 
-void FrameTransform::IneritalToBody(const int dim,
+void FrameTransform::InertialToBody(const int dim,
                                     const Array<OneD, NekDouble> &inertial,
                                     Array<OneD, NekDouble> &body)
 {

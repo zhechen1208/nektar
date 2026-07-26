@@ -91,7 +91,7 @@ void PressDecompVCSFSI::v_DoInitialise(bool dumpInitialConditions)
     VelocityCorrectionScheme::v_DoInitialise(dumpInitialConditions);
     std::set<int> dofs; // 0,1,2;3,4,5 six dofs
     GetMovableDoFs(dofs);
-    if (m_rigidSolver.IsFullFree3D6DoF())
+    if (m_rigidSolver.IsFreeRigidBody3D())
     {
         ASSERTL0(dofs.size() == kNumFrameAcceleration &&
                      *dofs.begin() == 0 && *dofs.rbegin() == 5,
@@ -103,7 +103,10 @@ void PressDecompVCSFSI::v_DoInitialise(bool dumpInitialConditions)
     m_rigidSolver.SetNewmarkBetaSolver(m_addedMass);
     Array<OneD, NekDouble> aeroforce(12, 0.);
     InitialiseFilter(aeroforce);
-    m_rigidSolver.SetOldFvis(aeroforce);
+    if (!m_rigidSolver.HasRestartViscousHistory())
+    {
+        m_rigidSolver.SetOldFvis(aeroforce);
+    }
 }
 
 void PressDecompVCSFSI::SolvePotentials(std::set<int> &dofs)
