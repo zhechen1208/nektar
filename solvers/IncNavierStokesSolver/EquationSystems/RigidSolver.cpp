@@ -49,8 +49,6 @@
 #include <MultiRegions/ExpList.h>
 #include <SolverUtils/Core/MovingFrameTransforms.h>
 #include <SolverUtils/Filters/FilterInterfaces.hpp>
-#include <algorithm>
-#include <array>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/format.hpp>
 

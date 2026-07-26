@@ -36,8 +36,6 @@
 #ifndef NEKTAR_SOLVERS_RIGIDSOLVER
 #define NEKTAR_SOLVERS_RIGIDSOLVER
 
-#include <string>
-
 #include <LibUtilities/BasicUtils/Equation.h>
 #include <LibUtilities/BasicUtils/NekFactory.hpp>
 #include <LibUtilities/BasicUtils/SharedArray.hpp>
@@ -48,7 +46,10 @@
 #include <boost/numeric/ublas/io.hpp>
 #include <boost/numeric/ublas/matrix.hpp>
 #include <boost/numeric/ublas/vector.hpp>
+#include <fstream>
+#include <string>
 #include <cmath>
+#include <set>
 
 namespace Nektar
 {
