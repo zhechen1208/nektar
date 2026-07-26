@@ -108,6 +108,20 @@ std::string GetRequiredElementText(const TiXmlElement *element,
     return text;
 }
 
+void BuildCrossMatrix(const Array<OneD, NekDouble> &v,
+                      Array<OneD, NekDouble> &skew)
+{
+    ASSERTL0(v.size() >= 3 && skew.size() >= 9,
+             "A 3D cross-product matrix requires three-vector storage.");
+    Vmath::Zero(9, skew, 1);
+    skew[0 + 1 * 3] = -v[2];
+    skew[0 + 2 * 3] =  v[1];
+    skew[1 + 0 * 3] =  v[2];
+    skew[1 + 2 * 3] = -v[0];
+    skew[2 + 0 * 3] = -v[1];
+    skew[2 + 1 * 3] =  v[0];
+}
+
 } // namespace
 
 void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
@@ -131,7 +145,6 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
     m_currentTime              = -1.;
     m_prescribedMRF            = false;
     m_freeRigidBody3D          = false;
-    m_motionMode               = eMotionModeAuto;
     m_inertialTransConstraints.clear();
     m_bodyAngularConstraints.clear();
     m_hasCustomThetaConvention = false;
@@ -175,6 +188,8 @@ void RigidSolver::CheckParameters()
         m_inertialConstraintVelocity = Array<OneD, NekDouble>(3, 0.0);
         m_inertialConstraintAcceleration = Array<OneD, NekDouble>(3, 0.0);
         m_hasInertialConstraintPosition = Array<OneD, bool>(3, false);
+        m_inertialAngularConstraintVelocity =
+            Array<OneD, NekDouble>(3, 0.0);
         for (const int direction : m_inertialTransConstraints)
         {
             m_hasInertialConstraintPosition[direction] =
@@ -633,49 +648,24 @@ void RigidSolver::InitBodySolver(
     {
         ParseUtils::GenerateVector(mssgTag->GetText(), prescribedValues);
     }
-    const TiXmlElement *motionModeTag = pSolver->FirstChildElement("MOTIONTYPE");
-    if (motionModeTag)
+    bool full3DPrescribedInput = false;
+    if (m_spacedim == 3 && prescribedValues.size() == 6)
     {
-        const std::string motionMode = GetRequiredElementText(
-            motionModeTag, "MOTIONTYPE");
-        if (boost::iequals(motionMode, "FreeRigidBody3D"))
+        bool allPrescribed = true;
+        for (const auto &value : prescribedValues)
         {
-            m_motionMode = eMotionModeFreeRigidBody3D;
+            const bool prescribed = EvaluateExpression(session, value) != 0.0;
+            allPrescribed = allPrescribed && prescribed;
         }
-        else if (boost::iequals(motionMode, "PrescribedMRF"))
+        NumDof = 6;
+        full3DPrescribedInput = allPrescribed;
+        m_freeRigidBody3D = !allPrescribed;
+        if (full3DPrescribedInput)
         {
-            m_motionMode = eMotionModePrescribedMRF;
+            ASSERTL0(HasFull3DPrescribedOrientation(),
+                     "A fully prescribed 3D MRF requires complete orientation "
+                     "data in FRAMEVELOCITY.");
         }
-        else
-        {
-            ASSERTL0(false, "MOTIONTYPE must be FreeRigidBody3D or PrescribedMRF.");
-        }
-    }
-    if (m_motionMode == eMotionModeFreeRigidBody3D)
-    {
-        ASSERTL0(m_spacedim == 3,
-                 "MOTIONTYPE=FreeRigidBody3D is available only in 3D.");
-        ASSERTL0(prescribedValues.size() == 6,
-                 "FreeRigidBody3D requires a six-entry MOTIONPRESCRIBED vector.");
-        m_freeRigidBody3D = true;
-        NumDof = 6;
-    }
-    else if (m_motionMode == eMotionModePrescribedMRF)
-    {
-        ASSERTL0(m_spacedim == 3,
-                 "MOTIONTYPE=PrescribedMRF is available only in 3D.");
-        ASSERTL0(HasFull3DPrescribedOrientation(),
-                 "PrescribedMRF requires complete 3D orientation data in FRAMEVELOCITY.");
-        NumDof = 6;
-    }
-    else if (m_spacedim == 3 && prescribedValues.size() == 6)
-    {
-        ASSERTL0(HasFull3DPrescribedOrientation(),
-                 "A six-entry MOTIONPRESCRIBED vector is ambiguous. Set "
-                 "MOTIONTYPE=FreeRigidBody3D, or provide complete 3D "
-                 "FRAMEVELOCITY data for PrescribedMRF.");
-        m_motionMode = eMotionModePrescribedMRF;
-        NumDof = 6;
     }
     // allocate memory and initialise
     m_vel = Array<OneD, Array<OneD, NekDouble>>(3);
@@ -693,8 +683,6 @@ void RigidSolver::InitBodySolver(
     if (mssgTag)
     {
         const std::vector<std::string> &values = prescribedValues;
-        const bool full3DPrescribedInput =
-            m_motionMode == eMotionModePrescribedMRF;
         ASSERTL0(values.size() == NumDof || full3DPrescribedInput,
                  "MOTIONPRESCRIBED vector should be of size " +
                      std::to_string(NumDof) +
@@ -755,9 +743,16 @@ void RigidSolver::InitBodySolver(
         }
     }
     mssgTag = pSolver->FirstChildElement("ROTATIONINERTIA");
-    ASSERTL0(!(m_freeRigidBody3D || (m_spacedim == 2 && m_hasRotation)) ||
-                 mssgTag,
+    const bool freePlanarRotation =
+        m_spacedim == 2 &&
+        m_dirDoFs.find(m_spacedim) == m_dirDoFs.end();
+    ASSERTL0(!(m_freeRigidBody3D || freePlanarRotation) || mssgTag,
              "ROTATIONINERTIA is required for a rigid body with free rotation.");
+    // A prescribed planar angle does not require an inertia to solve the
+    // translational equations.  Keep its unused rotational entry well-defined
+    // nevertheless, including when COMOFFSET supplies translation-rotation
+    // coupling terms.
+    m_rotationInertia2D = 0.0;
     if (mssgTag)
     {
         std::vector<std::string> values;
@@ -874,21 +869,22 @@ void RigidSolver::InitBodySolver(
             m_M[2 + 2 * n] = m_rotationInertia2D +
                                m_mass * (rx * rx + ry * ry);
         }
-        else
+        else if (m_freeRigidBody3D)
         {
             const int n = NumDof;
             const NekDouble rx = m_comOffset[0], ry = m_comOffset[1], rz = m_comOffset[2];
-            const NekDouble r[3] = {rx, ry, rz};
+            Array<OneD, NekDouble> r(3, 0.0);
+            r[0] = rx;
+            r[1] = ry;
+            r[2] = rz;
+            Array<OneD, NekDouble> skew(9, 0.0);
+            BuildCrossMatrix(r, skew);
             for (int i = 0; i < 3; ++i)
             {
                 for (int j = 0; j < 3; ++j)
                 {
-                    const NekDouble skew = (i == 0 && j == 1) ? -rz :
-                        (i == 0 && j == 2) ? ry : (i == 1 && j == 0) ? rz :
-                        (i == 1 && j == 2) ? -rx : (i == 2 && j == 0) ? -ry :
-                        (i == 2 && j == 1) ? rx : 0.0;
-                    m_M[i + (j + 3) * n] = -m_mass * skew;
-                    m_M[i + 3 + j * n] = m_mass * skew;
+                    m_M[i + (j + 3) * n] = -m_mass * skew[i + j * 3];
+                    m_M[i + 3 + j * n] = m_mass * skew[i + j * 3];
                     m_M[i + 3 + (j + 3) * n] =
                         (i == j ? m_rotationInertia[i] + m_mass * (rx*rx+ry*ry+rz*rz) : 0.0) -
                         m_mass * r[i] * r[j];
@@ -912,10 +908,15 @@ void RigidSolver::InitBodySolver(
              "COMOFFSET and a non-zero PIVOTDISTANCE cannot be used "
              "together. PIVOTDISTANCE is deprecated; use COMOFFSET for "
              "the vector from PIVOTPOINT to the centre of mass.");
+    m_physicalMassMatrix = Array<OneD, NekDouble>(m_M.size(), 0.0);
+    Vmath::Vcopy(m_M.size(), m_M, 1, m_physicalMassMatrix, 1);
+    m_addedMassMatrix = Array<OneD, NekDouble>(m_M.size(), 0.0);
+    m_effectiveMassMatrix = Array<OneD, NekDouble>(m_M.size(), 0.0);
+    Vmath::Vcopy(m_M.size(), m_M, 1, m_effectiveMassMatrix, 1);
     // read Newmark Beta paramters
     m_timestep = session->GetParameter("TimeStep");
     m_beta     = 0.25;
-    m_gamma    = 0.51;
+    m_gamma    = 0.5;
     if (session->DefinesParameter("NewmarkBeta"))
     {
         m_beta = session->GetParameter("NewmarkBeta");
@@ -924,6 +925,12 @@ void RigidSolver::InitBodySolver(
     {
         m_gamma = session->GetParameter("NewmarkGamma");
     }
+    ASSERTL0(m_beta > 0.0 && m_gamma >= 0.5,
+             "NewmarkBeta must be positive and NewmarkGamma must be at least 0.5.");
+    // gamma > 0.5 deliberately permits first-order numerical dissipation.
+    // Do not reject such schemes merely because they do not meet the
+    // sufficient condition for the second-order, unconditionally stable
+    // Newmark family; beta=0.5, gamma=1 is an intended example.
     m_nonlinearTolerance    = 1.0e-10;
     m_nonlinearMaxIterations = 8;
     if (session->DefinesParameter("RigidBodyNonlinearTolerance"))
@@ -993,16 +1000,11 @@ void RigidSolver::UpdatePrescribed(const NekDouble &time,
         }
         for (const int axis : m_bodyAngularConstraints)
         {
-            for (const int index : {axis + 3, axis + 9, axis + 15})
+            const auto omegaFunction = m_frameVelFunction.find(axis + 3);
+            if (omegaFunction != m_frameVelFunction.end())
             {
-                auto it = m_frameVelFunction.find(index);
-                if (it != m_frameVelFunction.end())
-                {
-                    ASSERTL0(fabs(it->second->Evaluate(0., 0., 0., time)) <
-                                 NekConstants::kNekZeroTol,
-                             "FreeRigidBody3D currently supports only locked "
-                             "zero body-frame angular-velocity constraints.");
-                }
+                m_inertialAngularConstraintVelocity[axis] =
+                    omegaFunction->second->Evaluate(0., 0., 0., time);
             }
         }
         return;
@@ -1313,21 +1315,80 @@ void RigidSolver::UpdatePrescribedMRFData(const NekDouble &time,
 
     for (int i = 0; i < 3; ++i)
     {
-        velInertial[i]   = evaluate(i, 0.0);
+        const bool hasVelocity = hasFunction(i);
+        const bool hasPosition = hasFunction(i + 6);
+        const bool hasAcceleration = hasFunction(i + 12);
+        velInertial[i]   = evaluate(i, m_inertialVelocity[i]);
         omegaInertial[i] = evaluate(i + 3, 0.0);
-        accInertial[i]   = evaluate(i + 12, 0.0);
+        accInertial[i]   = evaluate(i + 12, m_inertialAcceleration[i]);
         alphaInertial[i] = evaluate(i + 15, 0.0);
 
-        if (hasFunction(i + 6))
+        if (hasPosition)
         {
             disp[i] = evaluate(i + 6, disp[i]);
         }
-        else if (dt > 0.0)
+        if (dt > 0.0)
         {
-            disp[i] = m_inertialPosition[i] + dt * m_inertialVelocity[i] +
-                      dt * dt * ((0.5 - m_beta) *
-                                     m_inertialAcceleration[i] +
-                                 m_beta * accInertial[i]);
+            if (hasPosition)
+            {
+                // Position is the authoritative prescribed datum.  It fixes
+                // the Newmark acceleration; any supplied velocity is then a
+                // consistency check rather than an independent overwrite.
+                accInertial[i] =
+                    (disp[i] - m_inertialPosition[i] -
+                     dt * m_inertialVelocity[i] -
+                     dt * dt * (0.5 - m_beta) *
+                         m_inertialAcceleration[i]) /
+                    (m_beta * dt * dt);
+                const NekDouble consistentVelocity =
+                    m_inertialVelocity[i] + dt *
+                        ((1.0 - m_gamma) * m_inertialAcceleration[i] +
+                         m_gamma * accInertial[i]);
+                if (hasVelocity)
+                {
+                    ASSERTL0(fabs(velInertial[i] - consistentVelocity) <
+                                 100.0 * m_nonlinearTolerance,
+                             "Prescribed position and velocity violate the "
+                             "Newmark relation.");
+                }
+                velInertial[i] = consistentVelocity;
+            }
+            else if (hasVelocity)
+            {
+                if (!hasAcceleration)
+                {
+                    accInertial[i] =
+                        (velInertial[i] - m_inertialVelocity[i] -
+                         dt * (1.0 - m_gamma) *
+                             m_inertialAcceleration[i]) /
+                        (m_gamma * dt);
+                }
+                else
+                {
+                    const NekDouble expectedVelocity =
+                        m_inertialVelocity[i] + dt *
+                            ((1.0 - m_gamma) * m_inertialAcceleration[i] +
+                             m_gamma * accInertial[i]);
+                    ASSERTL0(fabs(velInertial[i] - expectedVelocity) <
+                                 100.0 * m_nonlinearTolerance,
+                             "Prescribed velocity and acceleration violate "
+                             "the Newmark relation.");
+                }
+                disp[i] = m_inertialPosition[i] + dt * m_inertialVelocity[i] +
+                          dt * dt * ((0.5 - m_beta) *
+                                         m_inertialAcceleration[i] +
+                                     m_beta * accInertial[i]);
+            }
+            else if (hasAcceleration)
+            {
+                velInertial[i] = m_inertialVelocity[i] + dt *
+                    ((1.0 - m_gamma) * m_inertialAcceleration[i] +
+                     m_gamma * accInertial[i]);
+                disp[i] = m_inertialPosition[i] + dt * m_inertialVelocity[i] +
+                          dt * dt * ((0.5 - m_beta) *
+                                         m_inertialAcceleration[i] +
+                                     m_beta * accInertial[i]);
+            }
         }
     }
 
@@ -1852,6 +1913,9 @@ void RigidSolver::SolveFreeRigidBody3D(
         {
             Vmath::Vcopy(oldState[i].size(), oldState[i], 1, bodyVel[i], 1);
         }
+        int nConstraints = 0;
+        Array<OneD, NekDouble> constraints;
+        Array<OneD, NekDouble> values;
         if (m_inertialTransConstraints.empty() &&
             m_bodyAngularConstraints.empty())
         {
@@ -1860,10 +1924,10 @@ void RigidSolver::SolveFreeRigidBody3D(
         }
         else
         {
-            const int nConstraints = m_inertialTransConstraints.size() +
-                                     m_bodyAngularConstraints.size();
-            Array<OneD, NekDouble> constraints(6 * nConstraints, 0.0);
-            Array<OneD, NekDouble> values(nConstraints, 0.0);
+            nConstraints = m_inertialTransConstraints.size() +
+                           m_bodyAngularConstraints.size();
+            constraints = Array<OneD, NekDouble>(6 * nConstraints, 0.0);
+            values = Array<OneD, NekDouble>(nConstraints, 0.0);
             Array<OneD, NekDouble> omegaMid(3, 0.0);
             for (int i = 0; i < 3; ++i)
             {
@@ -1889,8 +1953,21 @@ void RigidSolver::SolveFreeRigidBody3D(
             }
             for (const int axis : m_bodyAngularConstraints)
             {
-                constraints[k * 6 + 3 + axis] = 1.0;
-                values[k] = 0.0;
+                // FRAMEVELOCITY angular components follow the same inertial
+                // convention as translational components.  The KKT unknown
+                // is body-frame Omega, so rotate the inertial direction into
+                // the predicted body frame rather than constraining a fixed
+                // body-axis component.
+                Array<OneD, NekDouble> directionInertial(3, 0.0);
+                directionInertial[axis] = 1.0;
+                const Array<OneD, NekDouble> directionBody =
+                    RotateInertialToBody(constraintQuaternion,
+                                         directionInertial);
+                for (int j = 0; j < 3; ++j)
+                {
+                    constraints[k * 6 + 3 + j] = directionBody[j];
+                }
+                values[k] = m_inertialAngularConstraintVelocity[axis];
                 ++k;
             }
             m_bodySolver.SolveFreeVarMatNDofConstrained(
@@ -1907,8 +1984,23 @@ void RigidSolver::SolveFreeRigidBody3D(
             stateNorm += bodyVel[1][i] * bodyVel[1][i];
             trialVelocity[i] = bodyVel[1][i];
         }
+        NekDouble constraintResidual = 0.0;
+        if (!m_inertialTransConstraints.empty() ||
+            !m_bodyAngularConstraints.empty())
+        {
+            for (int k = 0; k < nConstraints; ++k)
+            {
+                NekDouble value = -values[k];
+                for (int j = 0; j < 6; ++j)
+                {
+                    value += constraints[k * 6 + j] * bodyVel[1][j];
+                }
+                constraintResidual += value * value;
+            }
+        }
         if (std::sqrt(deltaNorm) <=
-            m_nonlinearTolerance * std::max(1.0, std::sqrt(stateNorm)))
+                m_nonlinearTolerance * std::max(1.0, std::sqrt(stateNorm)) &&
+            std::sqrt(constraintResidual) <= m_nonlinearTolerance)
         {
             converged = true;
             break;
@@ -2051,12 +2143,21 @@ void RigidSolver::SolveFreeRigidBody2D(
 void RigidSolver::SetNewmarkBetaSolver(Array<OneD, NekDouble> &AddedMass)
 {
     int NumDof = m_freeRigidBody3D ? 6 : m_spacedim + 1;
-    if (AddedMass.size() >= NumDof * NumDof)
+    ASSERTL0(m_physicalMassMatrix.size() == NumDof * NumDof,
+             "The physical rigid-body mass matrix has an invalid size.");
+    ASSERTL0(AddedMass.size() == 0 || AddedMass.size() == NumDof * NumDof,
+             "AddedMass must be empty or exactly NumDof-by-NumDof.");
+    m_addedMassMatrix = Array<OneD, NekDouble>(NumDof * NumDof, 0.0);
+    if (AddedMass.size() != 0)
     {
-        Vmath::Vadd(NumDof * NumDof, AddedMass, 1, m_M, 1, m_M, 1);
+        Vmath::Vcopy(NumDof * NumDof, AddedMass, 1, m_addedMassMatrix, 1);
     }
-    m_bodySolver.SetNewmarkBeta(m_beta, m_gamma, m_timestep, m_M, m_C, m_K,
-                                m_dirDoFs, static_cast<int>(m_solveType));
+    m_effectiveMassMatrix = Array<OneD, NekDouble>(NumDof * NumDof, 0.0);
+    Vmath::Vadd(NumDof * NumDof, m_physicalMassMatrix, 1,
+                m_addedMassMatrix, 1, m_effectiveMassMatrix, 1);
+    m_bodySolver.SetNewmarkBeta(m_beta, m_gamma, m_timestep,
+                                m_effectiveMassMatrix, m_C, m_K, m_dirDoFs,
+                                static_cast<int>(m_solveType));
 }
 
 void RigidSolver::SetInitialConditions(
@@ -2699,6 +2800,53 @@ void Newmark_BetaSolver::SolveFreeVarMatNDofConstrained(
                  velocityConstraints.size() >= nConstraints * m_rows &&
                  constraintVelocity.size() >= nConstraints,
              "Invalid constrained nonlinear rigid-body system data.");
+    ASSERTL0(nConstraints <= nDofs,
+             "The number of velocity constraints exceeds the rigid-body DoFs.");
+    // Detect zero, repeated and nearly linearly dependent constraint rows
+    // before factorising the KKT system.  A singular KKT matrix otherwise
+    // hides the actual XML/input error behind a LAPACK failure.
+    std::vector<std::vector<NekDouble>> orthogonalRows;
+    for (int k = 0; k < nConstraints; ++k)
+    {
+        std::vector<NekDouble> row(nDofs, 0.0);
+        for (int j = 0; j < nDofs; ++j)
+        {
+            row[j] = velocityConstraints[k * m_rows + m_index[j]];
+        }
+        NekDouble rowNorm2 = 0.0;
+        for (int j = 0; j < nDofs; ++j)
+        {
+            rowNorm2 += row[j] * row[j];
+        }
+        ASSERTL0(std::sqrt(rowNorm2) > 100.0 * NekConstants::kNekZeroTol,
+                 "A rigid-body velocity constraint has a zero direction.");
+        for (const auto &basis : orthogonalRows)
+        {
+            NekDouble projection = 0.0;
+            for (int j = 0; j < nDofs; ++j)
+            {
+                projection += row[j] * basis[j];
+            }
+            for (int j = 0; j < nDofs; ++j)
+            {
+                row[j] -= projection * basis[j];
+            }
+        }
+        NekDouble residualNorm2 = 0.0;
+        for (int j = 0; j < nDofs; ++j)
+        {
+            residualNorm2 += row[j] * row[j];
+        }
+        ASSERTL0(std::sqrt(residualNorm2) >
+                     100.0 * NekConstants::kNekZeroTol,
+                 "Rigid-body velocity constraints are repeated or linearly dependent.");
+        const NekDouble inverseNorm = 1.0 / std::sqrt(residualNorm2);
+        for (int j = 0; j < nDofs; ++j)
+        {
+            row[j] *= inverseNorm;
+        }
+        orthogonalRows.push_back(row);
+    }
 
     Array<OneD, NekDouble> bm(nDofs, 0.0);
     Array<OneD, NekDouble> bk(nDofs, 0.0);

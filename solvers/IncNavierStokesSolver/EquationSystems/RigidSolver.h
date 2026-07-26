@@ -62,13 +62,6 @@ enum RigidSolveType
     eFreeRigidBody3D     = 5
 };
 
-enum RigidMotionMode
-{
-    eMotionModeAuto,
-    eMotionModeFreeRigidBody3D,
-    eMotionModePrescribedMRF
-};
-
 /***
  * Solve the body's motion using Newmark-Beta method
  * M ddx + C dx + K x = F
@@ -211,7 +204,6 @@ protected:
 
 private:
     RigidSolveType m_solveType;
-    RigidMotionMode m_motionMode;
     // eInertialTranslation: translation only;
     // eFreeRigidBody2D: unified planar body-frame solve.
     void SolveInertialFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
@@ -248,6 +240,10 @@ private:
     Array<OneD, NekDouble> m_inertialConstraintVelocity;
     Array<OneD, NekDouble> m_inertialConstraintAcceleration;
     Array<OneD, bool> m_hasInertialConstraintPosition;
+    // FRAMEVELOCITY angular inputs for constrained 3D motion are inertial
+    // components. They are rotated into the body-frame KKT rows each Newton
+    // iteration; this keeps the XML convention consistent with translation.
+    Array<OneD, NekDouble> m_inertialAngularConstraintVelocity;
     Array<OneD, int> m_thetaOrder;
     Array<OneD, bool> m_thetaBodyFrame;
     // position and velocity
@@ -275,6 +271,9 @@ private:
     NekDouble m_rotationInertia2D;
     Array<OneD, NekDouble> m_rotationInertia;
     Array<OneD, NekDouble> m_M;
+    Array<OneD, NekDouble> m_physicalMassMatrix;
+    Array<OneD, NekDouble> m_addedMassMatrix;
+    Array<OneD, NekDouble> m_effectiveMassMatrix;
     Array<OneD, NekDouble> m_C;
     Array<OneD, NekDouble> m_K;
     // utility classes
