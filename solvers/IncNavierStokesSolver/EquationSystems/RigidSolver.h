@@ -80,6 +80,21 @@ public:
         const Array<OneD, NekDouble> &nonlinearTerm,
         const Array<OneD, NekDouble> &nonlinearJacobian,
         const Array<OneD, NekDouble> &linearisationVelocity);
+    void SolveFreeVarMatNDof(
+        Array<OneD, Array<OneD, NekDouble>> u,
+        const Array<OneD, NekDouble> &force,
+        const Array<OneD, NekDouble> &nonlinearTerm,
+        const Array<OneD, NekDouble> &nonlinearJacobian,
+        const Array<OneD, NekDouble> &linearisationVelocity, int nDofs);
+    void SolveFreeVarMatNDofConstrained(
+        Array<OneD, Array<OneD, NekDouble>> u,
+        const Array<OneD, NekDouble> &force,
+        const Array<OneD, NekDouble> &nonlinearTerm,
+        const Array<OneD, NekDouble> &nonlinearJacobian,
+        const Array<OneD, NekDouble> &linearisationVelocity,
+        const Array<OneD, NekDouble> &velocityConstraints,
+        const Array<OneD, NekDouble> &constraintVelocity, int nDofs,
+        int nConstraints);
     void SolveOneFree(Array<OneD, Array<OneD, NekDouble>> u,
                       Array<OneD, NekDouble> force,
                       const Array<OneD, NekDouble> theta, const NekDouble uy,
@@ -190,6 +205,9 @@ private:
     void SolveFree3D6DoF(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                          const Array<OneD, NekDouble> &forcebody,
                          std::map<int, NekDouble> &Dirs);
+    void SolveFreeRigidBody2D(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
+                              const Array<OneD, NekDouble> &forcebody,
+                              std::map<int, NekDouble> &Dirs);
     int m_index;
     NekDouble m_currentTime;
     NekDouble m_timestep;
@@ -203,10 +221,16 @@ private:
     bool m_hasRotation;
     bool m_prescribed3DMRF;
     bool m_free3D6DoF;
+    bool m_useUnifiedFreeRigidBody;
     bool m_hasCustomThetaConvention;
     int m_outputFrequency;
     std::ofstream m_outputStream;
     std::set<int> m_dirDoFs;
+    std::set<int> m_inertialTransConstraints;
+    Array<OneD, NekDouble> m_inertialConstraintPosition;
+    Array<OneD, NekDouble> m_inertialConstraintVelocity;
+    Array<OneD, NekDouble> m_inertialConstraintAcceleration;
+    Array<OneD, bool> m_hasInertialConstraintPosition;
     Array<OneD, int> m_thetaOrder;
     Array<OneD, bool> m_thetaBodyFrame;
     // position and velocity

@@ -133,6 +133,10 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
     m_currentTime              = -1.;
     m_prescribed3DMRF          = false;
     m_free3D6DoF               = false;
+    // The Newton-consistent path is the default for an unconstrained 2D body.
+    // Set UseUnifiedFreeRigidBody = 0 only to reproduce legacy results.
+    m_useUnifiedFreeRigidBody  = true;
+    m_inertialTransConstraints.clear();
     m_hasCustomThetaConvention = false;
     m_thetaOrder               = Array<OneD, int>(3, 0);
     m_thetaBodyFrame           = Array<OneD, bool>(3, false);
@@ -194,9 +198,31 @@ void RigidSolver::CheckParameters()
             }
         }
     }
+    const bool rotationFree =
+        m_hasRotation && m_dirDoFs.find(m_spacedim) == m_dirDoFs.end();
+    if (m_spacedim == 2 && rotationFree)
+    {
+        // With a free rotation, translational constraints are imposed in the
+        // inertial frame. Keep the body-frame components as unknowns and add
+        // their inertial-frame velocity constraints to the Newton system.
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            if (m_dirDoFs.find(i) != m_dirDoFs.end())
+            {
+                m_inertialTransConstraints.insert(i);
+                m_dirDoFs.erase(i);
+            }
+        }
+    }
     if (!m_hasRotation)
     {
         m_solveType = 0; // inertial frame
+    }
+    else if (rotationFree)
+    {
+        // The nonlinear body-frame solver supports any subset of the two
+        // translational DoFs when Omega_z is free.
+        m_solveType = 2;
     }
     else if (nFreeTrans == 1 && freeX)
     {
@@ -220,6 +246,18 @@ void RigidSolver::CheckParameters()
     if (m_hasRotation)
     {
         m_inertialPosition = Array<OneD, NekDouble>(2, 0.);
+        m_inertialVelocity = Array<OneD, NekDouble>(2, 0.);
+        m_inertialAcceleration = Array<OneD, NekDouble>(2, 0.);
+        m_inertialConstraintPosition = Array<OneD, NekDouble>(2, 0.);
+        m_inertialConstraintVelocity = Array<OneD, NekDouble>(2, 0.);
+        m_inertialConstraintAcceleration = Array<OneD, NekDouble>(2, 0.);
+        m_hasInertialConstraintPosition = Array<OneD, bool>(2, false);
+        for (const int direction : m_inertialTransConstraints)
+        {
+            m_hasInertialConstraintPosition[direction] =
+                m_frameVelFunction.find(direction + 6) !=
+                m_frameVelFunction.end();
+        }
         // m_K should be zero
         NekDouble sum = 0;
         for (size_t i = 0; i < m_K.size(); ++i)
@@ -294,7 +332,9 @@ void RigidSolver::SetMovableDoFs(std::vector<bool> &moveDoFs)
     }
     for (int i = 0; i < m_spacedim; ++i)
     {
-        if (m_dirDoFs.find(i) == m_dirDoFs.end())
+        if (m_dirDoFs.find(i) == m_dirDoFs.end() &&
+            m_inertialTransConstraints.find(i) ==
+                m_inertialTransConstraints.end())
         {
             moveDoFs[i] = true;
         }
@@ -803,6 +843,11 @@ void RigidSolver::InitBodySolver(
              "RigidBodyNonlinearTolerance must be positive.");
     ASSERTL0(m_nonlinearMaxIterations > 0,
              "RigidBodyNonlinearMaxIterations must be positive.");
+    if (session->DefinesParameter("UseUnifiedFreeRigidBody"))
+    {
+        m_useUnifiedFreeRigidBody =
+            session->GetParameter("UseUnifiedFreeRigidBody") != 0.0;
+    }
 }
 
 void RigidSolver::UpdatePrescribed(const NekDouble &time,
@@ -813,7 +858,17 @@ void RigidSolver::UpdatePrescribed(const NekDouble &time,
     {
         if (it.first < 3)
         {
-            Dirs[it.first] = it.second->Evaluate(0., 0., 0., time);
+            const NekDouble value = it.second->Evaluate(0., 0., 0., time);
+            if (it.first < m_spacedim &&
+                m_inertialTransConstraints.find(it.first) !=
+                    m_inertialTransConstraints.end())
+            {
+                m_inertialConstraintVelocity[it.first] = value;
+            }
+            else
+            {
+                Dirs[it.first] = value;
+            }
         }
         else if (it.first == 5)
         {
@@ -821,7 +876,18 @@ void RigidSolver::UpdatePrescribed(const NekDouble &time,
         }
         else if (it.first < 9)
         {
-            Dirs[NumDof + it.first - 6] = it.second->Evaluate(0., 0., 0., time);
+            const int direction = it.first - 6;
+            const NekDouble value = it.second->Evaluate(0., 0., 0., time);
+            if (direction < m_spacedim &&
+                m_inertialTransConstraints.find(direction) !=
+                    m_inertialTransConstraints.end())
+            {
+                m_inertialConstraintPosition[direction] = value;
+            }
+            else
+            {
+                Dirs[NumDof + direction] = value;
+            }
         }
         else if (it.first == 11)
         {
@@ -829,8 +895,18 @@ void RigidSolver::UpdatePrescribed(const NekDouble &time,
         }
         else if (it.first < 15)
         {
-            Dirs[(NumDof << 1) + it.first - 12] =
-                it.second->Evaluate(0., 0., 0., time);
+            const int direction = it.first - 12;
+            const NekDouble value = it.second->Evaluate(0., 0., 0., time);
+            if (direction < m_spacedim &&
+                m_inertialTransConstraints.find(direction) !=
+                    m_inertialTransConstraints.end())
+            {
+                m_inertialConstraintAcceleration[direction] = value;
+            }
+            else
+            {
+                Dirs[(NumDof << 1) + direction] = value;
+            }
         }
         else if (it.first == 17)
         {
@@ -928,10 +1004,41 @@ void RigidSolver::UpdateFrameVelocity(Array<OneD, NekDouble> &aeroforce,
         m_frame.BodyToInerital(m_spacedim, tmpVel[2], tmpVel[2]);
         tmpVel[2][0] -= tmpVel[1][m_spacedim] * tmpVel[1][1];
         tmpVel[2][1] += tmpVel[1][m_spacedim] * tmpVel[1][0];
-        m_inertialPosition[0] +=
-            m_timestep * (tmpVel[1][0] + 0.5 * m_timestep * tmpVel[2][0]);
-        m_inertialPosition[1] +=
-            m_timestep * (tmpVel[1][1] + 0.5 * m_timestep * tmpVel[2][1]);
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            if (m_inertialTransConstraints.find(i) !=
+                m_inertialTransConstraints.end())
+            {
+                // The constraint is defined in the inertial frame. A supplied
+                // displacement takes precedence; otherwise advance its
+                // position with the prescribed velocity/acceleration.
+                if (m_hasInertialConstraintPosition[i])
+                {
+                    m_inertialPosition[i] =
+                        m_inertialConstraintPosition[i];
+                }
+                else
+                {
+                    m_inertialPosition[i] +=
+                        m_timestep * m_inertialVelocity[i] +
+                        m_timestep * m_timestep *
+                            ((0.5 - m_beta) * m_inertialAcceleration[i] +
+                             m_beta * m_inertialConstraintAcceleration[i]);
+                }
+                tmpVel[1][i] = m_inertialConstraintVelocity[i];
+                tmpVel[2][i] = m_inertialConstraintAcceleration[i];
+                m_inertialVelocity[i]     = tmpVel[1][i];
+                m_inertialAcceleration[i] = tmpVel[2][i];
+                continue;
+            }
+            m_inertialPosition[i] +=
+                m_timestep * m_inertialVelocity[i] +
+                m_timestep * m_timestep *
+                    ((0.5 - m_beta) * m_inertialAcceleration[i] +
+                     m_beta * tmpVel[2][i]);
+            m_inertialVelocity[i]     = tmpVel[1][i];
+            m_inertialAcceleration[i] = tmpVel[2][i];
+        }
         tmpVel[0][0] = m_inertialPosition[0];
         tmpVel[0][1] = m_inertialPosition[1];
     }
@@ -1498,6 +1605,93 @@ void RigidSolver::SolveRotOneFree(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
 }
 
 // with rotational and all free tranlation
+void RigidSolver::SolveFreeRigidBody2D(
+    Array<OneD, Array<OneD, NekDouble>> &bodyVel,
+    const Array<OneD, NekDouble> &forcebody, std::map<int, NekDouble> &)
+{
+    Array<OneD, Array<OneD, NekDouble>> oldState(3);
+    for (int i = 0; i < 3; ++i)
+    {
+        oldState[i] = Array<OneD, NekDouble>(3, 0.0);
+        Vmath::Vcopy(3, bodyVel[i], 1, oldState[i], 1);
+    }
+    Array<OneD, NekDouble> trial(3, 0.0);
+    Vmath::Vcopy(3, oldState[1], 1, trial, 1);
+    bool converged = false;
+    for (int iter = 0; iter < m_nonlinearMaxIterations; ++iter)
+    {
+        Array<OneD, NekDouble> force(3, 0.0), angle(3, 0.0);
+        angle[2] = bodyVel[0][2];
+        m_frame.SetAngle(angle);
+        m_frame.IneritalToBody(3, m_extForceXYZ, force);
+        force[0] += forcebody[0];
+        force[1] += forcebody[1];
+        force[2] = forcebody[5] + m_extForceXYZ[5];
+
+        Array<OneD, NekDouble> nonlinear(3, 0.0), jacobian(9, 0.0);
+        nonlinear[0] = -m_mass * trial[2] * trial[1];
+        nonlinear[1] = m_mass * trial[2] * trial[0];
+        jacobian[0 + 1 * 3] = -m_mass * trial[2];
+        jacobian[0 + 2 * 3] = -m_mass * trial[1];
+        jacobian[1 + 0 * 3] = m_mass * trial[2];
+        jacobian[1 + 2 * 3] = m_mass * trial[0];
+
+        for (int i = 0; i < 3; ++i)
+        {
+            Vmath::Vcopy(3, oldState[i], 1, bodyVel[i], 1);
+        }
+        if (m_inertialTransConstraints.empty())
+        {
+            m_bodySolver.SolveFreeVarMatNDof(
+                bodyVel, force, nonlinear, jacobian, trial,
+                m_bodySolver.m_motionDofs);
+        }
+        else
+        {
+            const int nConstraints = m_inertialTransConstraints.size();
+            Array<OneD, NekDouble> constraints(3 * nConstraints, 0.0);
+            Array<OneD, NekDouble> values(nConstraints, 0.0);
+            int k = 0;
+            const NekDouble c = cos(angle[2]);
+            const NekDouble s = sin(angle[2]);
+            for (const int direction : m_inertialTransConstraints)
+            {
+                if (direction == 0)
+                {
+                    constraints[k * 3]     = c;
+                    constraints[k * 3 + 1] = -s;
+                }
+                else
+                {
+                    constraints[k * 3]     = s;
+                    constraints[k * 3 + 1] = c;
+                }
+                values[k] = m_inertialConstraintVelocity[direction];
+                ++k;
+            }
+            m_bodySolver.SolveFreeVarMatNDofConstrained(
+                bodyVel, force, nonlinear, jacobian, trial, constraints, values,
+                m_bodySolver.m_motionDofs, nConstraints);
+        }
+        NekDouble delta2 = 0.0, state2 = 0.0;
+        for (int i = 0; i < m_bodySolver.m_motionDofs; ++i)
+        {
+            const int i1 = m_bodySolver.m_index[i];
+            const NekDouble delta = bodyVel[1][i1] - trial[i1];
+            delta2 += delta * delta;
+            state2 += bodyVel[1][i1] * bodyVel[1][i1];
+            trial[i1] = bodyVel[1][i1];
+        }
+        if (std::sqrt(delta2) <= m_nonlinearTolerance *
+                                     std::max(1.0, std::sqrt(state2)))
+        {
+            converged = true;
+            break;
+        }
+    }
+    ASSERTL0(converged, "The unified 2D rigid-body Newton solve did not converge.");
+}
+
 void RigidSolver::SolveBodyFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                                  const Array<OneD, NekDouble> &forcebody,
                                  std::map<int, NekDouble> &Dirs)
@@ -1531,6 +1725,12 @@ void RigidSolver::SolveBodyFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
     }
     else
     {
+        if (m_useUnifiedFreeRigidBody &&
+            fabs(m_pivotdistance) < NekConstants::kNekZeroTol)
+        {
+            SolveFreeRigidBody2D(bodyVel, forcebody, Dirs);
+            return;
+        }
         // all free
         Array<OneD, Array<OneD, NekDouble>> tmpbodyVel(bodyVel.size());
         for (size_t i = 0; i < bodyVel.size(); ++i)
@@ -1803,6 +2003,83 @@ void RigidSolver::SetInitialConditions(
     std::map<int, NekDouble> Dirs;
     UpdatePrescribed(time, Dirs);
     SetInitialConditions(Dirs);
+    if (m_spacedim == 2 && m_hasRotation &&
+        !m_inertialTransConstraints.empty())
+    {
+        for (const int direction : m_inertialTransConstraints)
+        {
+            if (m_hasInertialConstraintPosition[direction])
+            {
+                m_inertialPosition[direction] =
+                    m_inertialConstraintPosition[direction];
+            }
+        }
+        Array<OneD, NekDouble> angle(3, 0.0);
+        angle[2] = m_vel[0][m_spacedim];
+        m_frame.SetAngle(angle);
+
+        Array<OneD, NekDouble> velocityBody(3, 0.0);
+        Array<OneD, NekDouble> velocityInertial(3, 0.0);
+        Array<OneD, NekDouble> accelerationBody(3, 0.0);
+        Array<OneD, NekDouble> accelerationInertial(3, 0.0);
+        for (int i = 0; i < 2; ++i)
+        {
+            velocityBody[i]     = m_vel[1][i];
+            accelerationBody[i] = m_vel[2][i];
+        }
+        m_frame.BodyToInerital(2, velocityBody, velocityInertial);
+        for (const int direction : m_inertialTransConstraints)
+        {
+            velocityInertial[direction] =
+                m_inertialConstraintVelocity[direction];
+        }
+        m_frame.IneritalToBody(2, velocityInertial, velocityBody);
+        for (int i = 0; i < 2; ++i)
+        {
+            m_vel[1][i] = velocityBody[i];
+        }
+
+        const NekDouble omega = m_vel[1][m_spacedim];
+        accelerationBody[0] -= omega * velocityBody[1];
+        accelerationBody[1] += omega * velocityBody[0];
+        m_frame.BodyToInerital(2, accelerationBody, accelerationInertial);
+        for (const int direction : m_inertialTransConstraints)
+        {
+            accelerationInertial[direction] =
+                m_inertialConstraintAcceleration[direction];
+        }
+        m_frame.IneritalToBody(2, accelerationInertial, accelerationBody);
+        accelerationBody[0] += omega * velocityBody[1];
+        accelerationBody[1] -= omega * velocityBody[0];
+        for (int i = 0; i < 2; ++i)
+        {
+            m_vel[2][i] = accelerationBody[i];
+        }
+    }
+    if (m_spacedim == 2 && m_hasRotation)
+    {
+        Array<OneD, NekDouble> angle(3, 0.0);
+        Array<OneD, NekDouble> velocityBody(3, 0.0);
+        Array<OneD, NekDouble> accelerationBody(3, 0.0);
+        angle[2] = m_vel[0][m_spacedim];
+        for (int i = 0; i < 2; ++i)
+        {
+            velocityBody[i]     = m_vel[1][i];
+            accelerationBody[i] = m_vel[2][i];
+        }
+        m_frame.SetAngle(angle);
+        m_frame.BodyToInerital(2, velocityBody, m_inertialVelocity);
+        m_frame.BodyToInerital(2, accelerationBody,
+                                m_inertialAcceleration);
+        const NekDouble omega = m_vel[1][m_spacedim];
+        m_inertialAcceleration[0] -= omega * m_inertialVelocity[1];
+        m_inertialAcceleration[1] += omega * m_inertialVelocity[0];
+        for (const int direction : m_inertialTransConstraints)
+        {
+            m_inertialVelocity[direction]     = 0.0;
+            m_inertialAcceleration[direction] = 0.0;
+        }
+    }
     if (m_free3D6DoF)
     {
         Array<OneD, NekDouble> velocityBody(3, 0.0);
@@ -2093,20 +2370,30 @@ void Newmark_BetaSolver::SolveFreeVarMat6DoF(
     const Array<OneD, NekDouble> &nonlinearJacobian,
     const Array<OneD, NekDouble> &linearisationVelocity)
 {
-    constexpr int nDofs = 6;
-    ASSERTL0(m_rows == nDofs && m_motionDofs == nDofs,
-             "The nonlinear moving-frame solver requires six free DoFs.");
-    ASSERTL0(force.size() >= nDofs && nonlinearTerm.size() >= nDofs &&
-                 nonlinearJacobian.size() >= nDofs * nDofs &&
-                 linearisationVelocity.size() >= nDofs,
-             "Invalid nonlinear 6DoF system size.");
+    SolveFreeVarMatNDof(u, force, nonlinearTerm, nonlinearJacobian,
+                         linearisationVelocity, 6);
+}
+
+void Newmark_BetaSolver::SolveFreeVarMatNDof(
+    Array<OneD, Array<OneD, NekDouble>> u,
+    const Array<OneD, NekDouble> &force,
+    const Array<OneD, NekDouble> &nonlinearTerm,
+    const Array<OneD, NekDouble> &nonlinearJacobian,
+    const Array<OneD, NekDouble> &linearisationVelocity, const int nDofs)
+{
+    ASSERTL0(m_motionDofs == nDofs,
+             "The nonlinear moving-frame solver has inconsistent DoFs.");
+    ASSERTL0(force.size() >= m_rows && nonlinearTerm.size() >= m_rows &&
+                 nonlinearJacobian.size() >= m_rows * m_rows &&
+                 linearisationVelocity.size() >= m_rows,
+             "Invalid nonlinear rigid-body system size.");
 
     Array<OneD, NekDouble> bm(nDofs, 0.0);
     Array<OneD, NekDouble> bk(nDofs, 0.0);
     Array<OneD, NekDouble> rhs(nDofs, 0.0);
-    std::array<double, nDofs * nDofs> matrix{};
-    std::array<double, nDofs> drhs{};
-    std::array<int, nDofs> ipiv{};
+    std::vector<double> matrix(nDofs * nDofs, 0.0);
+    std::vector<double> drhs(nDofs, 0.0);
+    std::vector<int> ipiv(nDofs, 0);
 
     for (int j = 0; j < nDofs; ++j)
     {
@@ -2117,16 +2404,24 @@ void Newmark_BetaSolver::SolveFreeVarMat6DoF(
 
     for (int i = 0; i < nDofs; ++i)
     {
-        rhs[i] = force[i] - nonlinearTerm[i];
+        const int i1 = m_index[i];
+        rhs[i]       = force[i1] - nonlinearTerm[i1];
         for (int j = 0; j < nDofs; ++j)
         {
-            rhs[i] += nonlinearJacobian[i + j * nDofs] *
-                      linearisationVelocity[j];
+            const int j1 = m_index[j];
+            rhs[i] += nonlinearJacobian[i1 + j1 * m_rows] *
+                      linearisationVelocity[j1];
             rhs[i] += m_M[i][j] * bm[j] - m_K[i][j] * bk[j];
             matrix[j * nDofs + i] =
                 m_coeffs[0] * m_M[i][j] + m_C[i][j] +
                 m_coeffs[2] * m_K[i][j] +
-                nonlinearJacobian[i + j * nDofs];
+                nonlinearJacobian[i1 + j1 * m_rows];
+        }
+        for (int j = nDofs; j < m_rows; ++j)
+        {
+            const int j1 = m_index[j];
+            rhs[i] -= m_M[i][j] * u[2][j1] + m_C[i][j] * u[1][j1] +
+                      m_K[i][j] * u[0][j1];
         }
         drhs[i] = rhs[i];
     }
@@ -2134,15 +2429,100 @@ void Newmark_BetaSolver::SolveFreeVarMat6DoF(
     int info = 0;
     Lapack::DoSgetrf(nDofs, nDofs, matrix.data(), nDofs, ipiv.data(), info);
     ASSERTL0(info == 0,
-             "Singular nonlinear 6DoF Newmark effective matrix.");
+             "Singular nonlinear rigid-body Newmark effective matrix.");
     Lapack::Dgetrs('N', nDofs, 1, matrix.data(), nDofs, ipiv.data(),
                    drhs.data(), nDofs, info);
-    ASSERTL0(info == 0, "Failed to solve nonlinear 6DoF Newmark system.");
+    ASSERTL0(info == 0, "Failed to solve nonlinear rigid-body Newmark system.");
 
     for (int j = 0; j < nDofs; ++j)
     {
         const int j1 = m_index[j];
         u[1][j1]     = drhs[j];
+        u[0][j1]     = m_coeffs[2] * u[1][j1] + bk[j];
+        u[2][j1]     = m_coeffs[0] * u[1][j1] - bm[j];
+    }
+}
+
+void Newmark_BetaSolver::SolveFreeVarMatNDofConstrained(
+    Array<OneD, Array<OneD, NekDouble>> u,
+    const Array<OneD, NekDouble> &force,
+    const Array<OneD, NekDouble> &nonlinearTerm,
+    const Array<OneD, NekDouble> &nonlinearJacobian,
+    const Array<OneD, NekDouble> &linearisationVelocity,
+    const Array<OneD, NekDouble> &velocityConstraints,
+    const Array<OneD, NekDouble> &constraintVelocity, const int nDofs,
+    const int nConstraints)
+{
+    ASSERTL0(m_motionDofs == nDofs && nConstraints > 0,
+             "Invalid constrained nonlinear rigid-body system size.");
+    ASSERTL0(force.size() >= m_rows && nonlinearTerm.size() >= m_rows &&
+                 nonlinearJacobian.size() >= m_rows * m_rows &&
+                 linearisationVelocity.size() >= m_rows &&
+                 velocityConstraints.size() >= nConstraints * m_rows &&
+                 constraintVelocity.size() >= nConstraints,
+             "Invalid constrained nonlinear rigid-body system data.");
+
+    Array<OneD, NekDouble> bm(nDofs, 0.0);
+    Array<OneD, NekDouble> bk(nDofs, 0.0);
+    const int systemSize = nDofs + nConstraints;
+    std::vector<double> matrix(systemSize * systemSize, 0.0);
+    std::vector<double> rhs(systemSize, 0.0);
+    std::vector<int> ipiv(systemSize, 0);
+
+    for (int j = 0; j < nDofs; ++j)
+    {
+        const int j1 = m_index[j];
+        bm[j] = m_coeffs[0] * u[1][j1] + m_coeffs[1] * u[2][j1];
+        bk[j] = u[0][j1] + m_coeffs[3] * u[1][j1] + m_coeffs[4] * u[2][j1];
+    }
+
+    for (int i = 0; i < nDofs; ++i)
+    {
+        const int i1 = m_index[i];
+        rhs[i]       = force[i1] - nonlinearTerm[i1];
+        for (int j = 0; j < nDofs; ++j)
+        {
+            const int j1 = m_index[j];
+            rhs[i] += nonlinearJacobian[i1 + j1 * m_rows] *
+                      linearisationVelocity[j1];
+            rhs[i] += m_M[i][j] * bm[j] - m_K[i][j] * bk[j];
+            matrix[j * systemSize + i] =
+                m_coeffs[0] * m_M[i][j] + m_C[i][j] +
+                m_coeffs[2] * m_K[i][j] +
+                nonlinearJacobian[i1 + j1 * m_rows];
+        }
+        for (int j = nDofs; j < m_rows; ++j)
+        {
+            const int j1 = m_index[j];
+            rhs[i] -= m_M[i][j] * u[2][j1] + m_C[i][j] * u[1][j1] +
+                      m_K[i][j] * u[0][j1];
+        }
+        for (int k = 0; k < nConstraints; ++k)
+        {
+            const NekDouble value = velocityConstraints[k * m_rows + i1];
+            matrix[(nDofs + k) * systemSize + i] = value;
+            matrix[i * systemSize + nDofs + k] = value;
+        }
+    }
+    for (int k = 0; k < nConstraints; ++k)
+    {
+        rhs[nDofs + k] = constraintVelocity[k];
+    }
+
+    int info = 0;
+    Lapack::DoSgetrf(systemSize, systemSize, matrix.data(), systemSize,
+                     ipiv.data(), info);
+    ASSERTL0(info == 0,
+             "Singular constrained nonlinear rigid-body Newmark matrix.");
+    Lapack::Dgetrs('N', systemSize, 1, matrix.data(), systemSize, ipiv.data(),
+                   rhs.data(), systemSize, info);
+    ASSERTL0(info == 0,
+             "Failed to solve constrained nonlinear rigid-body Newmark system.");
+
+    for (int j = 0; j < nDofs; ++j)
+    {
+        const int j1 = m_index[j];
+        u[1][j1]     = rhs[j];
         u[0][j1]     = m_coeffs[2] * u[1][j1] + bk[j];
         u[2][j1]     = m_coeffs[0] * u[1][j1] - bm[j];
     }
