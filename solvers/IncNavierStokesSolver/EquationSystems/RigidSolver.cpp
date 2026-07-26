@@ -137,6 +137,7 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
     // Set UseUnifiedFreeRigidBody = 0 only to reproduce legacy results.
     m_useUnifiedFreeRigidBody  = true;
     m_inertialTransConstraints.clear();
+    m_bodyAngularConstraints.clear();
     m_hasCustomThetaConvention = false;
     m_thetaOrder               = Array<OneD, int>(3, 0);
     m_thetaBodyFrame           = Array<OneD, bool>(3, false);
@@ -650,13 +651,6 @@ void RigidSolver::InitBodySolver(
         if (m_spacedim == 3 && prescribedValues.size() == 6)
         {
             m_free3D6DoF = true;
-            for (int i = 3; i < 6; ++i)
-            {
-                ASSERTL0(EvaluateExpression(session, prescribedValues[i]) ==
-                             0.0,
-                         "The first partial 3D 6DoF implementation requires "
-                         "all three rotational DoFs to be free.");
-            }
             NumDof = 6;
         }
     }
@@ -691,6 +685,10 @@ void RigidSolver::InitBodySolver(
                 if (i < 3 && EvaluateExpression(session, values[i]) != 0.0)
                 {
                     m_inertialTransConstraints.insert(i);
+                }
+                if (i >= 3 && EvaluateExpression(session, values[i]) != 0.0)
+                {
+                    m_bodyAngularConstraints.insert(i - 3);
                 }
             }
         }
@@ -1324,6 +1322,11 @@ void RigidSolver::UpdateFree3DMRFData(Array<OneD, NekDouble> &MRFData)
         omegaBody[i] = m_vel[1][i + 3];
         alphaBody[i] = m_vel[2][i + 3];
     }
+    for (const int axis : m_bodyAngularConstraints)
+    {
+        omegaBody[axis] = 0.0;
+        alphaBody[axis] = 0.0;
+    }
     Array<OneD, NekDouble> omegaCrossVel(3, 0.0);
     Cross(omegaBody, velBody, omegaCrossVel);
     Array<OneD, NekDouble> accInertialBody(3, 0.0);
@@ -1578,14 +1581,16 @@ void RigidSolver::SolveFree3D6DoF(
         {
             Vmath::Vcopy(oldState[i].size(), oldState[i], 1, bodyVel[i], 1);
         }
-        if (m_inertialTransConstraints.empty())
+        if (m_inertialTransConstraints.empty() &&
+            m_bodyAngularConstraints.empty())
         {
             m_bodySolver.SolveFreeVarMat6DoF(bodyVel, force, nonlinear,
                                               jacobian, trialVelocity);
         }
         else
         {
-            const int nConstraints = m_inertialTransConstraints.size();
+            const int nConstraints = m_inertialTransConstraints.size() +
+                                     m_bodyAngularConstraints.size();
             Array<OneD, NekDouble> constraints(6 * nConstraints, 0.0);
             Array<OneD, NekDouble> values(nConstraints, 0.0);
             Array<OneD, NekDouble> omegaMid(3, 0.0);
@@ -1609,6 +1614,12 @@ void RigidSolver::SolveFree3D6DoF(
                     constraints[k * 6 + j] = directionBody[j];
                 }
                 values[k] = m_inertialConstraintVelocity[direction];
+                ++k;
+            }
+            for (const int axis : m_bodyAngularConstraints)
+            {
+                constraints[k * 6 + 3 + axis] = 1.0;
+                values[k] = 0.0;
                 ++k;
             }
             m_bodySolver.SolveFreeVarMatNDofConstrained(

@@ -227,6 +227,7 @@ private:
     std::ofstream m_outputStream;
     std::set<int> m_dirDoFs;
     std::set<int> m_inertialTransConstraints;
+    std::set<int> m_bodyAngularConstraints;
     Array<OneD, NekDouble> m_inertialConstraintPosition;
     Array<OneD, NekDouble> m_inertialConstraintVelocity;
     Array<OneD, NekDouble> m_inertialConstraintAcceleration;
