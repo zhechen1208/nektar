@@ -172,6 +172,16 @@ void RigidSolver::CheckParameters()
         m_inertialPosition = Array<OneD, NekDouble>(3, 0.0);
         m_inertialVelocity = Array<OneD, NekDouble>(3, 0.0);
         m_inertialAcceleration = Array<OneD, NekDouble>(3, 0.0);
+        m_inertialConstraintPosition = Array<OneD, NekDouble>(3, 0.0);
+        m_inertialConstraintVelocity = Array<OneD, NekDouble>(3, 0.0);
+        m_inertialConstraintAcceleration = Array<OneD, NekDouble>(3, 0.0);
+        m_hasInertialConstraintPosition = Array<OneD, bool>(3, false);
+        for (const int direction : m_inertialTransConstraints)
+        {
+            m_hasInertialConstraintPosition[direction] =
+                m_frameVelFunction.find(direction + 6) !=
+                m_frameVelFunction.end();
+        }
         m_solveType = eFree3D6DoF;
         return;
     }
@@ -640,11 +650,12 @@ void RigidSolver::InitBodySolver(
         if (m_spacedim == 3 && prescribedValues.size() == 6)
         {
             m_free3D6DoF = true;
-            for (const auto &value : prescribedValues)
+            for (int i = 3; i < 6; ++i)
             {
-                ASSERTL0(EvaluateExpression(session, value) == 0.0,
-                         "The first full free 3D 6DoF implementation requires "
-                         "all MOTIONPRESCRIBED entries to be zero.");
+                ASSERTL0(EvaluateExpression(session, prescribedValues[i]) ==
+                             0.0,
+                         "The first partial 3D 6DoF implementation requires "
+                         "all three rotational DoFs to be free.");
             }
             NumDof = 6;
         }
@@ -677,6 +688,10 @@ void RigidSolver::InitBodySolver(
             for (int i = 0; i < NumDof; ++i)
             {
                 m_dirDoFs.erase(i);
+                if (i < 3 && EvaluateExpression(session, values[i]) != 0.0)
+                {
+                    m_inertialTransConstraints.insert(i);
+                }
             }
         }
         else if (full3DPrescribedInput)
@@ -1316,19 +1331,60 @@ void RigidSolver::UpdateFree3DMRFData(Array<OneD, NekDouble> &MRFData)
     {
         accInertialBody[i] = accBody[i] + omegaCrossVel[i];
     }
-    const Array<OneD, NekDouble> velInertial =
+    Array<OneD, NekDouble> velInertial =
         RotateBodyToInertial(m_quaternion, velBody);
-    const Array<OneD, NekDouble> accInertial =
+    Array<OneD, NekDouble> accInertial =
         RotateBodyToInertial(m_quaternion, accInertialBody);
+    if (!m_inertialTransConstraints.empty())
+    {
+        for (const int direction : m_inertialTransConstraints)
+        {
+            velInertial[direction] =
+                m_inertialConstraintVelocity[direction];
+            accInertial[direction] =
+                m_inertialConstraintAcceleration[direction];
+        }
+        velBody = RotateInertialToBody(m_quaternion, velInertial);
+        accInertialBody =
+            RotateInertialToBody(m_quaternion, accInertial);
+        Cross(omegaBody, velBody, omegaCrossVel);
+        for (int i = 0; i < 3; ++i)
+        {
+            accBody[i] = accInertialBody[i] - omegaCrossVel[i];
+        }
+    }
     for (int i = 0; i < 3; ++i)
     {
-        m_inertialPosition[i] +=
-            m_timestep * m_inertialVelocity[i] +
-            m_timestep * m_timestep *
-                ((0.5 - m_beta) * m_inertialAcceleration[i] +
-                 m_beta * accInertial[i]);
-        m_inertialVelocity[i]     = velInertial[i];
-        m_inertialAcceleration[i] = accInertial[i];
+        if (m_inertialTransConstraints.find(i) !=
+            m_inertialTransConstraints.end())
+        {
+            if (m_hasInertialConstraintPosition[i])
+            {
+                m_inertialPosition[i] =
+                    m_inertialConstraintPosition[i];
+            }
+            else
+            {
+                m_inertialPosition[i] +=
+                    m_timestep * m_inertialVelocity[i] +
+                    m_timestep * m_timestep *
+                        ((0.5 - m_beta) * m_inertialAcceleration[i] +
+                         m_beta * m_inertialConstraintAcceleration[i]);
+            }
+            m_inertialVelocity[i] = m_inertialConstraintVelocity[i];
+            m_inertialAcceleration[i] =
+                m_inertialConstraintAcceleration[i];
+        }
+        else
+        {
+            m_inertialPosition[i] +=
+                m_timestep * m_inertialVelocity[i] +
+                m_timestep * m_timestep *
+                    ((0.5 - m_beta) * m_inertialAcceleration[i] +
+                     m_beta * accInertial[i]);
+            m_inertialVelocity[i]     = velInertial[i];
+            m_inertialAcceleration[i] = accInertial[i];
+        }
         MRFData[i]      = m_inertialPosition[i];
         MRFData[i + 6]  = velBody[i];
         MRFData[i + 9]  = omegaBody[i];
@@ -1522,8 +1578,43 @@ void RigidSolver::SolveFree3D6DoF(
         {
             Vmath::Vcopy(oldState[i].size(), oldState[i], 1, bodyVel[i], 1);
         }
-        m_bodySolver.SolveFreeVarMat6DoF(bodyVel, force, nonlinear, jacobian,
-                                          trialVelocity);
+        if (m_inertialTransConstraints.empty())
+        {
+            m_bodySolver.SolveFreeVarMat6DoF(bodyVel, force, nonlinear,
+                                              jacobian, trialVelocity);
+        }
+        else
+        {
+            const int nConstraints = m_inertialTransConstraints.size();
+            Array<OneD, NekDouble> constraints(6 * nConstraints, 0.0);
+            Array<OneD, NekDouble> values(nConstraints, 0.0);
+            Array<OneD, NekDouble> omegaMid(3, 0.0);
+            for (int i = 0; i < 3; ++i)
+            {
+                omegaMid[i] = 0.5 * (omegaOld[i] + omega[i]);
+            }
+            const Array<OneD, NekDouble> constraintQuaternion =
+                NormalizeQuaternion(IntegrateQuaternionBodyOmega(
+                    m_quaternion, omegaMid, m_timestep));
+            int k = 0;
+            for (const int direction : m_inertialTransConstraints)
+            {
+                Array<OneD, NekDouble> directionInertial(3, 0.0);
+                directionInertial[direction] = 1.0;
+                const Array<OneD, NekDouble> directionBody =
+                    RotateInertialToBody(constraintQuaternion,
+                                         directionInertial);
+                for (int j = 0; j < 3; ++j)
+                {
+                    constraints[k * 6 + j] = directionBody[j];
+                }
+                values[k] = m_inertialConstraintVelocity[direction];
+                ++k;
+            }
+            m_bodySolver.SolveFreeVarMatNDofConstrained(
+                bodyVel, force, nonlinear, jacobian, trialVelocity,
+                constraints, values, 6, nConstraints);
+        }
 
         NekDouble deltaNorm = 0.0;
         NekDouble stateNorm = 0.0;
@@ -2076,8 +2167,10 @@ void RigidSolver::SetInitialConditions(
         m_inertialAcceleration[1] += omega * m_inertialVelocity[0];
         for (const int direction : m_inertialTransConstraints)
         {
-            m_inertialVelocity[direction]     = 0.0;
-            m_inertialAcceleration[direction] = 0.0;
+            m_inertialVelocity[direction] =
+                m_inertialConstraintVelocity[direction];
+            m_inertialAcceleration[direction] =
+                m_inertialConstraintAcceleration[direction];
         }
     }
     if (m_free3D6DoF)
@@ -2103,6 +2196,29 @@ void RigidSolver::SetInitialConditions(
         m_inertialAcceleration =
             SolverUtils::MovingFrame::RotateBodyToInertial(
                 m_quaternion, accelerationBody);
+        for (const int direction : m_inertialTransConstraints)
+        {
+            if (m_hasInertialConstraintPosition[direction])
+            {
+                m_inertialPosition[direction] =
+                    m_inertialConstraintPosition[direction];
+            }
+            m_inertialVelocity[direction] =
+                m_inertialConstraintVelocity[direction];
+            m_inertialAcceleration[direction] =
+                m_inertialConstraintAcceleration[direction];
+        }
+        velocityBody = SolverUtils::MovingFrame::RotateInertialToBody(
+            m_quaternion, m_inertialVelocity);
+        accelerationBody = SolverUtils::MovingFrame::RotateInertialToBody(
+            m_quaternion, m_inertialAcceleration);
+        SolverUtils::MovingFrame::Cross(omegaBody, velocityBody,
+                                         omegaCrossVelocity);
+        for (int i = 0; i < 3; ++i)
+        {
+            m_vel[1][i] = velocityBody[i];
+            m_vel[2][i] = accelerationBody[i] - omegaCrossVelocity[i];
+        }
         const Array<OneD, NekDouble> theta =
             SolverUtils::MovingFrame::EulerZYXFromQuaternion(m_quaternion);
         for (int i = 0; i < 3; ++i)
