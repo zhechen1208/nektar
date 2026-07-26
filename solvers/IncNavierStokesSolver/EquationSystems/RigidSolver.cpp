@@ -157,8 +157,9 @@ void RigidSolver::CheckParameters()
         ASSERTL0(m_spacedim == 3,
                  "Full free rigid-body motion is available only in 3D.");
         ASSERTL0(fabs(m_pivotdistance) < NekConstants::kNekZeroTol,
-                 "Full free 3D rigid-body motion currently requires "
-                 "PIVOTDISTANCE = 0 (the pivot is the centre of mass).");
+                 "PIVOTDISTANCE is deprecated for full free 3D motion; "
+                 "set it to zero and use COMOFFSET for the vector from "
+                 "PIVOTPOINT to the centre of mass.");
         NekDouble restoringTerms = 0.0;
         for (size_t i = 0; i < m_C.size(); ++i)
         {
@@ -214,8 +215,9 @@ void RigidSolver::CheckParameters()
     else if (m_spacedim == 2 && m_hasRotation)
     {
         ASSERTL0(fabs(m_pivotdistance) < NekConstants::kNekZeroTol,
-                 "The unified planar rigid-body solver currently requires "
-                 "PIVOTDISTANCE = 0 (the pivot is the centre of mass).");
+                 "PIVOTDISTANCE is deprecated for planar rigid-body motion; "
+                 "set it to zero and use COMOFFSET for the vector from "
+                 "PIVOTPOINT to the centre of mass.");
         // All planar cases with at least one free DoF share the constrained
         // Newton solve.  Prescribed translations are inertial constraints.
         m_solveType = ePlanarRigidBody;
@@ -806,6 +808,7 @@ void RigidSolver::InitBodySolver(
     }
     Vmath::Vcopy(m_spacedim, m_pivot, 1, pivot, 1);
     mssgTag = pSolver->FirstChildElement("COMOFFSET");
+    const bool hasComOffset = mssgTag != nullptr;
     if (mssgTag)
     {
         std::vector<std::string> values;
@@ -864,6 +867,11 @@ void RigidSolver::InitBodySolver(
         ASSERTL0(values.size() == 1, "PivotDistance should be a scalar.");
         m_pivotdistance = EvaluateExpression(session, values[0]);
     }
+    ASSERTL0(!hasComOffset ||
+                 fabs(m_pivotdistance) < NekConstants::kNekZeroTol,
+             "COMOFFSET and a non-zero PIVOTDISTANCE cannot be used "
+             "together. PIVOTDISTANCE is deprecated; use COMOFFSET for "
+             "the vector from PIVOTPOINT to the centre of mass.");
     // read Newmark Beta paramters
     m_timestep = session->GetParameter("TimeStep");
     m_beta     = 0.25;
