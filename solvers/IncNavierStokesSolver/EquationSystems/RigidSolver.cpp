@@ -746,13 +746,23 @@ void RigidSolver::InitBodySolver(
     const bool freePlanarRotation =
         m_spacedim == 2 &&
         m_dirDoFs.find(m_spacedim) == m_dirDoFs.end();
-    ASSERTL0(!(m_freeRigidBody3D || freePlanarRotation) || mssgTag,
+    const bool freeAngularMotion3D =
+        m_freeRigidBody3D && m_bodyAngularConstraints.size() < 3;
+    ASSERTL0(!(freeAngularMotion3D || freePlanarRotation) || mssgTag,
              "ROTATIONINERTIA is required for a rigid body with free rotation.");
     // A prescribed planar angle does not require an inertia to solve the
     // translational equations.  Keep its unused rotational entry well-defined
     // nevertheless, including when COMOFFSET supplies translation-rotation
     // coupling terms.
     m_rotationInertia2D = 0.0;
+    if (m_freeRigidBody3D)
+    {
+        // A constrained 3D solve retains six KKT rows even when all angular
+        // coordinates are prescribed.  Zero is then a valid placeholder: the
+        // angular equations determine reaction moments, while no free angular
+        // equation needs a physical principal inertia.
+        m_rotationInertia = Array<OneD, NekDouble>(3, 0.0);
+    }
     if (mssgTag)
     {
         std::vector<std::string> values;
@@ -765,7 +775,6 @@ void RigidSolver::InitBodySolver(
         m_rotationInertia2D = EvaluateExpression(session, values[0]);
         if (m_freeRigidBody3D)
         {
-            m_rotationInertia = Array<OneD, NekDouble>(3, 0.0);
             for (int i = 0; i < 3; ++i)
             {
                 m_rotationInertia[i] = EvaluateExpression(
