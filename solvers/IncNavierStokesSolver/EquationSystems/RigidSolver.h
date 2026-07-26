@@ -193,9 +193,9 @@ private:
     void SolveInertialFrame(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                             const Array<OneD, NekDouble> &forcebody,
                             std::map<int, NekDouble> &Dirs);
-    void SolveFree3D6DoF(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
-                         const Array<OneD, NekDouble> &forcebody,
-                         std::map<int, NekDouble> &Dirs);
+    void SolveFreeRigidBody3D(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
+                              const Array<OneD, NekDouble> &forcebody,
+                              std::map<int, NekDouble> &Dirs);
     void SolveFreeRigidBody2D(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
                               const Array<OneD, NekDouble> &forcebody,
                               std::map<int, NekDouble> &Dirs);

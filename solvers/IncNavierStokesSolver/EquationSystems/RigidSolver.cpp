@@ -1513,7 +1513,7 @@ void RigidSolver::SolveBodyMotion(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
     }
     else if (eFree3D6DoF == m_solveType)
     {
-        SolveFree3D6DoF(bodyVel, forcebody, Dirs);
+        SolveFreeRigidBody3D(bodyVel, forcebody, Dirs);
     }
     else
     {
@@ -1521,7 +1521,7 @@ void RigidSolver::SolveBodyMotion(Array<OneD, Array<OneD, NekDouble>> &bodyVel,
     }
 }
 
-void RigidSolver::SolveFree3D6DoF(
+void RigidSolver::SolveFreeRigidBody3D(
     Array<OneD, Array<OneD, NekDouble>> &bodyVel,
     const Array<OneD, NekDouble> &forcebody, std::map<int, NekDouble> &Dirs)
 {
