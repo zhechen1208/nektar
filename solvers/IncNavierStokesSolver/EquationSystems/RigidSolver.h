@@ -255,14 +255,26 @@ private:
     Array<OneD, NekDouble> m_inertialAcceleration;
     Array<OneD, NekDouble> m_quaternion;
     Array<OneD, Array<OneD, NekDouble>> m_vel;
-    // externel force or moving velocity
+    // External loads and prescribed moving-frame velocity.
+    // EXTERNALFORCE is the net force used by the translational equations.
+    // GRAVITYACCELERATION is multiplied by physical MASS and used only to
+    // form the COM-offset gravity moment.  This allows the net force to be
+    // oriented downstream without applying a buoyancy moment at COM.
     std::map<int, LibUtilities::EquationSharedPtr> m_extForceFunction;
     std::map<int, LibUtilities::EquationSharedPtr> m_frameVelFunction;
     Array<OneD, NekDouble> m_extForceXYZ;
+    Array<OneD, NekDouble> m_gravityAcceleration;
+    // Body-frame vector from PIVOTPOINT to the application point of the
+    // EXTERNALFORCE resultant. Its input moment is defined about that point.
+    // Use this only when the complete resultant has a single application
+    // point; use GRAVITYACCELERATION for an eccentric gravity moment.
+    Array<OneD, NekDouble> m_externalForcePointOffset;
+    // PIVOTPOINT is the body-frame reference point: a physical pitch axis
+    // for prescribed flapping, and the moment/moving-frame reference point
+    // for a free rigid body.
     Array<OneD, NekDouble> m_pivot;
-    // Body-frame vector from PIVOTPOINT to the centre of mass.
+    // Body-frame vector from that reference point to the centre of mass.
     Array<OneD, NekDouble> m_comOffset;
-    NekDouble m_pivotdistance;
     // fluid force
     Array<OneD, NekDouble> m_oldFvis;
     bool m_hasRestartViscousHistory;

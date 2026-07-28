@@ -154,6 +154,7 @@ void RigidSolver::InitObject(const LibUtilities::SessionReaderSharedPtr session,
     m_thetaOrder[1]            = 1;
     m_thetaOrder[2]            = 0;
     m_extForceXYZ              = Array<OneD, NekDouble>(6, 0.0);
+    m_gravityAcceleration      = Array<OneD, NekDouble>(3, 0.0);
     m_oldFvis                  = Array<OneD, NekDouble>(6, 0.0);
     m_hasRestartViscousHistory = false;
     m_quaternion = SolverUtils::MovingFrame::IdentityQuaternion();
@@ -169,10 +170,6 @@ void RigidSolver::CheckParameters()
     {
         ASSERTL0(m_spacedim == 3,
                  "Full free rigid-body motion is available only in 3D.");
-        ASSERTL0(fabs(m_pivotdistance) < NekConstants::kNekZeroTol,
-                 "PIVOTDISTANCE is deprecated for full free 3D motion; "
-                 "set it to zero and use COMOFFSET for the vector from "
-                 "PIVOTPOINT to the centre of mass.");
         NekDouble restoringTerms = 0.0;
         for (size_t i = 0; i < m_C.size(); ++i)
         {
@@ -232,10 +229,6 @@ void RigidSolver::CheckParameters()
     }
     else if (m_spacedim == 2 && m_hasRotation)
     {
-        ASSERTL0(fabs(m_pivotdistance) < NekConstants::kNekZeroTol,
-                 "PIVOTDISTANCE is deprecated for planar rigid-body motion; "
-                 "set it to zero and use COMOFFSET for the vector from "
-                 "PIVOTPOINT to the centre of mass.");
         // All planar cases with at least one free DoF share the constrained
         // Newton solve.  Prescribed translations are inertial constraints.
         m_solveType = eFreeRigidBody2D;
@@ -743,6 +736,9 @@ void RigidSolver::InitBodySolver(
         }
     }
     mssgTag = pSolver->FirstChildElement("ROTATIONINERTIA");
+    // ROTATIONINERTIA is always the inertia about the centre of mass.  When
+    // COMOFFSET is present, InitBodySolver applies the parallel-axis theorem
+    // to construct the inertia about PIVOTPOINT.
     const bool freePlanarRotation =
         m_spacedim == 2 &&
         m_dirDoFs.find(m_spacedim) == m_dirDoFs.end();
@@ -787,7 +783,8 @@ void RigidSolver::InitBodySolver(
         else
         {
             ASSERTL0(m_rotationInertia2D > 0.0,
-                     "ROTATIONINERTIA must be positive.");
+                     "ROTATIONINERTIA (about the centre of mass) must be "
+                     "positive.");
             m_M[NumDof * NumDof - 1] = m_rotationInertia2D;
         }
     }
@@ -833,7 +830,9 @@ void RigidSolver::InitBodySolver(
             }
         }
     }
-    // read pivot point
+    // PIVOTPOINT is the common body-frame reference point.  It is the
+    // physical pitch axis for prescribed flapping, but for a free body it is
+    // simply the origin for MRF kinematics, force moments and COMOFFSET.
     mssgTag = pSolver->FirstChildElement("PIVOTPOINT");
     m_pivot = Array<OneD, NekDouble>(m_spacedim, 0.);
     m_comOffset = Array<OneD, NekDouble>(m_spacedim, 0.);
@@ -852,7 +851,6 @@ void RigidSolver::InitBodySolver(
     }
     Vmath::Vcopy(m_spacedim, m_pivot, 1, pivot, 1);
     mssgTag = pSolver->FirstChildElement("COMOFFSET");
-    const bool hasComOffset = mssgTag != nullptr;
     if (mssgTag)
     {
         std::vector<std::string> values;
@@ -901,22 +899,67 @@ void RigidSolver::InitBodySolver(
             }
         }
     }
-    // read the distance between pivotpoint and masscenter
-    mssgTag         = pSolver->FirstChildElement("PIVOTDISTANCE");
-    m_pivotdistance = 0.;
+    mssgTag = pSolver->FirstChildElement("GRAVITYACCELERATION");
     if (mssgTag)
     {
         std::vector<std::string> values;
-        mssgStr = mssgTag->GetText();
-        ParseUtils::GenerateVector(mssgStr, values);
-        ASSERTL0(values.size() == 1, "PivotDistance should be a scalar.");
-        m_pivotdistance = EvaluateExpression(session, values[0]);
+        ParseUtils::GenerateVector(mssgTag->GetText(), values);
+        ASSERTL0(values.size() == m_spacedim,
+                 "GRAVITYACCELERATION must have one inertial component per "
+                 "spatial dimension.");
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            m_gravityAcceleration[i] = EvaluateExpression(session, values[i]);
+        }
     }
-    ASSERTL0(!hasComOffset ||
-                 fabs(m_pivotdistance) < NekConstants::kNekZeroTol,
-             "COMOFFSET and a non-zero PIVOTDISTANCE cannot be used "
-             "together. PIVOTDISTANCE is deprecated; use COMOFFSET for "
-             "the vector from PIVOTPOINT to the centre of mass.");
+    // EXTERNALFORCE moments are defined about EXTERNALFORCEPOINT.  Preserve
+    // the historical PIVOTPOINT default.  For buoyancy plus gravity, keep the
+    // net EXTERNALFORCE at PIVOTPOINT and use GRAVITYACCELERATION for the
+    // COM gravity moment only.
+    m_externalForcePointOffset = Array<OneD, NekDouble>(m_spacedim, 0.0);
+    mssgTag = pSolver->FirstChildElement("EXTERNALFORCEPOINT");
+    if (mssgTag)
+    {
+        const std::string point = GetRequiredElementText(
+            mssgTag, "EXTERNALFORCEPOINT");
+        if (boost::iequals(point, "PIVOTPOINT"))
+        {
+            // Zero offset is already set above.
+        }
+        else if (boost::iequals(point, "COM"))
+        {
+            Vmath::Vcopy(m_spacedim, m_comOffset, 1,
+                         m_externalForcePointOffset, 1);
+        }
+        else
+        {
+            std::vector<std::string> values;
+            ParseUtils::GenerateVector(point, values);
+            ASSERTL0(values.size() == m_spacedim,
+                     "EXTERNALFORCEPOINT must be PIVOTPOINT, COM, or a "
+                     "body-frame vector with one component per dimension.");
+            for (int i = 0; i < m_spacedim; ++i)
+            {
+                m_externalForcePointOffset[i] =
+                    EvaluateExpression(session, values[i]);
+            }
+        }
+    }
+    if (m_externalForcePointOffset.size() != 0)
+    {
+        NekDouble pointNorm2 = 0.0;
+        for (int i = 0; i < m_spacedim; ++i)
+        {
+            pointNorm2 += m_externalForcePointOffset[i] *
+                          m_externalForcePointOffset[i];
+        }
+        WARNINGL0(pointNorm2 <= NekConstants::kNekZeroTol ||
+                      m_extForceFunction.empty(),
+                  "EXTERNALFORCEPOINT applies the complete EXTERNALFORCE "
+                  "resultant at that point. For a buoyancy/gravity load, "
+                  "keep EXTERNALFORCE at PIVOTPOINT and use "
+                  "GRAVITYACCELERATION.");
+    }
     m_physicalMassMatrix = Array<OneD, NekDouble>(m_M.size(), 0.0);
     Vmath::Vcopy(m_M.size(), m_M, 1, m_physicalMassMatrix, 1);
     m_addedMassMatrix = Array<OneD, NekDouble>(m_M.size(), 0.0);
@@ -1780,13 +1823,8 @@ void RigidSolver::SolveFreeRigidBody3D(
         externalForce[i]  = m_extForceXYZ[i];
         externalMoment[i] = m_extForceXYZ[i + 3];
     }
-    externalForce = RotateInertialToBody(m_quaternion, externalForce);
-    externalMoment = RotateInertialToBody(m_quaternion, externalMoment);
-    for (int i = 0; i < 3; ++i)
-    {
-        force[i]     = forcebody[i] + externalForce[i];
-        force[i + 3] = forcebody[i + 3] + externalMoment[i];
-    }
+    // Keep external loads in inertial components until each nonlinear
+    // iteration predicts its current body orientation below.
 
     Array<OneD, Array<OneD, NekDouble>> oldState(3);
     for (int i = 0; i < 3; ++i)
@@ -1829,6 +1867,39 @@ void RigidSolver::SolveFreeRigidBody3D(
         {
             velocity[i]        = trialVelocity[i];
             omega[i]           = trialVelocity[i + 3];
+        }
+
+        // Predict the current orientation from the trial angular velocity.
+        // Re-evaluating the inertial external loads in this body frame avoids
+        // a one-step lag in an eccentric gravity moment.
+        Array<OneD, NekDouble> omegaMidTrial(3, 0.0);
+        for (int i = 0; i < 3; ++i)
+        {
+            omegaMidTrial[i] = 0.5 * (omegaOld[i] + omega[i]);
+        }
+        const Array<OneD, NekDouble> trialQuaternion = NormalizeQuaternion(
+            IntegrateQuaternionBodyOmega(m_quaternion, omegaMidTrial,
+                                         m_timestep));
+        const Array<OneD, NekDouble> externalForceTrial =
+            RotateInertialToBody(trialQuaternion, externalForce);
+        const Array<OneD, NekDouble> externalMomentTrial =
+            RotateInertialToBody(trialQuaternion, externalMoment);
+        Array<OneD, NekDouble> gravityForceTrial =
+            RotateInertialToBody(trialQuaternion, m_gravityAcceleration);
+        for (int i = 0; i < 3; ++i)
+        {
+            gravityForceTrial[i] *= m_mass;
+        }
+        Array<OneD, NekDouble> externalForceMomentTrial(3, 0.0);
+        Array<OneD, NekDouble> gravityMomentTrial(3, 0.0);
+        Cross(m_externalForcePointOffset, externalForceTrial,
+              externalForceMomentTrial);
+        Cross(m_comOffset, gravityForceTrial, gravityMomentTrial);
+        for (int i = 0; i < 3; ++i)
+        {
+            force[i] = forcebody[i] + externalForceTrial[i];
+            force[i + 3] = forcebody[i + 3] + externalMomentTrial[i] +
+                           externalForceMomentTrial[i] + gravityMomentTrial[i];
         }
 
         Cross(omega, m_comOffset, comVelocity);
@@ -2073,9 +2144,27 @@ void RigidSolver::SolveFreeRigidBody2D(
         angle[2] = bodyVel[0][2];
         m_frame.SetAngle(angle);
         m_frame.InertialToBody(3, m_extForceXYZ, force);
+        const NekDouble externalForceX = force[0];
+        const NekDouble externalForceY = force[1];
+        Array<OneD, NekDouble> gravityForce(3, 0.0);
+        m_frame.InertialToBody(3, m_gravityAcceleration, gravityForce);
+        for (int i = 0; i < 3; ++i)
+        {
+            gravityForce[i] *= m_mass;
+        }
         force[0] += forcebody[0];
         force[1] += forcebody[1];
-        force[2] = forcebody[5] + m_extForceXYZ[5];
+        // EXTERNALFORCE supplies the net translational load.  In contrast,
+        // only MASS*GRAVITYACCELERATION acts at COM and therefore contributes
+        // the eccentric moment. In particular, do not apply r x F_net: that
+        // would incorrectly put the buoyancy resultant at COM.
+        const NekDouble gravityMoment =
+            m_comOffset[0] * gravityForce[1] -
+            m_comOffset[1] * gravityForce[0];
+        force[2] = forcebody[5] + m_extForceXYZ[5] +
+                   m_externalForcePointOffset[0] * externalForceY -
+                   m_externalForcePointOffset[1] * externalForceX +
+                   gravityMoment;
 
         Array<OneD, NekDouble> nonlinear(3, 0.0), jacobian(9, 0.0);
         const NekDouble rx = m_comOffset[0];
@@ -2092,6 +2181,14 @@ void RigidSolver::SolveFreeRigidBody2D(
         jacobian[2 + 1 * 3] = m_mass * omega * ry;
         jacobian[2 + 2 * 3] =
             m_mass * (rx * trial[0] + ry * trial[1]);
+        // dF_g,body/dtheta = (F_g,y, -F_g,x).  The nonlinear solver stores
+        // the Jacobian of (transport - force), while theta_new changes by
+        // beta*dt/gamma times omega_new under its Newmark parametrisation.
+        const NekDouble dGravityMomentDTheta =
+            -m_comOffset[0] * gravityForce[0] -
+            m_comOffset[1] * gravityForce[1];
+        jacobian[2 + 2 * 3] -= dGravityMomentDTheta *
+                               m_beta * m_timestep / m_gamma;
 
         for (int i = 0; i < 3; ++i)
         {
