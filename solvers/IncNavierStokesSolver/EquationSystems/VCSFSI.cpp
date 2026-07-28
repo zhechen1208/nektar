@@ -37,6 +37,10 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include <iomanip>
+#include <limits>
+#include <sstream>
+
 namespace Nektar
 {
 std::string VCSFSI::className =
@@ -78,6 +82,7 @@ VCSFSI::~VCSFSI(void)
 void VCSFSI::v_DoInitialise(bool dumpInitialConditions)
 {
     m_rigidSolver.SetInitialConditions(m_session, m_movingFrameData);
+    UpdateMovingFrameMetaData();
     VelocityCorrectionScheme::v_DoInitialise(dumpInitialConditions);
     Array<OneD, NekDouble> AddedMass;
     m_rigidSolver.SetNewmarkBetaSolver(AddedMass);
@@ -118,9 +123,26 @@ void VCSFSI::v_SolveSolid(NekDouble time)
     }
     // 0-5 pressure force at n+1; 6-11 viscous force at n
     m_rigidSolver.UpdateFrameVelocity(aeroforce, time, m_movingFrameData);
+    UpdateMovingFrameMetaData();
     m_rigidSolver.UpdateRestartMetaData(m_fieldMetaDataMap, time);
     // update velocity boundary condition
     UpdateVelocityBCs(time);
+}
+
+void VCSFSI::UpdateMovingFrameMetaData()
+{
+    // The checkpoint mesh remains in the body/MRF coordinates.  Persist the
+    // associated inertial translation, orientation and body-frame rates so
+    // FieldConvert's MRF module can reconstruct physical coordinates and a
+    // restart can restore the complete moving-frame state.
+    for (size_t i = 0;
+         i < m_strFrameData.size() && i < m_movingFrameData.size(); ++i)
+    {
+        std::ostringstream value;
+        value << std::setprecision(std::numeric_limits<NekDouble>::max_digits10)
+              << m_movingFrameData[i];
+        m_fieldMetaDataMap[m_strFrameData[i]] = value.str();
+    }
 }
 
 } // namespace Nektar

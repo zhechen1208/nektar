@@ -88,6 +88,7 @@ PressDecompVCSFSI::~PressDecompVCSFSI(void)
 void PressDecompVCSFSI::v_DoInitialise(bool dumpInitialConditions)
 {
     m_rigidSolver.SetInitialConditions(m_session, m_movingFrameData);
+    UpdateMovingFrameMetaData();
     VelocityCorrectionScheme::v_DoInitialise(dumpInitialConditions);
     std::set<int> dofs; // 0,1,2;3,4,5 six dofs
     GetMovableDoFs(dofs);

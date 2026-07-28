@@ -75,6 +75,7 @@ protected:
 
     void v_SolveSolid(NekDouble time) override;
     void InitialiseFilter(Array<OneD, NekDouble> aeroforce);
+    void UpdateMovingFrameMetaData();
 
     RigidSolver m_rigidSolver;
     SolverUtils::FilterAeroForcesSharedPtr m_aeroforceFilter;
