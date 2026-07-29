@@ -39,6 +39,7 @@
 #include <IncNavierStokesSolver/EquationSystems/VelocityCorrectionScheme.h>
 #include <SolverUtils/Filters/FilterAeroForces.h>
 #include <fstream>
+#include <vector>
 namespace Nektar
 {
 class VCSFSI : public VelocityCorrectionScheme
@@ -96,6 +97,22 @@ protected:
     virtual void IntegratePressureForce(
         const Array<OneD, NekDouble> &pressurePhys,
         Array<OneD, NekDouble> &force) const;
+    virtual void IntegratePressureForceSpanwise(
+        const Array<OneD, NekDouble> &pressurePhys,
+        Array<OneD, NekDouble> &force) const;
+    virtual void IntegrateFrictionForceSpanwise(
+        Array<OneD, NekDouble> &force) const;
+    virtual void InitialiseSpanwiseForceStrips();
+    virtual void IntegratePressureForceSpanwisePoints(
+        const Array<OneD, NekDouble> &pressurePhys,
+        Array<OneD, NekDouble> &force) const;
+    virtual void IntegrateFrictionForceSpanwisePoints(
+        Array<OneD, NekDouble> &force) const;
+    virtual void WriteSpanwiseForcePoints(NekDouble time) const;
+    virtual void CheckSpanwiseSubstripConservation(
+        const Array<OneD, NekDouble> &substripForce,
+        const Array<OneD, NekDouble> &stripForce,
+        const std::string &forceName) const;
     void ZeroPressureBoundaryConditions();
 
     RigidSolver m_rigidSolver;
@@ -117,6 +134,26 @@ protected:
     bool m_pressureForceOutputInitialised = false;
     bool m_pressureForceHasGlobalBoundary = false;
     std::ofstream m_pressureForceStream;
+    bool m_spanForceOutput = false;
+    bool m_spanForceStripsInitialised = false;
+    int m_spanForceDir = 2;
+    int m_spanForceSubstrips = 6;
+    std::vector<NekDouble> m_spanForceEdges;
+    std::vector<NekDouble> m_spanForcePoints;
+    std::vector<NekDouble> m_spanForcePointWeights;
+    std::vector<int> m_spanForceSubstripToStrip;
+    std::string m_spanForceOutputDir;
+    mutable int m_spanForceOutputIndex = 0;
+    Array<OneD, NekDouble> m_spanFaForce;
+    Array<OneD, NekDouble> m_spanFqForce;
+    Array<OneD, NekDouble> m_spanFvisPreForce;
+    Array<OneD, NekDouble> m_spanFfrcForce;
+    Array<OneD, NekDouble> m_spanFtotalForce;
+    Array<OneD, NekDouble> m_spanFaPointForce;
+    Array<OneD, NekDouble> m_spanFqPointForce;
+    Array<OneD, NekDouble> m_spanFvisPrePointForce;
+    Array<OneD, NekDouble> m_spanFfrcPointForce;
+    Array<OneD, NekDouble> m_spanFtotalPointForce;
 };
 
 typedef std::shared_ptr<VCSFSI> VCSFSISharedPtr;
