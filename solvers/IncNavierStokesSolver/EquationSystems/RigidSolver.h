@@ -264,11 +264,6 @@ private:
     std::map<int, LibUtilities::EquationSharedPtr> m_frameVelFunction;
     Array<OneD, NekDouble> m_extForceXYZ;
     Array<OneD, NekDouble> m_gravityAcceleration;
-    // Body-frame vector from PIVOTPOINT to the application point of the
-    // EXTERNALFORCE resultant. Its input moment is defined about that point.
-    // Use this only when the complete resultant has a single application
-    // point; use GRAVITYACCELERATION for an eccentric gravity moment.
-    Array<OneD, NekDouble> m_externalForcePointOffset;
     // PIVOTPOINT is the body-frame reference point: a physical pitch axis
     // for prescribed flapping, and the moment/moving-frame reference point
     // for a free rigid body.

@@ -912,54 +912,6 @@ void RigidSolver::InitBodySolver(
             m_gravityAcceleration[i] = EvaluateExpression(session, values[i]);
         }
     }
-    // EXTERNALFORCE moments are defined about EXTERNALFORCEPOINT.  Preserve
-    // the historical PIVOTPOINT default.  For buoyancy plus gravity, keep the
-    // net EXTERNALFORCE at PIVOTPOINT and use GRAVITYACCELERATION for the
-    // COM gravity moment only.
-    m_externalForcePointOffset = Array<OneD, NekDouble>(m_spacedim, 0.0);
-    mssgTag = pSolver->FirstChildElement("EXTERNALFORCEPOINT");
-    if (mssgTag)
-    {
-        const std::string point = GetRequiredElementText(
-            mssgTag, "EXTERNALFORCEPOINT");
-        if (boost::iequals(point, "PIVOTPOINT"))
-        {
-            // Zero offset is already set above.
-        }
-        else if (boost::iequals(point, "COM"))
-        {
-            Vmath::Vcopy(m_spacedim, m_comOffset, 1,
-                         m_externalForcePointOffset, 1);
-        }
-        else
-        {
-            std::vector<std::string> values;
-            ParseUtils::GenerateVector(point, values);
-            ASSERTL0(values.size() == m_spacedim,
-                     "EXTERNALFORCEPOINT must be PIVOTPOINT, COM, or a "
-                     "body-frame vector with one component per dimension.");
-            for (int i = 0; i < m_spacedim; ++i)
-            {
-                m_externalForcePointOffset[i] =
-                    EvaluateExpression(session, values[i]);
-            }
-        }
-    }
-    if (m_externalForcePointOffset.size() != 0)
-    {
-        NekDouble pointNorm2 = 0.0;
-        for (int i = 0; i < m_spacedim; ++i)
-        {
-            pointNorm2 += m_externalForcePointOffset[i] *
-                          m_externalForcePointOffset[i];
-        }
-        WARNINGL0(pointNorm2 <= NekConstants::kNekZeroTol ||
-                      m_extForceFunction.empty(),
-                  "EXTERNALFORCEPOINT applies the complete EXTERNALFORCE "
-                  "resultant at that point. For a buoyancy/gravity load, "
-                  "keep EXTERNALFORCE at PIVOTPOINT and use "
-                  "GRAVITYACCELERATION.");
-    }
     m_physicalMassMatrix = Array<OneD, NekDouble>(m_M.size(), 0.0);
     Vmath::Vcopy(m_M.size(), m_M, 1, m_physicalMassMatrix, 1);
     m_addedMassMatrix = Array<OneD, NekDouble>(m_M.size(), 0.0);
@@ -1890,16 +1842,13 @@ void RigidSolver::SolveFreeRigidBody3D(
         {
             gravityForceTrial[i] *= m_mass;
         }
-        Array<OneD, NekDouble> externalForceMomentTrial(3, 0.0);
         Array<OneD, NekDouble> gravityMomentTrial(3, 0.0);
-        Cross(m_externalForcePointOffset, externalForceTrial,
-              externalForceMomentTrial);
         Cross(m_comOffset, gravityForceTrial, gravityMomentTrial);
         for (int i = 0; i < 3; ++i)
         {
             force[i] = forcebody[i] + externalForceTrial[i];
             force[i + 3] = forcebody[i + 3] + externalMomentTrial[i] +
-                           externalForceMomentTrial[i] + gravityMomentTrial[i];
+                           gravityMomentTrial[i];
         }
 
         Cross(omega, m_comOffset, comVelocity);
@@ -2144,8 +2093,6 @@ void RigidSolver::SolveFreeRigidBody2D(
         angle[2] = bodyVel[0][2];
         m_frame.SetAngle(angle);
         m_frame.InertialToBody(3, m_extForceXYZ, force);
-        const NekDouble externalForceX = force[0];
-        const NekDouble externalForceY = force[1];
         Array<OneD, NekDouble> gravityForce(3, 0.0);
         m_frame.InertialToBody(3, m_gravityAcceleration, gravityForce);
         for (int i = 0; i < 3; ++i)
@@ -2161,10 +2108,7 @@ void RigidSolver::SolveFreeRigidBody2D(
         const NekDouble gravityMoment =
             m_comOffset[0] * gravityForce[1] -
             m_comOffset[1] * gravityForce[0];
-        force[2] = forcebody[5] + m_extForceXYZ[5] +
-                   m_externalForcePointOffset[0] * externalForceY -
-                   m_externalForcePointOffset[1] * externalForceX +
-                   gravityMoment;
+        force[2] = forcebody[5] + m_extForceXYZ[5] + gravityMoment;
 
         Array<OneD, NekDouble> nonlinear(3, 0.0), jacobian(9, 0.0);
         const NekDouble rx = m_comOffset[0];
