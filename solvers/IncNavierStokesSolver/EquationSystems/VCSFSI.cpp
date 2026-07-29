@@ -270,7 +270,8 @@ void VCSFSI::InitialisePressureDecomposition()
         m_pqForce    = Array<OneD, NekDouble>(3, 0.0);
         m_pvisForce  = Array<OneD, NekDouble>(3, 0.0);
         m_pForce     = Array<OneD, NekDouble>(3, 0.0);
-        m_presForce  = Array<OneD, NekDouble>(3, 0.0);
+        m_frictionForce = Array<OneD, NekDouble>(3, 0.0);
+        m_totalForce    = Array<OneD, NekDouble>(3, 0.0);
         if (m_spanForceOutput)
         {
             ASSERTL0(m_spanForceDir >= 0 && m_spanForceDir < 3,
@@ -594,6 +595,9 @@ void VCSFSI::EvaluatePressureComponentForces([[maybe_unused]] NekDouble time)
     IntegratePressureForce(m_pqPhys, m_pqForce);
     IntegratePressureForce(m_pvisPhys, m_pvisForce);
     IntegratePressureForce(m_pressure->GetPhys(), m_pForce);
+    IntegrateFrictionForce(m_frictionForce);
+    Vmath::Vadd(m_pForce.size(), m_pForce, 1, m_frictionForce, 1,
+                m_totalForce, 1);
 
     if (m_spanForceOutput)
     {
@@ -623,6 +627,14 @@ void VCSFSI::EvaluatePressureComponentForces([[maybe_unused]] NekDouble time)
         IntegrateFrictionForceSpanwise(m_spanFfrcForce);
         Vmath::Vadd(m_spanFtotalForce.size(), m_spanFtotalForce, 1,
                     m_spanFfrcForce, 1, m_spanFtotalForce, 1);
+        IntegratePressureForceTipCap(m_paPhys, m_tipCapFaForce);
+        IntegratePressureForceTipCap(m_pqPhys, m_tipCapFqForce);
+        IntegratePressureForceTipCap(m_pvisPhys, m_tipCapFvisPreForce);
+        IntegratePressureForceTipCap(m_pressure->GetPhys(),
+                                    m_tipCapFtotalForce);
+        IntegrateFrictionForceTipCap(m_tipCapFfrcForce);
+        Vmath::Vadd(m_tipCapFtotalForce.size(), m_tipCapFtotalForce, 1,
+                    m_tipCapFfrcForce, 1, m_tipCapFtotalForce, 1);
         CheckSpanwiseSubstripConservation(
             m_spanFaPointForce, m_spanFaForce, "Fa");
         CheckSpanwiseSubstripConservation(
@@ -633,6 +645,19 @@ void VCSFSI::EvaluatePressureComponentForces([[maybe_unused]] NekDouble time)
             m_spanFfrcPointForce, m_spanFfrcForce, "Ffrc");
         CheckSpanwiseSubstripConservation(
             m_spanFtotalPointForce, m_spanFtotalForce, "Ftotal");
+        CheckSpanwiseTipCapConservation(
+            m_tipCapFaForce, m_spanFaForce, m_paForce, "Fa");
+        CheckSpanwiseTipCapConservation(
+            m_tipCapFqForce, m_spanFqForce, m_pqForce, "Fq");
+        CheckSpanwiseTipCapConservation(
+            m_tipCapFvisPreForce, m_spanFvisPreForce, m_pvisForce,
+            "Fvis-pre");
+        CheckSpanwiseTipCapConservation(
+            m_tipCapFfrcForce, m_spanFfrcForce, m_frictionForce,
+            "Ffrc");
+        CheckSpanwiseTipCapConservation(
+            m_tipCapFtotalForce, m_spanFtotalForce, m_totalForce,
+            "Ftotal");
         if (m_movingFrameData.size() >= 6 && m_movingFrameData[5] != 0.0)
         {
             const NekDouble c = std::cos(m_movingFrameData[5]);
@@ -653,22 +678,23 @@ void VCSFSI::EvaluatePressureComponentForces([[maybe_unused]] NekDouble time)
                     (*pointForce)[3 * point + 1] = s * fx + c * fy;
                 }
             }
+            Array<OneD, NekDouble> *tipCapForces[] = {
+                &m_tipCapFaForce, &m_tipCapFqForce,
+                &m_tipCapFvisPreForce, &m_tipCapFfrcForce,
+                &m_tipCapFtotalForce};
+            for (auto tipCapForce : tipCapForces)
+            {
+                const NekDouble fx = (*tipCapForce)[0];
+                const NekDouble fy = (*tipCapForce)[1];
+                (*tipCapForce)[0] = c * fx - s * fy;
+                (*tipCapForce)[1] = s * fx + c * fy;
+            }
         }
         WriteSpanwiseForcePoints(time);
     }
 
-    // Surface integration is linear, so compute the residual force without
-    // a fifth boundary traversal for the residual pressure field.
-    Vmath::Vcopy(m_pForce.size(), m_pForce, 1, m_presForce, 1);
-    Vmath::Vsub(m_presForce.size(), m_presForce, 1, m_paForce, 1,
-                m_presForce, 1);
-    Vmath::Vsub(m_presForce.size(), m_presForce, 1, m_pqForce, 1,
-                m_presForce, 1);
-    Vmath::Vsub(m_presForce.size(), m_presForce, 1, m_pvisForce, 1,
-                m_presForce, 1);
-
     // FilterAeroForces reports forces in directions that rotate with the
-    // moving frame. Apply the same z-axis rotation to every pressure force.
+    // moving frame. Apply the same z-axis rotation to every surface force.
     if (m_movingFrameData.size() >= 6 && m_movingFrameData[5] != 0.0)
     {
         const NekDouble c = std::cos(m_movingFrameData[5]);
@@ -684,7 +710,8 @@ void VCSFSI::EvaluatePressureComponentForces([[maybe_unused]] NekDouble time)
         projectForce(m_paForce);
         projectForce(m_pqForce);
         projectForce(m_pvisForce);
-        projectForce(m_presForce);
+        projectForce(m_frictionForce);
+        projectForce(m_totalForce);
     }
 
     if (m_pressureForceStream.is_open() &&
@@ -710,7 +737,11 @@ void VCSFSI::EvaluatePressureComponentForces([[maybe_unused]] NekDouble time)
         }
         for (int i = 0; i < 3; ++i)
         {
-            m_pressureForceStream << " " << m_presForce[i];
+            m_pressureForceStream << " " << m_frictionForce[i];
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            m_pressureForceStream << " " << m_totalForce[i];
         }
         m_pressureForceStream << std::endl;
     }
@@ -870,6 +901,11 @@ void VCSFSI::InitialiseSpanwiseForceStrips()
     m_spanFvisPrePointForce = Array<OneD, NekDouble>(np, 0.0);
     m_spanFfrcPointForce    = Array<OneD, NekDouble>(np, 0.0);
     m_spanFtotalPointForce  = Array<OneD, NekDouble>(np, 0.0);
+    m_tipCapFaForce        = Array<OneD, NekDouble>(3, 0.0);
+    m_tipCapFqForce        = Array<OneD, NekDouble>(3, 0.0);
+    m_tipCapFvisPreForce   = Array<OneD, NekDouble>(3, 0.0);
+    m_tipCapFfrcForce      = Array<OneD, NekDouble>(3, 0.0);
+    m_tipCapFtotalForce    = Array<OneD, NekDouble>(3, 0.0);
     if (m_session->GetComm()->TreatAsRankZero())
     {
         fs::create_directories(m_spanForceOutputDir);
@@ -938,7 +974,8 @@ void VCSFSI::InitialisePressureComponentForceOutput()
         m_pressureForceStream.open(outputBase.c_str());
         m_pressureForceStream
             << "Variables = t, Fpx, Fpy, Fpz, Fax, Fay, Faz, Fqx, Fqy, "
-               "Fqz, Fvisx, Fvisy, Fvisz, Fresx, Fresy, Fresz"
+               "Fqz, Fvisprex, Fvisprey, Fvisprez, "
+               "Ffrcx, Ffrcy, Ffrcz, Ftotalx, Ftotaly, Ftotalz"
             << std::endl;
     }
 }
@@ -1009,6 +1046,90 @@ void VCSFSI::IntegratePressureForce(
             : vComm->GetColumnComm();
 
     rowComm->AllReduce(force, LibUtilities::ReduceSum);
+    colComm->AllReduce(force, LibUtilities::ReduceSum);
+}
+
+void VCSFSI::IntegrateFrictionForce(
+    Array<OneD, NekDouble> &force) const
+{
+    Vmath::Zero(force.size(), force, 1);
+    const int expdim = m_fields[0]->GetGraph()->GetMeshDimension();
+    const NekDouble rho = m_session->DefinesParameter("rho")
+                              ? m_session->GetParameter("rho")
+                              : 1.0;
+    const NekDouble mu = m_session->DefinesParameter("Kinvis")
+                             ? rho * m_session->GetParameter("Kinvis")
+                             : m_session->GetParameter("mu");
+
+    Array<OneD, MultiRegions::ExpListSharedPtr> bndExp =
+        m_fields[0]->GetBndCondExpansions();
+    Array<OneD, int> bcToElmt, bcToTrace;
+    m_fields[0]->GetBoundaryToElmtMap(bcToElmt, bcToTrace);
+    int cnt = 0;
+
+    for (int n = 0; n < bndExp.size(); ++n)
+    {
+        if (n >= static_cast<int>(m_pressureForceBoundaryIsInList.size()) ||
+            !m_pressureForceBoundaryIsInList[n])
+        {
+            cnt += bndExp[n]->GetExpSize();
+            continue;
+        }
+
+        for (int i = 0; i < bndExp[n]->GetExpSize(); ++i, ++cnt)
+        {
+            auto elmt       = m_fields[0]->GetExp(bcToElmt[cnt]);
+            const int trace = bcToTrace[cnt];
+            const int nq    = elmt->GetTotPoints();
+            const int offset =
+                m_fields[0]->GetPhys_Offset(bcToElmt[cnt]);
+            Array<OneD, Array<OneD, NekDouble>> grad(expdim * expdim);
+            for (int j = 0; j < expdim; ++j)
+            {
+                Array<OneD, const NekDouble> velocity =
+                    m_fields[m_velocity[j]]->GetPhys() + offset;
+                for (int k = 0; k < expdim; ++k)
+                {
+                    grad[expdim * j + k] =
+                        Array<OneD, NekDouble>(nq, 0.0);
+                    elmt->PhysDeriv(k, velocity,
+                                   grad[expdim * j + k]);
+                }
+            }
+
+            auto bc       = bndExp[n]->GetExp(i);
+            const int nbc = bc->GetTotPoints();
+            auto normals  = elmt->GetTraceNormal(trace);
+            Array<OneD, Array<OneD, NekDouble>> gradb(expdim * expdim);
+            for (int j = 0; j < expdim * expdim; ++j)
+            {
+                gradb[j] = Array<OneD, NekDouble>(nbc, 0.0);
+                elmt->GetTracePhysVals(trace, bc, grad[j], gradb[j]);
+            }
+
+            for (int d = 0; d < expdim; ++d)
+            {
+                Array<OneD, NekDouble> traction(nbc, 0.0);
+                for (int k = 0; k < expdim; ++k)
+                {
+                    Vmath::Vvtvp(
+                        nbc, gradb[expdim * k + d], 1, normals[k], 1,
+                        traction, 1, traction, 1);
+                    Vmath::Vvtvp(
+                        nbc, gradb[expdim * d + k], 1, normals[k], 1,
+                        traction, 1, traction, 1);
+                }
+                Vmath::Smul(nbc, -mu, traction, 1, traction, 1);
+                force[d] += bc->Integral(traction);
+            }
+        }
+    }
+
+    auto comm = m_fields[0]->GetComm();
+    comm->GetRowComm()->AllReduce(force, LibUtilities::ReduceSum);
+    auto colComm = m_session->DefinesSolverInfo("HomoStrip")
+                       ? comm->GetColumnComm()->GetColumnComm()
+                       : comm->GetColumnComm();
     colComm->AllReduce(force, LibUtilities::ReduceSum);
 }
 
@@ -1104,6 +1225,107 @@ void VCSFSI::IntegratePressureForceSpanwise(
     colComm->AllReduce(force, LibUtilities::ReduceSum);
 }
 
+void VCSFSI::IntegratePressureForceTipCap(
+    const Array<OneD, NekDouble> &pressurePhys,
+    Array<OneD, NekDouble> &force) const
+{
+    Vmath::Zero(force.size(), force, 1);
+    ASSERTL0(force.size() == 3,
+             "Tip-cap force array must contain one force vector.");
+    const int expdim = m_fields[0]->GetGraph()->GetMeshDimension();
+    ASSERTL0(expdim == 3,
+             "Spanwise tip-cap output requires a full 3D mesh.");
+    const NekDouble spanTol = 1.0e-10 * std::max(
+        1.0, m_spanForceEdges.back() - m_spanForceEdges.front());
+    Array<OneD, MultiRegions::ExpListSharedPtr> bndExp =
+        m_pressure->GetBndCondExpansions();
+
+    for (int n = 0; n < bndExp.size(); ++n)
+    {
+        if (n >= static_cast<int>(m_pressureForceBoundaryIsInList.size()) ||
+            !m_pressureForceBoundaryIsInList[n])
+        {
+            continue;
+        }
+        const int nbc = bndExp[n]->GetTotPoints();
+        if (nbc == 0)
+        {
+            continue;
+        }
+
+        Array<OneD, Array<OneD, NekDouble>> normals(3);
+        for (int d = 0; d < 3; ++d)
+        {
+            normals[d] = Array<OneD, NekDouble>(nbc, 0.0);
+        }
+        bndExp[n]->GetNormals(normals);
+
+        MultiRegions::ExpListSharedPtr bndElmtExp;
+        m_pressure->GetBndElmtExpansion(n, bndElmtExp, false);
+        Array<OneD, NekDouble> pElm(bndElmtExp->GetTotPoints(), 0.0);
+        Array<OneD, NekDouble> pBnd(nbc, 0.0), x(nbc), y(nbc), z(nbc);
+        m_pressure->ExtractPhysToBndElmt(n, pressurePhys, pElm);
+        m_pressure->ExtractElmtToBndPhys(n, pElm, pBnd);
+        bndExp[n]->GetCoords(x, y, z);
+        Array<OneD, NekDouble> coords[] = {x, y, z};
+
+        int offset = 0;
+        for (int e = 0; e < bndExp[n]->GetExpSize(); ++e)
+        {
+            auto bc        = bndExp[n]->GetExp(e);
+            const int npts = bc->GetTotPoints();
+            NekDouble spanLower = coords[m_spanForceDir][offset];
+            NekDouble spanUpper = spanLower;
+            for (int q = 1; q < npts; ++q)
+            {
+                const NekDouble span = coords[m_spanForceDir][offset + q];
+                spanLower = std::min(spanLower, span);
+                spanUpper = std::max(spanUpper, span);
+            }
+            if (spanUpper - spanLower > spanTol)
+            {
+                offset += npts;
+                continue;
+            }
+
+            const NekDouble spanCentre = 0.5 * (spanLower + spanUpper);
+            const NekDouble tipDistance =
+                std::abs(spanCentre - m_spanForceEdges.back());
+            const NekDouble rootDistance =
+                std::abs(spanCentre - m_spanForceEdges.front());
+            if (rootDistance <= 10.0 * spanTol)
+            {
+                // z = root is the symmetry/continuation plane of this
+                // half-wing, not an exposed wetted end cap.
+                offset += npts;
+                continue;
+            }
+            ASSERTL0(tipDistance <= 10.0 * spanTol,
+                     "A zero-span wall face is neither the root symmetry "
+                     "plane nor the physical wing-tip cap.");
+            for (int d = 0; d < 3; ++d)
+            {
+                Array<OneD, NekDouble> value(npts, 0.0);
+                for (int q = 0; q < npts; ++q)
+                {
+                    value[q] =
+                        pBnd[offset + q] * normals[d][offset + q];
+                }
+                force[d] += bc->Integral(value);
+            }
+            offset += npts;
+        }
+        ASSERTL0(offset == nbc, "Boundary quadrature-point count mismatch.");
+    }
+
+    auto comm = m_fields[0]->GetComm();
+    comm->GetRowComm()->AllReduce(force, LibUtilities::ReduceSum);
+    auto colComm = m_session->DefinesSolverInfo("HomoStrip")
+                       ? comm->GetColumnComm()->GetColumnComm()
+                       : comm->GetColumnComm();
+    colComm->AllReduce(force, LibUtilities::ReduceSum);
+}
+
 void VCSFSI::CheckSpanwiseSubstripConservation(
     const Array<OneD, NekDouble> &substripForce,
     const Array<OneD, NekDouble> &stripForce,
@@ -1140,6 +1362,34 @@ void VCSFSI::CheckSpanwiseSubstripConservation(
     const NekDouble tolerance = 1.0e-10 * std::max(1.0, maxForce);
     ASSERTL0(maxError <= tolerance,
              "Spanwise section-force conservation check failed for " +
+                 forceName + ": error = " + std::to_string(maxError) +
+                 ", tolerance = " + std::to_string(tolerance));
+}
+
+void VCSFSI::CheckSpanwiseTipCapConservation(
+    const Array<OneD, NekDouble> &tipCapForce,
+    const Array<OneD, NekDouble> &sideForce,
+    const Array<OneD, NekDouble> &globalForce,
+    const std::string &forceName) const
+{
+    ASSERTL0(tipCapForce.size() == 3 && globalForce.size() == 3 &&
+                 sideForce.size() % 3 == 0,
+             "Unexpected force-array size in tip-cap conservation check.");
+    NekDouble maxForce = 0.0, maxError = 0.0;
+    for (int d = 0; d < 3; ++d)
+    {
+        NekDouble reconstructed = tipCapForce[d];
+        for (int strip = 0; strip < sideForce.size() / 3; ++strip)
+        {
+            reconstructed += sideForce[3 * strip + d];
+        }
+        maxForce = std::max(maxForce, std::abs(globalForce[d]));
+        maxError =
+            std::max(maxError, std::abs(reconstructed - globalForce[d]));
+    }
+    const NekDouble tolerance = 1.0e-10 * std::max(1.0, maxForce);
+    ASSERTL0(maxError <= tolerance,
+             "Spanwise side-plus-tip-cap conservation check failed for " +
                  forceName + ": error = " + std::to_string(maxError) +
                  ", tolerance = " + std::to_string(tolerance));
 }
@@ -1271,11 +1521,12 @@ void VCSFSI::WriteSpanwiseForcePoints(NekDouble time) const
     {
         return;
     }
+    const int outputIndex = m_spanForceOutputIndex++;
     std::ostringstream name;
     name << m_spanForceOutputDir << "/spanforce_" << std::setw(6)
-         << std::setfill('0') << m_spanForceOutputIndex++ << ".dat";
+         << std::setfill('0') << outputIndex << ".dat";
     std::ofstream out(name.str());
-    ASSERTL0(out.good(), "Unable to open spanwise sub-strip output file.");
+    ASSERTL0(out.good(), "Unable to open spanwise section-force output file.");
     out << std::scientific << std::setprecision(12);
     out << "# time " << time << "\n";
     out << "# s Fa_x Fa_y Fa_z Fq_x Fq_y Fq_z "
@@ -1297,6 +1548,30 @@ void VCSFSI::WriteSpanwiseForcePoints(NekDouble time) const
         }
         out << "\n";
     }
+
+    std::ostringstream tipCapName;
+    tipCapName << m_spanForceOutputDir << "/tipcap_" << std::setw(6)
+               << std::setfill('0') << outputIndex << ".dat";
+    std::ofstream tipCapOut(tipCapName.str());
+    ASSERTL0(tipCapOut.good(),
+             "Unable to open wing-tip cap force output file.");
+    tipCapOut << std::scientific << std::setprecision(12);
+    tipCapOut << "# time " << time << "\n";
+    tipCapOut << "# s Fa_x Fa_y Fa_z Fq_x Fq_y Fq_z "
+                 "Fvispre_x Fvispre_y Fvispre_z Ffrc_x Ffrc_y Ffrc_z "
+                 "Ftotal_x Ftotal_y Ftotal_z\n";
+    tipCapOut << m_spanForceEdges.back();
+    const Array<OneD, NekDouble> *tipCapForces[] = {
+        &m_tipCapFaForce, &m_tipCapFqForce, &m_tipCapFvisPreForce,
+        &m_tipCapFfrcForce, &m_tipCapFtotalForce};
+    for (const auto force : tipCapForces)
+    {
+        for (int d = 0; d < 3; ++d)
+        {
+            tipCapOut << " " << (*force)[d];
+        }
+    }
+    tipCapOut << "\n";
 }
 
 void VCSFSI::IntegrateFrictionForceSpanwise(
@@ -1404,6 +1679,130 @@ void VCSFSI::IntegrateFrictionForceSpanwise(
                 }
                 Vmath::Smul(nbc, -mu, traction, 1, traction, 1);
                 force[3 * bin + d] += bc->Integral(traction);
+            }
+        }
+    }
+
+    auto comm = m_fields[0]->GetComm();
+    comm->GetRowComm()->AllReduce(force, LibUtilities::ReduceSum);
+    auto colComm = m_session->DefinesSolverInfo("HomoStrip")
+                       ? comm->GetColumnComm()->GetColumnComm()
+                       : comm->GetColumnComm();
+    colComm->AllReduce(force, LibUtilities::ReduceSum);
+}
+
+void VCSFSI::IntegrateFrictionForceTipCap(
+    Array<OneD, NekDouble> &force) const
+{
+    Vmath::Zero(force.size(), force, 1);
+    ASSERTL0(force.size() == 3,
+             "Tip-cap force array must contain one force vector.");
+    const int expdim = m_fields[0]->GetGraph()->GetMeshDimension();
+    ASSERTL0(expdim == 3,
+             "Spanwise tip-cap output requires a full 3D mesh.");
+    const NekDouble spanTol = 1.0e-10 * std::max(
+        1.0, m_spanForceEdges.back() - m_spanForceEdges.front());
+    const NekDouble rho = m_session->DefinesParameter("rho")
+                              ? m_session->GetParameter("rho")
+                              : 1.0;
+    const NekDouble mu = m_session->DefinesParameter("Kinvis")
+                             ? rho * m_session->GetParameter("Kinvis")
+                             : m_session->GetParameter("mu");
+
+    Array<OneD, MultiRegions::ExpListSharedPtr> bndExp =
+        m_fields[0]->GetBndCondExpansions();
+    Array<OneD, int> bcToElmt, bcToTrace;
+    m_fields[0]->GetBoundaryToElmtMap(bcToElmt, bcToTrace);
+    int cnt = 0;
+
+    for (int n = 0; n < bndExp.size(); ++n)
+    {
+        if (n >= static_cast<int>(m_pressureForceBoundaryIsInList.size()) ||
+            !m_pressureForceBoundaryIsInList[n])
+        {
+            cnt += bndExp[n]->GetExpSize();
+            continue;
+        }
+        for (int i = 0; i < bndExp[n]->GetExpSize(); ++i, ++cnt)
+        {
+            auto elmt       = m_fields[0]->GetExp(bcToElmt[cnt]);
+            const int trace = bcToTrace[cnt];
+            const int nq    = elmt->GetTotPoints();
+            const int offset =
+                m_fields[0]->GetPhys_Offset(bcToElmt[cnt]);
+            Array<OneD, Array<OneD, NekDouble>> grad(9);
+            for (int j = 0; j < 3; ++j)
+            {
+                Array<OneD, const NekDouble> velocity =
+                    m_fields[m_velocity[j]]->GetPhys() + offset;
+                for (int k = 0; k < 3; ++k)
+                {
+                    grad[3 * j + k] =
+                        Array<OneD, NekDouble>(nq, 0.0);
+                    elmt->PhysDeriv(k, velocity, grad[3 * j + k]);
+                }
+            }
+
+            auto bc       = bndExp[n]->GetExp(i);
+            const int nbc = bc->GetTotPoints();
+            auto normals  = elmt->GetTraceNormal(trace);
+            Array<OneD, Array<OneD, NekDouble>> gradb(9);
+            Array<OneD, Array<OneD, NekDouble>> coords(3), coordsb(3);
+            for (int d = 0; d < 3; ++d)
+            {
+                coords[d]  = Array<OneD, NekDouble>(nq, 0.0);
+                coordsb[d] = Array<OneD, NekDouble>(nbc, 0.0);
+            }
+            elmt->GetCoords(coords[0], coords[1], coords[2]);
+            for (int j = 0; j < 9; ++j)
+            {
+                gradb[j] = Array<OneD, NekDouble>(nbc, 0.0);
+                elmt->GetTracePhysVals(trace, bc, grad[j], gradb[j]);
+            }
+            for (int d = 0; d < 3; ++d)
+            {
+                elmt->GetTracePhysVals(trace, bc, coords[d], coordsb[d]);
+            }
+
+            NekDouble spanLower = coordsb[m_spanForceDir][0];
+            NekDouble spanUpper = spanLower;
+            for (int q = 1; q < nbc; ++q)
+            {
+                const NekDouble span = coordsb[m_spanForceDir][q];
+                spanLower = std::min(spanLower, span);
+                spanUpper = std::max(spanUpper, span);
+            }
+            if (spanUpper - spanLower > spanTol)
+            {
+                continue;
+            }
+
+            const NekDouble spanCentre = 0.5 * (spanLower + spanUpper);
+            const NekDouble tipDistance =
+                std::abs(spanCentre - m_spanForceEdges.back());
+            const NekDouble rootDistance =
+                std::abs(spanCentre - m_spanForceEdges.front());
+            if (rootDistance <= 10.0 * spanTol)
+            {
+                // The root is a symmetry/continuation plane, so it carries
+                // no physical wetted-surface force for the half-wing.
+                continue;
+            }
+            ASSERTL0(tipDistance <= 10.0 * spanTol,
+                     "A zero-span wall face is neither the root symmetry "
+                     "plane nor the physical wing-tip cap.");
+            for (int d = 0; d < 3; ++d)
+            {
+                Array<OneD, NekDouble> traction(nbc, 0.0);
+                for (int k = 0; k < 3; ++k)
+                {
+                    Vmath::Vvtvp(nbc, gradb[3 * k + d], 1, normals[k], 1,
+                                 traction, 1, traction, 1);
+                    Vmath::Vvtvp(nbc, gradb[3 * d + k], 1, normals[k], 1,
+                                 traction, 1, traction, 1);
+                }
+                Vmath::Smul(nbc, -mu, traction, 1, traction, 1);
+                force[d] += bc->Integral(traction);
             }
         }
     }

@@ -97,10 +97,17 @@ protected:
     virtual void IntegratePressureForce(
         const Array<OneD, NekDouble> &pressurePhys,
         Array<OneD, NekDouble> &force) const;
+    virtual void IntegrateFrictionForce(
+        Array<OneD, NekDouble> &force) const;
     virtual void IntegratePressureForceSpanwise(
         const Array<OneD, NekDouble> &pressurePhys,
         Array<OneD, NekDouble> &force) const;
+    virtual void IntegratePressureForceTipCap(
+        const Array<OneD, NekDouble> &pressurePhys,
+        Array<OneD, NekDouble> &force) const;
     virtual void IntegrateFrictionForceSpanwise(
+        Array<OneD, NekDouble> &force) const;
+    virtual void IntegrateFrictionForceTipCap(
         Array<OneD, NekDouble> &force) const;
     virtual void InitialiseSpanwiseForceStrips();
     virtual void IntegratePressureForceSpanwisePoints(
@@ -112,6 +119,11 @@ protected:
     virtual void CheckSpanwiseSubstripConservation(
         const Array<OneD, NekDouble> &substripForce,
         const Array<OneD, NekDouble> &stripForce,
+        const std::string &forceName) const;
+    virtual void CheckSpanwiseTipCapConservation(
+        const Array<OneD, NekDouble> &tipCapForce,
+        const Array<OneD, NekDouble> &sideForce,
+        const Array<OneD, NekDouble> &globalForce,
         const std::string &forceName) const;
     void ZeroPressureBoundaryConditions();
 
@@ -129,7 +141,8 @@ protected:
     Array<OneD, NekDouble> m_pqForce;
     Array<OneD, NekDouble> m_pvisForce;
     Array<OneD, NekDouble> m_pForce;
-    Array<OneD, NekDouble> m_presForce;
+    Array<OneD, NekDouble> m_frictionForce;
+    Array<OneD, NekDouble> m_totalForce;
     std::vector<bool> m_pressureForceBoundaryIsInList;
     bool m_pressureForceOutputInitialised = false;
     bool m_pressureForceHasGlobalBoundary = false;
@@ -154,6 +167,11 @@ protected:
     Array<OneD, NekDouble> m_spanFvisPrePointForce;
     Array<OneD, NekDouble> m_spanFfrcPointForce;
     Array<OneD, NekDouble> m_spanFtotalPointForce;
+    Array<OneD, NekDouble> m_tipCapFaForce;
+    Array<OneD, NekDouble> m_tipCapFqForce;
+    Array<OneD, NekDouble> m_tipCapFvisPreForce;
+    Array<OneD, NekDouble> m_tipCapFfrcForce;
+    Array<OneD, NekDouble> m_tipCapFtotalForce;
 };
 
 typedef std::shared_ptr<VCSFSI> VCSFSISharedPtr;
