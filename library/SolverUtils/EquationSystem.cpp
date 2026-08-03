@@ -1327,7 +1327,8 @@ void EquationSystem::WriteFld(const std::string &outname)
         }
         else
         {
-            fieldcoeffs[i] = Array<OneD, NekDouble>(m_fields[0]->GetNcoeffs());
+            fieldcoeffs[i] =
+                Array<OneD, NekDouble>(m_fields[0]->GetNcoeffs(), 0.0);
             m_fields[0]->ExtractCoeffsToCoeffs(
                 m_fields[i], m_fields[i]->GetCoeffs(), fieldcoeffs[i]);
         }
