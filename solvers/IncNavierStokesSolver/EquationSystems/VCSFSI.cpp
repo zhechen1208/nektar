@@ -549,7 +549,7 @@ void VCSFSI::SaveTimeIntegrationRestartState(
 
     auto glm = std::dynamic_pointer_cast<LibUtilities::TimeIntegrationSchemeGLM>(
         m_intScheme);
-    if (!glm)
+    if (!glm || !glm->IsInitialized())
     {
         return;
     }

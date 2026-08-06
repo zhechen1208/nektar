@@ -49,6 +49,11 @@ namespace Nektar::LibUtilities
 class TimeIntegrationSchemeGLM : public TimeIntegrationScheme
 {
 public:
+    LUE bool IsInitialized() const
+    {
+        return static_cast<bool>(m_solVector);
+    }
+
     LUE const Array<OneD, const NekDouble> &GetTimeVector() const
     {
         return m_solVector->GetTimeVector();
