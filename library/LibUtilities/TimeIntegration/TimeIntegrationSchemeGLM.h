@@ -64,6 +64,11 @@ public:
         return m_solVector->UpdateTimeVector();
     }
 
+    LUE size_t GetNumSolutionValues() const
+    {
+        return m_solVector->GetNvalues();
+    }
+
     LUE void InitializeSecondaryData(TimeIntegrationAlgorithmGLM *phase,
                                      NekDouble deltaT) const
     {

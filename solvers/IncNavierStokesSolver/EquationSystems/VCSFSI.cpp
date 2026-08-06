@@ -801,6 +801,12 @@ bool VCSFSI::v_RestoreTimeIntegrationState()
         }
     }
     Vmath::Vcopy(times.size(), m_timeIntegrationRestartTimes, 1, times, 1);
+    if (m_session->DefinesCmdLineArgument("set-start-time"))
+    {
+        const NekDouble timeShift = m_time - times[0];
+        const int nvalues = static_cast<int>(glm->GetNumSolutionValues());
+        Vmath::Sadd(nvalues, timeShift, times, 1, times, 1);
+    }
     if (m_session->GetComm()->GetRank() == 0)
     {
         std::cout << "Restored time-integration history." << std::endl;
