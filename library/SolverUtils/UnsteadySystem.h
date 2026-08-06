@@ -162,6 +162,10 @@ protected:
 
     SOLVER_UTILS_EXPORT virtual bool v_PostIntegrate(int step);
 
+    /// Restore a checkpointed time-integration history after scheme setup.
+    /// Returns true when startup phases should be skipped.
+    SOLVER_UTILS_EXPORT virtual bool v_RestoreTimeIntegrationState();
+
     SOLVER_UTILS_EXPORT virtual bool v_RequireFwdTrans();
 
     SOLVER_UTILS_EXPORT virtual void v_SteadyStateResidual(

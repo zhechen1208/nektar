@@ -33,6 +33,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include <IncNavierStokesSolver/EquationSystems/PressDecompVCSFSI.h>
+#include <LibUtilities/BasicUtils/Filesystem.hpp>
 #include <LibUtilities/BasicUtils/Timer.h>
 #include <SolverUtils/Core/Misc.h>
 
@@ -40,6 +41,68 @@
 
 namespace Nektar
 {
+namespace
+{
+
+/**
+ * @brief Restore the rigid-solver previous viscous force from the restart
+ * file metadata (``RigidOldFvis0..5``), if present.
+ */
+bool RestoreRigidOldFvis(
+    const LibUtilities::SessionReaderSharedPtr &session,
+    Array<OneD, NekDouble> &aeroforce)
+{
+    if (!session->DefinesFunction("InitialConditions"))
+    {
+        return false;
+    }
+
+    std::string filename;
+    bool fromFile = false;
+    for (int i = 0; i < session->GetVariables().size(); ++i)
+    {
+        if (session->GetFunctionType("InitialConditions",
+                                     session->GetVariable(i)) ==
+            LibUtilities::eFunctionTypeFile)
+        {
+            filename = session->GetFunctionFilename(
+                "InitialConditions", session->GetVariable(i));
+            fromFile = true;
+            break;
+        }
+    }
+    if (!fromFile)
+    {
+        return false;
+    }
+
+    fs::path pfilename(filename);
+    if (fs::is_directory(pfilename))
+    {
+        filename = LibUtilities::PortablePath(pfilename / fs::path("Info.xml"));
+    }
+
+    LibUtilities::FieldIOSharedPtr fld =
+        LibUtilities::FieldIO::CreateForFile(session, filename);
+    LibUtilities::FieldMetaDataMap metadata;
+    fld->ImportFieldMetaData(filename, metadata);
+
+    bool restored = false;
+    for (int i = 0; i < 6; ++i)
+    {
+        std::string key = "RigidOldFvis" + std::to_string(i);
+        auto it        = metadata.find(key);
+        if (it != metadata.end())
+        {
+            aeroforce[6 + i] = std::stod(it->second);
+            restored         = true;
+        }
+    }
+    return restored;
+}
+
+} // namespace
+
 std::string PressDecompVCSFSI::className =
     SolverUtils::GetEquationSystemFactory().RegisterCreatorFunction(
         "PressDecompVCSFSI", PressDecompVCSFSI::create);
@@ -81,6 +144,8 @@ PressDecompVCSFSI::~PressDecompVCSFSI(void)
 void PressDecompVCSFSI::v_DoInitialise(bool dumpInitialConditions)
 {
     m_rigidSolver.SetInitialConditions(m_session, m_movingFrameData);
+    RestorePressureBoundaryRestartStateFromInitialConditions();
+    LoadTimeIntegrationRestartStateFromInitialConditions();
     VelocityCorrectionScheme::v_DoInitialise(dumpInitialConditions);
     std::set<int> dofs; // 0,1,2;3,4,5 six dofs
     GetMovableDoFs(dofs);
@@ -89,6 +154,7 @@ void PressDecompVCSFSI::v_DoInitialise(bool dumpInitialConditions)
     m_rigidSolver.SetNewmarkBetaSolver(m_addedMass);
     Array<OneD, NekDouble> aeroforce(12, 0.);
     InitialiseFilter(aeroforce);
+    RestoreRigidOldFvis(m_session, aeroforce);
     m_rigidSolver.SetOldFvis(aeroforce);
 }
 

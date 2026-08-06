@@ -134,4 +134,28 @@ void IncBoundaryConditions::Update(
     }
 }
 
+void IncBoundaryConditions::GetPressureBoundaryRestartData(
+    std::vector<NekDouble> &data) const
+{
+    data.clear();
+    for (const auto &bound : m_bounds)
+    {
+        bound.second->GetPressureBoundaryRestartData(data);
+    }
+}
+
+bool IncBoundaryConditions::SetPressureBoundaryRestartData(
+    const std::vector<NekDouble> &data)
+{
+    size_t offset = 0;
+    for (auto &bound : m_bounds)
+    {
+        if (!bound.second->SetPressureBoundaryRestartData(data, offset))
+        {
+            return false;
+        }
+    }
+    return offset == data.size();
+}
+
 } // namespace Nektar

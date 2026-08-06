@@ -150,6 +150,12 @@ public:
     void GenerateHOPBCMap(
         const LibUtilities::SessionReaderSharedPtr &pSsession);
 
+    void GetPressureBoundaryRestartData(
+        std::vector<NekDouble> &data) const;
+
+    bool SetPressureBoundaryRestartData(
+        const std::vector<NekDouble> &data);
+
     void UpdateRobinPrimCoeff(void);
 
     void AddDuDt(void);

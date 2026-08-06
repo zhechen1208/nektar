@@ -259,6 +259,8 @@ void UnsteadySystem::v_DoSolve()
 
     // Initialise time integration scheme.
     m_intScheme->InitializeScheme(m_timestep, fields, m_time, m_ode);
+    const bool restoredTimeIntegrationState =
+        v_RestoreTimeIntegrationState();
 
     // Initialise filters.
     for (auto &x : m_filters)
@@ -269,7 +271,9 @@ void UnsteadySystem::v_DoSolve()
     LibUtilities::Timer timer;
     bool doCheckTime        = false;
     int step                = m_initialStep;
-    int stepCounter         = 0;
+    int stepCounter = restoredTimeIntegrationState
+                          ? static_cast<int>(m_intScheme->GetNumIntegrationPhases()) - 1
+                          : 0;
     NekDouble intTime       = 0.0;
     NekDouble cpuTime       = 0.0;
     NekDouble cpuPrevious   = 0.0;
@@ -576,6 +580,11 @@ void UnsteadySystem::v_DoSolve()
     {
         AppendOutput1D();
     }
+}
+
+bool UnsteadySystem::v_RestoreTimeIntegrationState()
+{
+    return false;
 }
 
 void UnsteadySystem::v_PrintStatusInformation(const int step,

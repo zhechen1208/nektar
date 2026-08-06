@@ -58,6 +58,11 @@ public:
                 const Array<OneD, const Array<OneD, NekDouble>> &Adv,
                 std::map<std::string, NekDouble> &params);
 
+    void GetPressureBoundaryRestartData(std::vector<NekDouble> &data) const;
+
+    bool SetPressureBoundaryRestartData(
+        const std::vector<NekDouble> &data);
+
 protected:
     std::map<int, IncBaseConditionSharedPtr> m_bounds;
     static std::set<std::string> m_BndType;

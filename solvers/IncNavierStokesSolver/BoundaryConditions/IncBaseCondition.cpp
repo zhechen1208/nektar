@@ -82,6 +82,60 @@ void IncBaseCondition::v_Initialise(
     }
 }
 
+bool IncBaseCondition::GetPressureBoundaryRestartData(
+    std::vector<NekDouble> &data) const
+{
+    if (m_extrapArray.size() == 0)
+    {
+        return false;
+    }
+
+    data.push_back(std::min(m_numCalls, m_intSteps));
+    for (const auto &level : m_extrapArray)
+    {
+        for (const auto &component : level)
+        {
+            data.insert(data.end(), component.begin(), component.end());
+        }
+    }
+    return true;
+}
+
+bool IncBaseCondition::SetPressureBoundaryRestartData(
+    const std::vector<NekDouble> &data, size_t &offset)
+{
+    if (m_extrapArray.size() == 0)
+    {
+        return true;
+    }
+
+    size_t required = 1;
+    for (const auto &level : m_extrapArray)
+    {
+        for (const auto &component : level)
+        {
+            required += component.size();
+        }
+    }
+    if (offset + required > data.size())
+    {
+        return false;
+    }
+
+    m_numCalls = std::max(0, static_cast<int>(std::lround(data[offset++])));
+    for (auto &level : m_extrapArray)
+    {
+        for (auto &component : level)
+        {
+            std::copy(data.begin() + offset,
+                      data.begin() + offset + component.size(),
+                      component.begin());
+            offset += component.size();
+        }
+    }
+    return true;
+}
+
 void IncBaseCondition::SetNumPointsOnPlane0(int &npointsPlane0)
 {
     if (m_BndExp.begin()->second->GetExpType() == MultiRegions::e2DH1D)

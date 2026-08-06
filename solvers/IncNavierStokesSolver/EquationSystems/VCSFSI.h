@@ -78,6 +78,10 @@ protected:
 
     // Virtual functions
     void v_DoInitialise(bool dumpInitialConditions = true) override;
+    void v_ExtraFldOutput(
+        std::vector<Array<OneD, NekDouble>> &fieldcoeffs,
+        std::vector<std::string> &variables) override;
+    bool v_RestoreTimeIntegrationState() override;
     void v_SetUpPressureForcing(
         const Array<OneD, const Array<OneD, NekDouble>> &fields,
         Array<OneD, Array<OneD, NekDouble>> &Forcing,
@@ -85,6 +89,14 @@ protected:
 
     void v_SolveSolid(NekDouble time) override;
     void InitialiseFilter(Array<OneD, NekDouble> aeroforce);
+    void SavePressureBoundaryRestartState();
+    bool RestorePressureBoundaryRestartState(
+        const LibUtilities::FieldMetaDataMap &metadata);
+    void RestorePressureBoundaryRestartStateFromInitialConditions();
+    void SaveTimeIntegrationRestartState(
+        std::vector<Array<OneD, NekDouble>> &fieldcoeffs,
+        std::vector<std::string> &variables);
+    void LoadTimeIntegrationRestartStateFromInitialConditions();
     virtual void CorrectPressureAfterSolid();
     virtual void InitialisePressureDecomposition();
     virtual void UpdatePressureDecomposition(NekDouble time);
@@ -172,6 +184,9 @@ protected:
     Array<OneD, NekDouble> m_tipCapFvisPreForce;
     Array<OneD, NekDouble> m_tipCapFfrcForce;
     Array<OneD, NekDouble> m_tipCapFtotalForce;
+    LibUtilities::TripleArray m_timeIntegrationRestartData;
+    Array<OneD, NekDouble> m_timeIntegrationRestartTimes;
+    bool m_haveTimeIntegrationRestartState = false;
 };
 
 typedef std::shared_ptr<VCSFSI> VCSFSISharedPtr;

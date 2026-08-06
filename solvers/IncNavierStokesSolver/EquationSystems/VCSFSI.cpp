@@ -32,20 +32,318 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include <IncNavierStokesSolver/EquationSystems/VCSFSI.h>
+#include <LibUtilities/BasicUtils/CompressData.h>
 #include <LibUtilities/BasicUtils/Filesystem.hpp>
 #include <LibUtilities/BasicUtils/Timer.h>
 #include <LibUtilities/Foundations/ManagerAccess.h>
+#include <LibUtilities/TimeIntegration/TimeIntegrationSchemeGLM.h>
 #include <MultiRegions/ContField.h>
 #include <SolverUtils/Core/Misc.h>
 
 #include <algorithm>
 #include <boost/algorithm/string.hpp>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <vector>
 
 namespace Nektar
 {
+namespace
+{
+
+bool ImportRestartMetadata(
+    const LibUtilities::SessionReaderSharedPtr &session,
+    LibUtilities::FieldMetaDataMap &metadata)
+{
+    if (!session->DefinesFunction("InitialConditions"))
+    {
+        return false;
+    }
+
+    for (const auto &variable : session->GetVariables())
+    {
+        if (session->GetFunctionType("InitialConditions", variable) !=
+            LibUtilities::eFunctionTypeFile)
+        {
+            continue;
+        }
+
+        std::string filename = session->GetFunctionFilename(
+            "InitialConditions", variable);
+        fs::path pfilename(filename);
+        if (fs::is_directory(pfilename))
+        {
+            filename =
+                LibUtilities::PortablePath(pfilename / fs::path("Info.xml"));
+        }
+        auto fld = LibUtilities::FieldIO::CreateForFile(session, filename);
+        fld->ImportFieldMetaData(filename, metadata);
+        return metadata != LibUtilities::NullFieldMetaDataMap;
+    }
+    return false;
+}
+
+std::string EncodeIntegers(const Array<OneD, int> &values)
+{
+    std::ostringstream stream;
+    for (int i = 0; i < values.size(); ++i)
+    {
+        if (i)
+        {
+            stream << ' ';
+        }
+        stream << values[i];
+    }
+    return stream.str();
+}
+
+bool DecodeIntegers(const std::string &text, std::vector<int> &values)
+{
+    std::istringstream stream(text);
+    int value;
+    values.clear();
+    while (stream >> value)
+    {
+        values.push_back(value);
+    }
+    return stream.eof();
+}
+
+void StoreDistributedRestartData(
+    const std::string &key, const std::vector<NekDouble> &localData,
+    const LibUtilities::CommSharedPtr &comm,
+    LibUtilities::FieldMetaDataMap &metadata)
+{
+    Array<OneD, int> localSize(1, localData.size());
+    Array<OneD, int> sizes;
+    comm->AllGather(localSize, sizes);
+    Array<OneD, int> offsets(sizes.size(), 0);
+    int totalSize = 0;
+    for (int i = 0; i < sizes.size(); ++i)
+    {
+        offsets[i] = totalSize;
+        totalSize += sizes[i];
+    }
+
+    std::vector<NekDouble> sendData(localData);
+    std::vector<NekDouble> globalData(totalSize);
+    comm->AllGatherv(sendData, globalData, sizes, offsets);
+
+    std::ostringstream values;
+    values << std::setprecision(std::numeric_limits<NekDouble>::max_digits10);
+    for (int i = 0; i < globalData.size(); ++i)
+    {
+        if (i)
+        {
+            values << ' ';
+        }
+        values << globalData[i];
+    }
+    metadata[key + "CommSize"] = std::to_string(comm->GetSize());
+    metadata[key + "Sizes"]    = EncodeIntegers(sizes);
+    metadata[key + "Values"]   = values.str();
+}
+
+bool RestoreDistributedRestartData(
+    const std::string &key, std::vector<NekDouble> &localData,
+    const LibUtilities::CommSharedPtr &comm,
+    const LibUtilities::FieldMetaDataMap &metadata)
+{
+    auto commIt   = metadata.find(key + "CommSize");
+    auto sizesIt  = metadata.find(key + "Sizes");
+    auto valuesIt = metadata.find(key + "Values");
+    if (commIt == metadata.end() || sizesIt == metadata.end() ||
+        valuesIt == metadata.end())
+    {
+        return false;
+    }
+    if (std::stoi(commIt->second) != comm->GetSize())
+    {
+        return false;
+    }
+
+    std::vector<int> sizes;
+    if (!DecodeIntegers(sizesIt->second, sizes) ||
+        sizes.size() != comm->GetSize())
+    {
+        return false;
+    }
+
+    int totalSize = 0;
+    for (const auto size : sizes)
+    {
+        if (size < 0)
+        {
+            return false;
+        }
+        totalSize += size;
+    }
+
+    std::vector<NekDouble> globalData;
+    globalData.reserve(totalSize);
+    std::istringstream values(valuesIt->second);
+    NekDouble value;
+    while (values >> value)
+    {
+        globalData.push_back(value);
+    }
+    if (!values.eof() || globalData.size() != totalSize)
+    {
+        return false;
+    }
+
+    int offset = 0;
+    for (int rank = 0; rank < comm->GetRank(); ++rank)
+    {
+        offset += sizes[rank];
+    }
+    localData.assign(globalData.begin() + offset,
+                     globalData.begin() + offset + sizes[comm->GetRank()]);
+    return true;
+}
+
+void StoreDistributedRestartDataCompressed(
+    const std::string &key, const std::vector<NekDouble> &localData,
+    const LibUtilities::CommSharedPtr &comm,
+    LibUtilities::FieldMetaDataMap &metadata)
+{
+    Array<OneD, int> localSize(1, localData.size());
+    Array<OneD, int> sizes;
+    comm->AllGather(localSize, sizes);
+    Array<OneD, int> offsets(sizes.size(), 0);
+    int totalSize = 0;
+    for (int i = 0; i < sizes.size(); ++i)
+    {
+        offsets[i] = totalSize;
+        totalSize += sizes[i];
+    }
+
+    std::vector<NekDouble> sendData(localData);
+    std::vector<NekDouble> globalData(totalSize);
+    comm->AllGatherv(sendData, globalData, sizes, offsets);
+    std::string encoded;
+    ASSERTL0(Z_OK == LibUtilities::CompressData::ZlibEncodeToBase64Str(
+                         globalData, encoded),
+             "Unable to compress time-integration restart history.");
+
+    metadata[key + "CommSize"] = std::to_string(comm->GetSize());
+    metadata[key + "Sizes"]    = EncodeIntegers(sizes);
+    metadata[key + "Encoding"] = "ZlibBase64";
+    metadata[key + "Values"]   = encoded;
+}
+
+bool RestoreDistributedRestartDataCompressed(
+    const std::string &key, std::vector<NekDouble> &localData,
+    const LibUtilities::CommSharedPtr &comm,
+    const LibUtilities::FieldMetaDataMap &metadata)
+{
+    auto commIt     = metadata.find(key + "CommSize");
+    auto sizesIt    = metadata.find(key + "Sizes");
+    auto encodingIt = metadata.find(key + "Encoding");
+    auto valuesIt   = metadata.find(key + "Values");
+    if (commIt == metadata.end() || sizesIt == metadata.end() ||
+        encodingIt == metadata.end() || valuesIt == metadata.end() ||
+        encodingIt->second != "ZlibBase64" ||
+        std::stoi(commIt->second) != comm->GetSize())
+    {
+        return false;
+    }
+
+    std::vector<int> sizes;
+    if (!DecodeIntegers(sizesIt->second, sizes) ||
+        sizes.size() != comm->GetSize())
+    {
+        return false;
+    }
+    int totalSize = 0;
+    for (const auto size : sizes)
+    {
+        if (size < 0)
+        {
+            return false;
+        }
+        totalSize += size;
+    }
+
+    std::string encoded = valuesIt->second;
+    std::vector<NekDouble> globalData;
+    if (Z_OK != LibUtilities::CompressData::ZlibDecodeFromBase64Str(
+                    encoded, globalData) ||
+        globalData.size() != totalSize)
+    {
+        return false;
+    }
+
+    int offset = 0;
+    for (int rank = 0; rank < comm->GetRank(); ++rank)
+    {
+        offset += sizes[rank];
+    }
+    localData.assign(globalData.begin() + offset,
+                     globalData.begin() + offset + sizes[comm->GetRank()]);
+    return true;
+}
+
+/**
+ * @brief Restore the rigid-solver previous viscous force from the restart
+ * file metadata (``RigidOldFvis0..5``), if present.
+ */
+bool RestoreRigidOldFvis(
+    const LibUtilities::SessionReaderSharedPtr &session,
+    Array<OneD, NekDouble> &aeroforce)
+{
+    if (!session->DefinesFunction("InitialConditions"))
+    {
+        return false;
+    }
+
+    std::string filename;
+    bool fromFile = false;
+    for (int i = 0; i < session->GetVariables().size(); ++i)
+    {
+        if (session->GetFunctionType("InitialConditions",
+                                     session->GetVariable(i)) ==
+            LibUtilities::eFunctionTypeFile)
+        {
+            filename = session->GetFunctionFilename(
+                "InitialConditions", session->GetVariable(i));
+            fromFile = true;
+            break;
+        }
+    }
+    if (!fromFile)
+    {
+        return false;
+    }
+
+    fs::path pfilename(filename);
+    if (fs::is_directory(pfilename))
+    {
+        filename = LibUtilities::PortablePath(pfilename / fs::path("Info.xml"));
+    }
+
+    LibUtilities::FieldIOSharedPtr fld =
+        LibUtilities::FieldIO::CreateForFile(session, filename);
+    LibUtilities::FieldMetaDataMap metadata;
+    fld->ImportFieldMetaData(filename, metadata);
+
+    bool restored = false;
+    for (int i = 0; i < 6; ++i)
+    {
+        std::string key = "RigidOldFvis" + std::to_string(i);
+        auto it        = metadata.find(key);
+        if (it != metadata.end())
+        {
+            aeroforce[6 + i] = std::stod(it->second);
+            restored         = true;
+        }
+    }
+    return restored;
+}
+
+} // namespace
+
 namespace
 {
 // Evaluate dF/ds on internal spanwise Gauss sections after integrating the
@@ -220,12 +518,366 @@ VCSFSI::~VCSFSI(void)
 void VCSFSI::v_DoInitialise(bool dumpInitialConditions)
 {
     m_rigidSolver.SetInitialConditions(m_session, m_movingFrameData);
+    RestorePressureBoundaryRestartStateFromInitialConditions();
+    LoadTimeIntegrationRestartStateFromInitialConditions();
     VelocityCorrectionScheme::v_DoInitialise(dumpInitialConditions);
     Array<OneD, NekDouble> AddedMass;
     m_rigidSolver.SetNewmarkBetaSolver(AddedMass);
     Array<OneD, NekDouble> aeroforce(12, 0.);
     InitialiseFilter(aeroforce);
+    RestoreRigidOldFvis(m_session, aeroforce);
     m_rigidSolver.SetOldFvis(aeroforce);
+}
+
+void VCSFSI::v_ExtraFldOutput(
+    std::vector<Array<OneD, NekDouble>> &fieldcoeffs,
+    std::vector<std::string> &variables)
+{
+    VelocityCorrectionScheme::v_ExtraFldOutput(fieldcoeffs, variables);
+    SavePressureBoundaryRestartState();
+    SaveTimeIntegrationRestartState(fieldcoeffs, variables);
+}
+
+void VCSFSI::SaveTimeIntegrationRestartState(
+    std::vector<Array<OneD, NekDouble>> &fieldcoeffs,
+    std::vector<std::string> &variables)
+{
+    if (!m_intScheme)
+    {
+        return;
+    }
+
+    auto glm = std::dynamic_pointer_cast<LibUtilities::TimeIntegrationSchemeGLM>(
+        m_intScheme);
+    if (!glm)
+    {
+        return;
+    }
+    const auto &history = glm->GetSolutionVector();
+    const auto &times   = glm->GetTimeVector();
+    if (history.size() < 2 || history[0].size() != m_intVariables.size())
+    {
+        return;
+    }
+
+    m_fieldMetaDataMap["TimeIntegrationHistorySize"] =
+        std::to_string(history.size());
+    m_fieldMetaDataMap["TimeIntegrationHistoryVariables"] =
+        std::to_string(history[0].size());
+    m_fieldMetaDataMap["TimeIntegrationHistoryFormat"] = "HybridV1";
+    std::ostringstream timeValues;
+    timeValues << std::setprecision(std::numeric_limits<NekDouble>::max_digits10);
+    for (int i = 0; i < times.size(); ++i)
+    {
+        if (i)
+        {
+            timeValues << ' ';
+        }
+        timeValues << times[i];
+    }
+    m_fieldMetaDataMap["TimeIntegrationHistoryTimes"] = timeValues.str();
+
+    // The previous solution belongs to the normal spectral-element space, so
+    // store it as ordinary checkpoint fields. Explicit RHS histories do not
+    // generally belong to this space and must remain physical-point data.
+    for (int v = 0; v < history[1].size(); ++v)
+    {
+        const int fieldId = m_intVariables[v];
+        Array<OneD, NekDouble> coeffs(m_fields[fieldId]->GetNcoeffs());
+        m_fields[fieldId]->FwdTransLocalElmt(history[1][v], coeffs);
+        fieldcoeffs.push_back(coeffs);
+        variables.push_back("TimeIntegrationPreviousSolution_" +
+                            std::to_string(v));
+    }
+
+    std::vector<NekDouble> restartData;
+    for (int h = 2; h < history.size(); ++h)
+    {
+        for (int v = 0; v < history[h].size(); ++v)
+        {
+            restartData.insert(restartData.end(), history[h][v].begin(),
+                               history[h][v].end());
+        }
+    }
+    StoreDistributedRestartDataCompressed(
+        "TimeIntegrationExplicitHistory", restartData,
+        m_session->GetComm(), m_fieldMetaDataMap);
+}
+
+void VCSFSI::LoadTimeIntegrationRestartStateFromInitialConditions()
+{
+    auto incompatible = [this](const std::string &reason) {
+        if (m_session->GetComm()->GetRank() == 0)
+        {
+            std::cout << "Time-integration restart history not loaded: "
+                      << reason << std::endl;
+        }
+    };
+    LibUtilities::FieldMetaDataMap metadata;
+    if (!ImportRestartMetadata(m_session, metadata))
+    {
+        return;
+    }
+    auto sizeIt   = metadata.find("TimeIntegrationHistorySize");
+    auto nvarIt   = metadata.find("TimeIntegrationHistoryVariables");
+    auto timesIt  = metadata.find("TimeIntegrationHistoryTimes");
+    auto formatIt = metadata.find("TimeIntegrationHistoryFormat");
+    if (sizeIt == metadata.end() || nvarIt == metadata.end() ||
+        timesIt == metadata.end())
+    {
+        return;
+    }
+
+    const int historySize = std::stoi(sizeIt->second);
+    const int nvariables  = std::stoi(nvarIt->second);
+    if (historySize < 2 || nvariables != m_intVariables.size())
+    {
+        incompatible("history dimensions differ from the current scheme");
+        return;
+    }
+
+    m_timeIntegrationRestartTimes = Array<OneD, NekDouble>(historySize);
+    std::istringstream timeValues(timesIt->second);
+    for (int i = 0; i < historySize; ++i)
+    {
+        if (!(timeValues >> m_timeIntegrationRestartTimes[i]))
+        {
+            incompatible("invalid time vector");
+            m_timeIntegrationRestartTimes = Array<OneD, NekDouble>();
+            return;
+        }
+    }
+
+    const bool hybrid = formatIt != metadata.end() &&
+                        formatIt->second == "HybridV1";
+    std::vector<NekDouble> restartData;
+    const bool restoredData =
+        hybrid ? RestoreDistributedRestartDataCompressed(
+                     "TimeIntegrationExplicitHistory", restartData,
+                     m_session->GetComm(), metadata)
+               : RestoreDistributedRestartData(
+                     "TimeIntegrationHistory", restartData,
+                     m_session->GetComm(), metadata);
+    if (!restoredData)
+    {
+        incompatible("missing or incompatible physical history data");
+        return;
+    }
+    size_t expectedSize = 0;
+    for (int v = 0; v < nvariables; ++v)
+    {
+        expectedSize += m_fields[m_intVariables[v]]->GetTotPoints();
+    }
+    expectedSize *= hybrid ? historySize - 2 : historySize - 1;
+    if (restartData.size() != expectedSize)
+    {
+        incompatible("physical history dimensions differ from this mesh");
+        return;
+    }
+
+    m_timeIntegrationRestartData = LibUtilities::TripleArray(historySize);
+    size_t offset = 0;
+    int firstPhysicalHistory = 1;
+    if (hybrid)
+    {
+        std::string filename;
+        for (const auto &variable : m_session->GetVariables())
+        {
+            if (m_session->GetFunctionType("InitialConditions", variable) ==
+                LibUtilities::eFunctionTypeFile)
+            {
+                filename = m_session->GetFunctionFilename(
+                    "InitialConditions", variable);
+                break;
+            }
+        }
+        if (filename.empty())
+        {
+            incompatible("no file initial condition found");
+            return;
+        }
+        fs::path path(filename);
+        if (fs::is_directory(path))
+        {
+            filename =
+                LibUtilities::PortablePath(path / fs::path("Info.xml"));
+        }
+        std::vector<LibUtilities::FieldDefinitionsSharedPtr> fieldDef;
+        std::vector<std::vector<NekDouble>> fieldData;
+        auto fld = LibUtilities::FieldIO::CreateForFile(m_session, filename);
+        fld->Import(filename, fieldDef, fieldData);
+
+        m_timeIntegrationRestartData[1] =
+            LibUtilities::DoubleArray(nvariables);
+        for (int v = 0; v < nvariables; ++v)
+        {
+            const int fieldId = m_intVariables[v];
+            std::string name = "TimeIntegrationPreviousSolution_" +
+                               std::to_string(v);
+            Array<OneD, NekDouble> coeffs(m_fields[fieldId]->GetNcoeffs(), 0.0);
+            bool found = false;
+            for (int i = 0; i < fieldDef.size(); ++i)
+            {
+                if (std::find(fieldDef[i]->m_fields.begin(),
+                              fieldDef[i]->m_fields.end(), name) !=
+                    fieldDef[i]->m_fields.end())
+                {
+                    m_fields[fieldId]->ExtractDataToCoeffs(
+                        fieldDef[i], fieldData[i], name, coeffs);
+                    found = true;
+                }
+            }
+            if (!found)
+            {
+                incompatible("missing field " + name);
+                return;
+            }
+            m_timeIntegrationRestartData[1][v] =
+                Array<OneD, NekDouble>(m_fields[fieldId]->GetTotPoints());
+            m_fields[fieldId]->BwdTrans(
+                coeffs, m_timeIntegrationRestartData[1][v]);
+        }
+        firstPhysicalHistory = 2;
+    }
+
+    for (int h = firstPhysicalHistory; h < historySize; ++h)
+    {
+        m_timeIntegrationRestartData[h] = LibUtilities::DoubleArray(nvariables);
+        for (int v = 0; v < nvariables; ++v)
+        {
+            const int fieldId = m_intVariables[v];
+            const int npoints = m_fields[fieldId]->GetTotPoints();
+            m_timeIntegrationRestartData[h][v] =
+                Array<OneD, NekDouble>(npoints);
+            std::copy(restartData.begin() + offset,
+                      restartData.begin() + offset + npoints,
+                      m_timeIntegrationRestartData[h][v].begin());
+            offset += npoints;
+        }
+    }
+    m_haveTimeIntegrationRestartState = true;
+    if (m_session->GetComm()->GetRank() == 0)
+    {
+        std::cout << "Loaded time-integration restart history."
+                  << std::endl;
+    }
+}
+
+bool VCSFSI::v_RestoreTimeIntegrationState()
+{
+    if (!m_haveTimeIntegrationRestartState || !m_intScheme)
+    {
+        return false;
+    }
+    auto glm = std::dynamic_pointer_cast<LibUtilities::TimeIntegrationSchemeGLM>(
+        m_intScheme);
+    if (!glm)
+    {
+        return false;
+    }
+    auto &history = glm->UpdateSolutionVector();
+    auto &times   = glm->UpdateTimeVector();
+    if (history.size() != m_timeIntegrationRestartData.size() ||
+        times.size() != m_timeIntegrationRestartTimes.size())
+    {
+        return false;
+    }
+    for (int h = 1; h < history.size(); ++h)
+    {
+        if (history[h].size() != m_timeIntegrationRestartData[h].size())
+        {
+            return false;
+        }
+        for (int v = 0; v < history[h].size(); ++v)
+        {
+            if (history[h][v].size() !=
+                m_timeIntegrationRestartData[h][v].size())
+            {
+                return false;
+            }
+            Vmath::Vcopy(history[h][v].size(),
+                         m_timeIntegrationRestartData[h][v], 1,
+                         history[h][v], 1);
+        }
+    }
+    Vmath::Vcopy(times.size(), m_timeIntegrationRestartTimes, 1, times, 1);
+    if (m_session->GetComm()->GetRank() == 0)
+    {
+        std::cout << "Restored time-integration history." << std::endl;
+    }
+    m_haveTimeIntegrationRestartState = false;
+    return true;
+}
+
+void VCSFSI::SavePressureBoundaryRestartState()
+{
+    std::vector<NekDouble> data;
+    m_extrapolation->GetPressureBoundaryRestartData(data);
+    StoreDistributedRestartData("PressureHBC", data, m_session->GetComm(),
+                                m_fieldMetaDataMap);
+
+    m_IncNavierStokesBCs->GetPressureBoundaryRestartData(data);
+    StoreDistributedRestartData("IncPressureBC", data,
+                                m_session->GetComm(), m_fieldMetaDataMap);
+}
+
+bool VCSFSI::RestorePressureBoundaryRestartState(
+    const LibUtilities::FieldMetaDataMap &metadata)
+{
+    std::vector<NekDouble> extrapolateData, boundaryData;
+    const bool haveExtrapolate = RestoreDistributedRestartData(
+        "PressureHBC", extrapolateData, m_session->GetComm(), metadata);
+    const bool haveBoundary = RestoreDistributedRestartData(
+        "IncPressureBC", boundaryData, m_session->GetComm(), metadata);
+    if (!haveExtrapolate && !haveBoundary)
+    {
+        return false;
+    }
+
+    std::vector<NekDouble> expectedExtrapolate, expectedBoundary;
+    m_extrapolation->GetPressureBoundaryRestartData(expectedExtrapolate);
+    m_IncNavierStokesBCs->GetPressureBoundaryRestartData(expectedBoundary);
+    if (!haveExtrapolate || !haveBoundary ||
+        extrapolateData.size() != expectedExtrapolate.size() ||
+        boundaryData.size() != expectedBoundary.size())
+    {
+        if (m_session->GetComm()->GetRank() == 0)
+        {
+            std::cout << "Pressure-boundary restart history is incompatible; "
+                         "using startup extrapolation."
+                      << std::endl;
+        }
+        return false;
+    }
+
+    const bool extrapolateOk =
+        m_extrapolation->SetPressureBoundaryRestartData(extrapolateData);
+    const bool boundaryOk =
+        m_IncNavierStokesBCs->SetPressureBoundaryRestartData(boundaryData);
+    if (m_session->GetComm()->GetRank() == 0)
+    {
+        if (extrapolateOk && boundaryOk)
+        {
+            std::cout << "Restored pressure-boundary extrapolation history."
+                      << std::endl;
+        }
+        else
+        {
+            std::cout << "Pressure-boundary restart history is incompatible; "
+                         "using startup extrapolation."
+                      << std::endl;
+        }
+    }
+    return extrapolateOk && boundaryOk;
+}
+
+void VCSFSI::RestorePressureBoundaryRestartStateFromInitialConditions()
+{
+    LibUtilities::FieldMetaDataMap restartMetadata;
+    if (ImportRestartMetadata(m_session, restartMetadata))
+    {
+        RestorePressureBoundaryRestartState(restartMetadata);
+    }
 }
 
 void VCSFSI::InitialisePressureDecomposition()
@@ -1983,6 +2635,17 @@ void VCSFSI::v_SolveSolid(NekDouble time)
 
     // 0-5 pressure force at n+1; 6-11 viscous force at n
     m_rigidSolver.UpdateFrameVelocity(aeroforce, time, m_movingFrameData);
+    {
+        Array<OneD, NekDouble> oldFvis(12, 0.0);
+        m_rigidSolver.GetOldFvis(oldFvis);
+        for (int i = 0; i < 6; ++i)
+        {
+            m_fieldMetaDataMap["RigidOldFvis" + std::to_string(i)] =
+                boost::lexical_cast<std::string>(oldFvis[6 + i]);
+        }
+        m_fieldMetaDataMap["RigidSolverTime"] =
+            boost::lexical_cast<std::string>(time);
+    }
     // update velocity boundary condition
     UpdateVelocityBCs(time);
 

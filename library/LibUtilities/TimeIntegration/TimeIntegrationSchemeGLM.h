@@ -49,6 +49,16 @@ namespace Nektar::LibUtilities
 class TimeIntegrationSchemeGLM : public TimeIntegrationScheme
 {
 public:
+    LUE const Array<OneD, const NekDouble> &GetTimeVector() const
+    {
+        return m_solVector->GetTimeVector();
+    }
+
+    LUE Array<OneD, NekDouble> &UpdateTimeVector()
+    {
+        return m_solVector->UpdateTimeVector();
+    }
+
     LUE void InitializeSecondaryData(TimeIntegrationAlgorithmGLM *phase,
                                      NekDouble deltaT) const
     {

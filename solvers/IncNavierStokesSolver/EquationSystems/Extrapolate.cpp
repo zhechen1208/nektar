@@ -821,6 +821,50 @@ void Extrapolate::GenerateHOPBCMap(
     }
 }
 
+void Extrapolate::GetPressureBoundaryRestartData(
+    std::vector<NekDouble> &data) const
+{
+    data.clear();
+    data.reserve(1 + m_intSteps * m_numHBCDof +
+                 (m_intSteps + 1) * m_numHBCDof);
+    data.push_back(std::min(m_pressureCalls, m_intSteps + 2));
+    for (const auto &level : m_pressureHBCs)
+    {
+        data.insert(data.end(), level.begin(), level.end());
+    }
+    for (const auto &level : m_iprodnormvel)
+    {
+        data.insert(data.end(), level.begin(), level.end());
+    }
+}
+
+bool Extrapolate::SetPressureBoundaryRestartData(
+    const std::vector<NekDouble> &data)
+{
+    const size_t expected =
+        1 + m_intSteps * m_numHBCDof + (m_intSteps + 1) * m_numHBCDof;
+    if (data.size() != expected)
+    {
+        return false;
+    }
+
+    size_t offset   = 0;
+    m_pressureCalls = std::max(0, static_cast<int>(std::lround(data[offset++])));
+    for (auto &level : m_pressureHBCs)
+    {
+        std::copy(data.begin() + offset,
+                  data.begin() + offset + level.size(), level.begin());
+        offset += level.size();
+    }
+    for (auto &level : m_iprodnormvel)
+    {
+        std::copy(data.begin() + offset,
+                  data.begin() + offset + level.size(), level.begin());
+        offset += level.size();
+    }
+    return true;
+}
+
 void Extrapolate::UpdateRobinPrimCoeff(void)
 {
 

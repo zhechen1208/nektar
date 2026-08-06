@@ -79,6 +79,11 @@ public:
         v_Update(fields, Adv, params);
     }
 
+    bool GetPressureBoundaryRestartData(std::vector<NekDouble> &data) const;
+
+    bool SetPressureBoundaryRestartData(
+        const std::vector<NekDouble> &data, size_t &offset);
+
 protected:
     IncBaseCondition(const LibUtilities::SessionReaderSharedPtr pSession,
                      Array<OneD, MultiRegions::ExpListSharedPtr> pFields,

@@ -124,6 +124,7 @@ public:
         return m_hasFreeMotion;
     };
     void SetOldFvis(Array<OneD, NekDouble> force);
+    void GetOldFvis(Array<OneD, NekDouble> &force);
 
 protected:
     void LoadParameters(const LibUtilities::SessionReaderSharedPtr session,

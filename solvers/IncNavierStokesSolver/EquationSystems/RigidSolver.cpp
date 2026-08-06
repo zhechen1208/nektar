@@ -527,6 +527,14 @@ void RigidSolver::SetOldFvis(Array<OneD, NekDouble> force)
     }
 }
 
+void RigidSolver::GetOldFvis(Array<OneD, NekDouble> &force)
+{
+    for (int i = 0; i < 6; ++i)
+    {
+        force[6 + i] = m_oldFvis[i];
+    }
+}
+
 /**
  * @brief Updates the forcing array with the current required forcing.
  * @param pFields
